@@ -1,0 +1,32 @@
+[project]
+name = "memkit"
+version = "0.1.0"
+description = "Local memory service for agents: SQLite truth, Qdrant index, local embeddings, LLM judge"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "qdrant-client>=1.12",
+    "sentence-transformers>=3.3",
+    "anthropic>=0.40",
+    "google-genai>=1.0",
+    "pyyaml>=6.0",
+    "httpx>=0.28",
+]
+
+[project.scripts]
+memkit = "memkit.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/memkit"]
+artifacts = ["src/memkit/web_dist"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"

@@ -1,0 +1,14 @@
+.env
+data/
+*.db
+*.db-wal
+*.db-shm
+__pycache__/
+*.py[cod]
+.venv/
+.ruff_cache/
+.pytest_cache/
+.DS_Store
+web/node_modules/
+web/dist/
+src/memkit/web_dist/

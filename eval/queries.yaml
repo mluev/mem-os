@@ -1,0 +1,157 @@
+# Retrieval eval. Grounded in the imported Claude Code corpus (303 indexable
+# user turns, 15 projects, 2026-05 to 2026-07).
+#
+# Assertions are regexes matched against returned text, never memory ids: the
+# reextract endpoint mints new ids by design, so an id-pinned file invalidates
+# itself the first time the thing it exists to measure actually runs.
+#
+# Stage 1 searches raw turns, so patterns match the user's own words. When the
+# stage-2 extractor lands, these same queries should be satisfied by shorter,
+# self-contained facts instead -- the query set stays, the corpus under it
+# improves. That is the comparison the whole project rests on.
+
+# --- identity and contact -------------------------------------------------
+- id: github-username
+  query: what is my github username
+  expect_any: ["mluev"]
+  # An identity question has no business surfacing module work. These are the
+  # precision guards: with 303 documents and k=10, recall saturates, so what
+  # actually discriminates is whether unrelated content crowds the list.
+  reject: ["enbek", "certificate"]
+
+- id: email-address
+  query: what email address do i use
+  expect_any: ["mlutfullaevv@gmail\\.com", "gmail"]
+  reject: ["eslint", "seeder"]
+
+# --- stack and tooling ----------------------------------------------------
+- id: vue-components
+  query: which frontend framework do my components use
+  expect_any: ["\\.vue", "vue"]
+
+- id: typescript-files
+  query: typescript source files and constants
+  expect_any: ["\\.ts\\b", "typescript"]
+
+- id: eslint-problem
+  query: linting errors blocking my commit
+  expect_any: ["eslint", "lint"]
+
+- id: pnpm-version
+  query: package manager version mismatch
+  expect_any: ["pnpm", "npm"]
+
+# --- projects and modules -------------------------------------------------
+- id: lms-module
+  query: the learning management module
+  expect_any: ["lms", "course"]
+
+- id: enbek-module
+  query: enbek module work
+  expect_any: ["enbek"]
+  reject: ["portfolio", "built by hand"]
+
+- id: certificates-page
+  query: certificates page layout
+  expect_any: ["certificate"]
+
+- id: analytics-page
+  query: the analytics page looks bad
+  expect_any: ["analytics"]
+
+- id: chat-module
+  query: problems with the chat in the dashboard
+  expect_any: ["chat"]
+
+- id: schedule-modal
+  query: the schedule modal needs work
+  expect_any: ["schedule", "modal"]
+
+- id: process-page
+  query: process page buttons like copy link and finish
+  expect_any: ["process", "copy link"]
+
+# --- design and UI feedback ----------------------------------------------
+- id: design-system
+  query: follow our design system
+  expect_any: ["design"]
+
+- id: elements-too-big
+  query: elements are too big and not adaptive
+  expect_any: ["too big", "adapt", "big element"]
+
+- id: header-too-large
+  query: the header is too big, remove the title
+  expect_any: ["header"]
+
+- id: search-tabs-row
+  query: put search and tabs in one row
+  expect_any: ["tabs", "search"]
+
+- id: validation-errors
+  query: validation error messages should be friendlier
+  expect_any: ["validation", "error"]
+
+# --- portfolio ------------------------------------------------------------
+- id: portfolio-photo
+  query: add my profile photo to the portfolio
+  expect_any: ["photo", "portfolio", "profile"]
+  reject: ["enbek", "lms"]
+
+- id: portfolio-text
+  query: remove the built by hand text from the bottom
+  expect_any: ["built by hand", "bottom"]
+
+# --- testing and tooling --------------------------------------------------
+- id: e2e-testing
+  query: test the whole app end to end
+  expect_any: ["e2e", "test"]
+
+- id: seeder-tenant
+  query: run the seeder and prepare a tenant
+  expect_any: ["seeder", "tenant"]
+
+- id: agents-not-finishing
+  query: background agents are not finishing
+  expect_any: ["agent", "finish"]
+
+# --- git workflow ---------------------------------------------------------
+- id: ready-to-commit
+  query: clean up the code and make it ready to commit
+  expect_any: ["commit"]
+
+- id: code-review-comments
+  query: too much commenting in the source
+  expect_any: ["comment"]
+
+# --- cross-lingual: BGE-M3 is multilingual, which is why it was chosen ----
+# An English query must reach Russian content and the reverse. If these fail,
+# the model choice is not earning its cost.
+- id: xling-signing-buttons
+  query: unify the buttons that trigger signing and sending
+  expect_any: ["подписан", "кнопк"]
+
+- id: xling-brief-summary
+  query: summarise briefly what you did
+  expect_any: ["коротко", "двух словах", "brief", "summar"]
+
+- id: ru-query-finds-content
+  query: что нужно поправить в интерфейсе
+  expect_any: ["[а-яА-Я]{5,}"]
+
+- id: ru-substitution
+  query: значения не всегда подставляются
+  expect_any: ["подставля", "не всегда"]
+
+# --- scope filtering: same query, one project ----------------------------
+# scope_key/project filtering is stage 3 for facts, but the raw path already
+# supports it, so the plumbing is measured from stage 1.
+- id: project-scoped-portfolio
+  query: profile photo and layout
+  project: portfolio
+  expect_any: ["photo", "profile", "portfolio"]
+
+- id: project-scoped-frontend
+  query: module refactor and cleanup
+  project: frontend-second
+  expect_any: ["refactor", "clean", "module"]

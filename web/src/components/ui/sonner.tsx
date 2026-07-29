@@ -1,0 +1,12 @@
+import { Toaster as Sonner, type ToasterProps } from "sonner";
+
+export function Toaster(props: ToasterProps) {
+  return (
+    <Sonner
+      theme="system"
+      className="shadcn-toaster"
+      toastOptions={{ classNames: { toast: "shadcn-toast" } }}
+      {...props}
+    />
+  );
+}
