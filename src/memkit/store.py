@@ -13,10 +13,14 @@ from qdrant_client import QdrantClient
 from . import vectors
 from .db import ensure_owner, ensure_session, utcnow
 from .embed import Embedder
+from .importers.claude_code import MIN_INDEX_CHARS
 
 logger = logging.getLogger(__name__)
 
-MIN_INDEX_CHARS = 25
+# Re-exported: the importer decides indexability at classification time and the
+# raw indexer and reindex must apply the identical floor, or reindex silently
+# changes the size of the `raw` collection.
+__all__ = ["MIN_INDEX_CHARS"]
 
 
 def add_message(
@@ -221,14 +225,16 @@ def _age_days(iso: str, now: datetime) -> int | None:
     return max(0, (now - when).days)
 
 
-def record_retrieval(
-    conn: sqlite3.Connection, memory_ids: list[str], *, commit: bool = True
-) -> None:
+def record_retrieval(conn: sqlite3.Connection, memory_ids: list[str]) -> None:
     """Feedback loop from docs/05-retrieval.md.
 
     Two uses: the nightly pass can demote facts that have not surfaced in 90
     days, and a fact that is never retrieved at all is usually an extractor
     mistake worth reading by hand.
+
+    Does not commit. It used to, unconditionally, which meant a search landing
+    mid-write committed whatever that other unit of work had written so far.
+    The caller owns the transaction boundary.
     """
     if not memory_ids:
         return
@@ -239,8 +245,6 @@ def record_retrieval(
             WHERE id = ?""",
         [(now, mid) for mid in memory_ids],
     )
-    if commit:
-        conn.commit()
 
 
 def add_memory(

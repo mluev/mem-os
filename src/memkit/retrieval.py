@@ -110,6 +110,10 @@ class Explain:
     dropped_dedup: list[dict[str, Any]]
     dropped_budget: list[dict[str, Any]]
     embed_ms: float
+    # The threshold this run actually used. Reporting the module constant instead
+    # meant the diagnostics said 0.90 while MEMKIT_DEDUP_COSINE was driving the
+    # decisions -- exactly backwards for a panel whose job is explaining them.
+    dedup_cosine: float = DEDUP_COSINE
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -125,7 +129,7 @@ class Explain:
                 "scope": W_SCOPE,
             },
             "tau": TAU,
-            "dedup_cosine": DEDUP_COSINE,
+            "dedup_cosine": self.dedup_cosine,
             "embed_ms": round(self.embed_ms, 1),
         }
 
@@ -168,7 +172,16 @@ def scope_boost(
     if scope == "project":
         return 0.5 if (scope_key and scope_key == project) else None
     if scope == "task":
-        return 1.0 if (scope_key and scope_key == task) else None
+        # An unkeyed task fact is the owner's current short-lived work. Nothing in
+        # this system issues task ids for the extractor to key against, so
+        # requiring a key here meant every extracted task fact was written and
+        # then never readable. Containment is the τ=2 day decay, not the filter:
+        # such a fact is worthless within a week regardless.
+        if scope_key is None:
+            return 1.0
+        return 1.0 if scope_key == task else None
+    # Anything else is a scope the schema should have rejected. Treat it as
+    # background rather than crashing; Op.parse is what stops it being written.
     return 0.0
 
 
@@ -189,12 +202,23 @@ def scope_filter(
     """Qdrant filter that admits user-scope facts plus only the matching keys.
 
     Structured as: owner and status must match, AND at least one of
-    (scope=user) / (scope=project AND key=current) / (scope=task AND key=current).
-    Without the should-clause a project fact from another repo reaches the
-    reranker and pushes a relevant fact out of the pool.
+    (scope=user) / (scope=task with no key) / (scope=project AND key=current) /
+    (scope=task AND key=current). Without the should-clause a project fact from
+    another repo reaches the reranker and pushes a relevant fact out of the pool.
+
+    The unkeyed-task branch is unconditional, mirroring `scope_boost`: it is the
+    difference between an extracted task fact being readable and being write-only.
     """
     should: list[models.Filter] = [
-        models.Filter(must=[vectors.keyword("scope", "user")])
+        models.Filter(must=[vectors.keyword("scope", "user")]),
+        models.Filter(
+            must=[
+                vectors.keyword("scope", "task"),
+                models.IsEmptyCondition(
+                    is_empty=models.PayloadField(key="scope_key")
+                ),
+            ]
+        ),
     ]
     if project:
         should.append(
@@ -366,6 +390,7 @@ def search(
     project: str | None = None,
     task: str | None = None,
     types: list[str] | None = None,
+    scopes: list[str] | None = None,
     limit: int = 30,
     budget_tokens: int = 800,
     overfetch: int = OVERFETCH,
@@ -380,6 +405,7 @@ def search(
         project=project,
         task=task,
         types=types,
+        scopes=scopes,
         limit=limit,
         budget_tokens=budget_tokens,
         overfetch=overfetch,
@@ -397,6 +423,7 @@ def explain(
     project: str | None = None,
     task: str | None = None,
     types: list[str] | None = None,
+    scopes: list[str] | None = None,
     limit: int = 30,
     budget_tokens: int = 800,
     overfetch: int = OVERFETCH,
@@ -409,6 +436,12 @@ def explain(
     flt = scope_filter(owner_id=owner_id, project=project, task=task)
     if types:
         flt.must.append(vectors.keyword("type", types))
+    # Narrows on top of the scope should-clause rather than replacing it: asking
+    # for scopes=["project"] still only admits the *current* project's facts.
+    # docs/03-api.md has always documented this filter; it used to be accepted by
+    # the API model and then silently dropped.
+    if scopes:
+        flt.must.append(vectors.keyword("scope", scopes))
 
     started = time.perf_counter()
     vec = embedder.encode_one(query)
@@ -433,6 +466,8 @@ def explain(
         ]
         if types:
             diagnostic_must.append(vectors.keyword("type", types))
+        if scopes:
+            diagnostic_must.append(vectors.keyword("scope", scopes))
         diagnostic_hits = client.query_points(
             collection_name=vectors.MEMORIES,
             query=vec,
@@ -481,4 +516,5 @@ def explain(
         dropped_dedup=dropped_dedup,
         dropped_budget=dropped_budget,
         embed_ms=embed_ms,
+        dedup_cosine=threshold,
     )

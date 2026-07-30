@@ -61,6 +61,11 @@ EXCLUDED_SOURCES = {"system"}
 # Turns shorter than this are real but carry no memory value ("continue",
 # "go on", "hello"). They are still stored in SQLite so that extraction windows
 # read faithfully, but they are not worth indexing on their own.
+#
+# Defined here rather than in store.py because this is where "is this turn worth
+# indexing" is decided, and because this module has no heavy imports -- store
+# re-exports it so the importer, the raw indexer and reindex cannot drift apart.
+# They were separate copies of 25 until one of them would eventually have moved.
 MIN_INDEX_CHARS = 25
 
 # A turn this long is a pasted or injected document, not something anybody

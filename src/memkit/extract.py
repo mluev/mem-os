@@ -28,6 +28,14 @@ CANDIDATE_COUNT = 8
 # "it" and "that project" still resolve after a fast-forward.
 CONTEXT_LEAD = 3
 
+# How many failed judge calls a single window gets before it is abandoned.
+# A failed call leaves its messages unprocessed on purpose -- the window should be
+# retried once the transient cause clears. But a *systematic* failure (a schema
+# the model keeps violating, a revoked key) is not transient, and without a cap
+# every new message in the session re-pays for the same window until the monthly
+# ceiling stops it. Three attempts distinguishes a blip from a wall.
+MAX_WINDOW_ATTEMPTS = 3
+
 
 @dataclass
 class ExtractionOutcome:
@@ -36,6 +44,7 @@ class ExtractionOutcome:
     deleted: int = 0
     skipped: int = 0
     fast_forwarded: int = 0
+    abandoned: int = 0
     cost_usd: float = 0.0
     input_tokens: int = 0
     output_tokens: int = 0
@@ -53,6 +62,7 @@ class ExtractionOutcome:
             "deleted": self.deleted,
             "skipped": self.skipped,
             "fast_forwarded": self.fast_forwarded,
+            "abandoned": self.abandoned,
             "cost_usd": round(self.cost_usd, 6),
             "input_tokens": self.input_tokens,
             "output_tokens": self.output_tokens,
@@ -127,12 +137,64 @@ def fast_forward_to_user_turn(conn: sqlite3.Connection, session_id: str) -> int:
     return cur.rowcount
 
 
+def failed_attempts(conn: sqlite3.Connection, message_ids: list[int]) -> int:
+    """Logged judge failures on this exact window.
+
+    Keyed on the oldest message: while a window stays unprocessed that message is
+    what identifies it, because the extractor always takes the oldest unprocessed
+    messages in order. Budget refusals are not counted -- `judge.extract` returns
+    before logging a run in that case, which is what makes them retryable forever.
+    """
+    if not message_ids:
+        return 0
+    row = conn.execute(
+        """SELECT COUNT(*) n FROM judge_runs
+            WHERE kind = 'extract' AND error IS NOT NULL
+              AND json_extract(input_json, '$.message_ids[0]') = ?""",
+        (int(message_ids[0]),),
+    ).fetchone()
+    return int(row["n"])
+
+
 def messages_since_last(conn: sqlite3.Connection, session_id: str) -> int:
     row = conn.execute(
         "SELECT COUNT(*) n FROM messages WHERE session_id = ? AND processed = 0",
         (session_id,),
     ).fetchone()
     return int(row["n"])
+
+
+def candidate_query_text(window: list[Any]) -> str:
+    """The text whose embedding selects the CANDIDATES block.
+
+    User turns only. This deliberately differs from what the prompt shows: the
+    prompt needs assistant turns so "it" and "that project" resolve, but an
+    embedding has no pronouns to resolve, and on this corpus windows run about
+    nine assistant turns to one user turn.
+
+    Measured over 12 real windows: concatenating every turn gave a mean query of
+    3913 characters against 820 for user turns alone, so 79% of what selected the
+    candidates was the assistant's own work log. Roughly a quarter of the returned
+    candidates change as a result. A judge that cannot see an existing fact emits
+    ADD where it should emit UPDATE, and the store accumulates duplicates.
+
+    Truncating assistant turns the way the prompt does would not fix the ratio:
+    220 chars × nine turns still swamps one short user turn. (Length alone was not
+    the problem — the largest window in the corpus is ~6700 tokens, well inside
+    BGE-M3's 8192, so nothing was being silently cut. It is dilution, not
+    truncation.)
+    """
+    parts = [
+        content
+        for row in window
+        if (row["role"] == "user" and (content := (row["content"] or "").strip()))
+    ]
+    if parts:
+        return "\n".join(parts)
+    # No user turn: nothing here can match a fact about the user, but callers
+    # outside the pipeline (eval/experiment.py) may still ask. Fall back to the
+    # prompt's own rendering rather than returning nothing.
+    return judge.render_window(window)
 
 
 def find_candidates(
@@ -142,13 +204,18 @@ def find_candidates(
     window: list[sqlite3.Row],
     owner_id: str,
     limit: int = CANDIDATE_COUNT,
+    exclude_ids: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Top-N existing facts similar to the window, for UPDATE detection.
 
     Without these the judge cannot know a fact already exists, and a month later
     the store holds three contradictory rows about the same subject.
+
+    ``exclude_ids`` is used by re-extraction: offering the judge the facts it is
+    replacing would make it emit UPDATE against them, mutating the old set in place
+    instead of producing the fresh one being compared against it.
     """
-    text = "\n".join(r["content"] for r in window)
+    text = candidate_query_text(window)
     if not text.strip():
         return []
     vec = embedder.encode_one(text)
@@ -161,6 +228,7 @@ def find_candidates(
             vectors.keyword("owner_id", owner_id),
             vectors.keyword("status", "active"),
         ],
+        exclude_ids=exclude_ids,
     )
     return [
         {
@@ -205,9 +273,15 @@ def apply_ops(
     scope_key: str | None,
     judge_run_id: int | None,
     source_message_ids: list[int],
+    version: str | None = None,
 ) -> ExtractionOutcome:
     out = ExtractionOutcome(judge_run_id=judge_run_id)
     now = utcnow()
+    # Stamped from the version that actually rendered the prompt, so a re-extraction
+    # under an older version labels its facts with that version and not the active
+    # one. Getting this wrong is the defect that made every measurement in
+    # docs/08 describe a prompt production never ran.
+    stamp = version or judge.PROMPT_VERSION
 
     for op in ops:
         if op.op == "ADD":
@@ -215,7 +289,12 @@ def apply_ops(
             row = {
                 "id": mem_id, "owner_id": owner_id, "agent_id": agent_id,
                 "scope": op.scope or "user",
-                "scope_key": scope_key if (op.scope or "user") != "user" else None,
+                # Only project-scope facts are keyed by the session's project.
+                # scope='task' used to get it too, which made every extracted
+                # task fact unreadable: the read path compares a task fact's key
+                # against the *task* key, so a project name there never matched
+                # and the fact was filtered out in Qdrant at every query.
+                "scope_key": scope_key if (op.scope or "user") == "project" else None,
                 "type": op.type, "text": op.text,
                 "importance": op.importance, "created_at": now, "updated_at": now,
             }
@@ -228,7 +307,7 @@ def apply_ops(
                 (
                     mem_id, owner_id, agent_id, row["scope"], row["scope_key"],
                     op.type, op.text, op.importance, op.confidence, now,
-                    op.valid_until, now, now, judge.PROMPT_VERSION, judge_run_id,
+                    op.valid_until, now, now, stamp, judge_run_id,
                 ),
             )
             workflow_status = None
@@ -373,6 +452,24 @@ def run_extraction(
         )
         return ExtractionOutcome(fast_forwarded=skipped_free + len(window))
 
+    ids = [int(r["id"]) for r in window]
+    attempts = failed_attempts(conn, ids)
+    if attempts >= MAX_WINDOW_ATTEMPTS:
+        # Checked before the embedding and before the judge call, so abandoning
+        # costs nothing. The messages stay in SQLite forever either way; marking
+        # them processed only stops this window being re-paid for on every new
+        # message in the session.
+        logger.error(
+            "abandoning window %s after %d failed judge calls: messages %s..%s",
+            session_id, attempts, ids[0], ids[-1],
+        )
+        conn.executemany(
+            "UPDATE messages SET processed = 1 WHERE id = ?", [(i,) for i in ids]
+        )
+        return ExtractionOutcome(
+            fast_forwarded=skipped_free, abandoned=len(ids)
+        )
+
     scope_key = _session_project(conn, session_id)
     candidates = find_candidates(
         client, embedder, window=window, owner_id=owner_id
@@ -387,6 +484,11 @@ def run_extraction(
         location=location,
         monthly_limit_usd=monthly_limit_usd,
         model=model or judge.DEFAULT_MODEL,
+        # Context the v4 prompt needs: without scope_key facts say "this
+        # project", and without the date "last month" cannot be resolved.
+        scope_key=scope_key,
+        session_date=_session_date(window),
+        agent_id=agent_id,
     )
 
     if result.error == "monthly_cost_limit_reached":
@@ -394,7 +496,6 @@ def run_extraction(
         # rolls over or the limit is raised.
         return ExtractionOutcome(error=result.error)
 
-    ids = [int(r["id"]) for r in window]
     outcome = apply_ops(
         conn, client, embedder,
         ops=result.ops, owner_id=owner_id, agent_id=agent_id,
@@ -416,6 +517,15 @@ def run_extraction(
             "UPDATE messages SET processed = 1 WHERE id = ?", [(i,) for i in ids]
         )
     return outcome
+
+
+def _session_date(window: list[Any]) -> str | None:
+    """Date the conversation happened, for resolving relative time in the prompt."""
+    for row in window:
+        created = row["created_at"] if not isinstance(row, dict) else row.get("created_at")
+        if created:
+            return str(created)[:10]
+    return None
 
 
 def _session_project(conn: sqlite3.Connection, session_id: str) -> str | None:

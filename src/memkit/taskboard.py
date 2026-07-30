@@ -355,7 +355,7 @@ def _apply_index(request: Request, result: mutate.MutationResult | None, item: d
 def get_board(request: Request, include_archived: bool = False) -> dict[str, Any]:
     settings = get_settings()
     return board_data(
-        request.app.state.conn,
+        request.app.state.db(),
         owner_id=settings.owner_id,
         include_archived=include_archived,
     )
@@ -365,9 +365,9 @@ def get_board(request: Request, include_archived: bool = False) -> dict[str, Any
 def create_task(body: TaskCreate, request: Request) -> dict[str, Any]:
     settings = get_settings()
     project = normalize_project(body.project_key)
-    with transaction(request.app.state.conn):
+    with transaction(request.app.state.db()):
         memory_id = store.add_memory(
-            request.app.state.conn,
+            request.app.state.db(),
             request.app.state.qdrant,
             request.app.state.embedder,
             owner_id=settings.owner_id,
@@ -380,7 +380,7 @@ def create_task(body: TaskCreate, request: Request) -> dict[str, Any]:
             valid_until=body.valid_until,
             task_status=body.workflow_status,
         )
-        item = _as_item(_task_row(request.app.state.conn, memory_id))
+        item = _as_item(_task_row(request.app.state.db(), memory_id))
     return {"task": item, "index_stale": _apply_index(request, None, item)}
 
 
@@ -391,8 +391,8 @@ def patch_task(
     fields = body.model_fields_set
     index_result: mutate.MutationResult | None = None
     try:
-        with transaction(request.app.state.conn):
-            before = _task_row(request.app.state.conn, memory_id)
+        with transaction(request.app.state.db()):
+            before = _task_row(request.app.state.db(), memory_id)
             if before["status"] != "active":
                 raise mutate.MutationError(
                     "archived tasks must be restored before editing", status_code=409
@@ -420,7 +420,7 @@ def patch_task(
                         "expected_memory_updated_at is required for memory edits"
                     )
                 index_result = mutate.update_memory(
-                    request.app.state.conn,
+                    request.app.state.db(),
                     request.app.state.qdrant,
                     request.app.state.embedder,
                     memory_id=memory_id,
@@ -436,7 +436,7 @@ def patch_task(
             )
             position = (
                 _move_position(
-                    request.app.state.conn,
+                    request.app.state.db(),
                     moving_id=memory_id,
                     owner_id=before["owner_id"],
                     workflow_status=target_status,
@@ -458,7 +458,7 @@ def patch_task(
             )
             if board_changed:
                 now = utcnow()
-                cur = request.app.state.conn.execute(
+                cur = request.app.state.db().execute(
                     """UPDATE task_board
                           SET workflow_status=?, project_key=?, position=?,
                               version=version+1, updated_at=?
@@ -476,7 +476,7 @@ def patch_task(
                     raise mutate.MutationError(
                         "task board changed concurrently", status_code=409
                     )
-            item = _as_item(_task_row(request.app.state.conn, memory_id))
+            item = _as_item(_task_row(request.app.state.db(), memory_id))
     except mutate.MutationError as exc:
         raise HTTPException(exc.status_code, str(exc)) from exc
 

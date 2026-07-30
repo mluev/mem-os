@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -185,6 +186,7 @@ def cmd_backfill(args: argparse.Namespace) -> int:
 
     for row in pending:
         while calls < limit:
+            remaining_before = extract.messages_since_last(conn, row["session_id"])
             with transaction(conn):
                 outcome = extract.run_extraction(
                     conn, client, embedder,
@@ -196,13 +198,25 @@ def cmd_backfill(args: argparse.Namespace) -> int:
                     model=model,
                 )
             done.fast_forwarded += outcome.fast_forwarded
+            done.abandoned += outcome.abandoned
             if outcome.judge_run_id is None and not outcome.error:
-                # Nothing happened at all: session drained. A fast-forward on
-                # its own is progress, so keep going in that case.
-                if outcome.fast_forwarded == 0:
+                # Nothing happened at all: session drained. A fast-forward or an
+                # abandoned window is progress, so keep going in those cases.
+                if outcome.fast_forwarded == 0 and outcome.abandoned == 0:
                     break
                 continue
             calls += 1
+            if (
+                outcome.error
+                and extract.messages_since_last(conn, row["session_id"])
+                >= remaining_before
+            ):
+                # The call failed and left the backlog exactly where it was, so
+                # the next iteration would buy the same window again. Move on and
+                # let MAX_WINDOW_ATTEMPTS retire it.
+                print(f"\nno progress on {row['session_id']}: {outcome.error}",
+                      file=sys.stderr)
+                break
             done.added += outcome.added
             done.updated += outcome.updated
             done.deleted += outcome.deleted
@@ -269,6 +283,72 @@ def cmd_judge_runs(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_consolidate(args: argparse.Namespace) -> int:
+    """Nightly consolidation, run by hand or by launchd.
+
+    Dry-run prints the clusters it would send to the model and costs nothing, which
+    is the only sane way to pick a threshold.
+    """
+    from . import consolidate as consolidator
+    from . import judge, vectors
+
+    s = get_settings()
+    conn = connect(s.db_path)
+    client = vectors.get_client(s.qdrant_url)
+    embedder = get_embedder()
+    threshold = args.threshold or s.consolidate_cosine
+
+    print(f"owner        {s.owner_id}")
+    print(f"threshold    {threshold}")
+    print(f"stale days   {s.consolidate_stale_days} (importance -{s.consolidate_demotion})")
+    print(f"model        {args.model or s.judge_model}")
+    print(f"month spend  ${judge.month_spend_usd(conn):.4f} of ${s.monthly_cost_limit_usd}")
+
+    with transaction(conn):
+        outcome = consolidator.run(
+            conn, client, embedder,
+            owner_id=s.owner_id,
+            threshold=threshold,
+            stale_days=s.consolidate_stale_days,
+            demotion=s.consolidate_demotion,
+            model=args.model or s.judge_model,
+            monthly_limit_usd=s.monthly_cost_limit_usd,
+            anthropic_api_key=s.anthropic_api_key,
+            gemini_api_key=s.gemini_api_key,
+            project=s.vertex_project,
+            location=s.vertex_location,
+            dry_run=args.dry_run,
+        )
+
+    print()
+    print(f"expired      {outcome.expired}")
+    print(f"demoted      {outcome.demoted}")
+    print(f"clusters     {outcome.clusters}")
+    if args.dry_run:
+        for merge in outcome.merges:
+            print(f"\n  would merge {len(merge.ids)} x {merge.type}:")
+            for text in merge.texts:
+                print(f"    - {text[:110]}")
+        print("\ndry run: no calls made, nothing written")
+    else:
+        print(f"merged       {outcome.merged}")
+        print(f"declined     {outcome.declined}  (model judged them distinct)")
+        print(f"superseded   {outcome.superseded}")
+        print(f"cost         ${outcome.cost_usd:.5f}")
+        for merge in outcome.merges:
+            if merge.text:
+                print(f"\n  {len(merge.ids)} -> {merge.survivor_id[:8] if merge.survivor_id else '?'}")
+                for text in merge.texts:
+                    print(f"    was: {text[:100]}")
+                print(f"    now: {merge.text[:100]}")
+            elif not merge.error:
+                print(f"\n  declined: {merge.reason[:100]}")
+    for err in outcome.errors:
+        print(f"  error: {err}", file=sys.stderr)
+    conn.close()
+    return 0
+
+
 def cmd_reindex(args: argparse.Namespace) -> int:
     s = get_settings()
     conn = connect(s.db_path)
@@ -276,6 +356,56 @@ def cmd_reindex(args: argparse.Namespace) -> int:
     counts = store.reindex(conn, client, get_embedder())
     print(json.dumps(counts, indent=2))
     conn.close()
+    return 0
+
+
+def cmd_install_hermes(args: argparse.Namespace) -> int:
+    """Install the Hermes MemoryProvider into $HERMES_HOME/plugins/memkit.
+
+    The source lives in this repository so it is versioned and tested with the
+    service. Hermes scans `$HERMES_HOME/plugins/<name>/` for user-installed
+    providers -- not `plugins/memory/<name>/`, which is where its own bundled ones
+    live and would mean editing the hermes-agent package.
+    """
+    import shutil
+
+    source = Path(__file__).resolve().parents[2] / "integrations" / "hermes" / "memkit"
+    if not source.is_dir():
+        print(f"provider source not found at {source}", file=sys.stderr)
+        return 1
+
+    home = Path(args.hermes_home or os.environ.get("HERMES_HOME") or "~/.hermes")
+    home = home.expanduser()
+    if not home.is_dir():
+        print(f"no HERMES_HOME at {home}", file=sys.stderr)
+        return 1
+    target = home / "plugins" / "memkit"
+
+    if target.exists() and not args.force:
+        print(f"{target} already exists; pass --force to overwrite", file=sys.stderr)
+        return 1
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if target.exists():
+        shutil.rmtree(target)
+    # Copy rather than symlink: a symlink into a git checkout means a branch switch
+    # silently changes what Hermes loads.
+    shutil.copytree(source, target, ignore=shutil.ignore_patterns("__pycache__"))
+
+    s = get_settings()
+    print(f"installed {source.name} -> {target}")
+    print("\nNow add to $HERMES_HOME/config.yaml:\n")
+    print("memory:")
+    print("  provider: memkit")
+    print("plugins:")
+    print("  memkit:")
+    print(f"    base_url: http://{s.host}:{s.port}")
+    print(f"    owner_id: {s.owner_id}")
+    print("    budget_tokens: 800")
+    print("    send_tool_results: false")
+    print(f"    db_path: {s.db_path.resolve()}")
+    print("\nAnd export the key Hermes will send:")
+    print("  export MEMKIT_API_KEY=...        # same value as MEMKIT_API_KEY here")
+    print("\nThen: hermes memory setup   (or restart Hermes)")
     return 0
 
 
@@ -320,8 +450,22 @@ def main() -> int:
     sp.add_argument("--limit", type=int, default=10)
     sp.set_defaults(func=cmd_judge_runs)
 
+    sp = sub.add_parser("consolidate", help="nightly consolidation (stage 4)")
+    sp.add_argument("--dry-run", action="store_true",
+                    help="print clusters without calling the model")
+    sp.add_argument("--threshold", type=float, default=None,
+                    help="cluster cosine (default from settings)")
+    sp.add_argument("--model", default=None)
+    sp.set_defaults(func=cmd_consolidate)
+
     sp = sub.add_parser("reindex", help="rebuild Qdrant from SQLite")
     sp.set_defaults(func=cmd_reindex)
+
+    sp = sub.add_parser("install-hermes", help="install the Hermes memory provider")
+    sp.add_argument("--hermes-home", default=None,
+                    help="default: $HERMES_HOME or ~/.hermes")
+    sp.add_argument("--force", action="store_true", help="overwrite an existing install")
+    sp.set_defaults(func=cmd_install_hermes)
 
     sp = sub.add_parser("eval", help="run the retrieval eval")
     sp.add_argument("--queries", default="eval/queries.yaml")

@@ -18,8 +18,16 @@ Cost, per call at v2 window sizes:
 Flash-Lite bills output at 8x input ($2.50 against $0.30) and counts reasoning
 as output, which is why the prompt caps fact length and thinking is MINIMAL.
 
+The v4 prompt is ~450 tokens longer than v2, which at $0.30/Mtok input is about
+$0.00014 more per call -- immaterial next to what the extra recall is worth.
+
 Corrections to the doc's contract:
 
+* The prompt text lives in `prompts.py` and nowhere else. `build_prompt` is the
+  single path to it, and `PROMPT_VERSION` names the version that path renders.
+  These were once separate -- a literal copy of v2 here, `DEFAULT_VERSION`
+  ("v4") on the label -- which made `extraction_version` lie and made every
+  measurement in docs/08 describe a prompt production never ran.
 * Structured output is enforced per provider -- `strict: true` on Anthropic,
   `response_json_schema` on Vertex. The doc claims tool use alone means the
   model "physically cannot return malformed JSON"; that holds only in strict
@@ -45,11 +53,17 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from typing import Any
 
-from . import providers
+from . import prompts, providers
 
 logger = logging.getLogger(__name__)
 
-PROMPT_VERSION = "v3"
+# The active version, and the *only* place the prompt text comes from. judge.py
+# used to carry its own literal copy of the prompt while stamping every fact with
+# prompts.DEFAULT_VERSION, so the version column claimed "v4" for text that was
+# actually v2 and every measurement in docs/08 described a prompt production
+# never ran. `build_prompt` below is now the single path; the invariant is
+# guarded by test_production_prompt_is_the_active_registry_version.
+PROMPT_VERSION = prompts.DEFAULT_VERSION
 
 # Assistant turns are *context* for resolving "it" and "that project", not source
 # material. Measured on v1: leaving them full made windows ~4000 input tokens
@@ -63,6 +77,12 @@ ASSISTANT_CONTEXT_CHARS = 220
 # output -- which is why the prompt caps fact length and thinking is MINIMAL.
 MODELS: dict[str, dict[str, Any]] = {
     "gemini-3.5-flash-lite": {"price": (0.30, 2.50)},
+    # Prices below are placeholders pending verification -- they are here so an
+    # experiment does not silently get billed at the fallback (most-expensive)
+    # rate, which made a golden-set run report 18x the real cost.
+    "gemini-3.1-flash-lite": {"price": (0.30, 2.50), "price_unverified": True},
+    "gemini-3-flash-preview": {"price": (0.30, 2.50), "price_unverified": True},
+    "gemini-3.5-flash": {"price": (0.60, 3.50), "price_unverified": True},
     "claude-haiku-4-5": {"price": (1.00, 5.00)},
     "claude-sonnet-5": {
         # Introductory rate through 2026-08-31, standard after.
@@ -91,76 +111,36 @@ REMEMBER_RE = re.compile(
 MESSAGES_PER_EXTRACTION = 10
 
 
-SYSTEM_PROMPT = """You extract long-term memories from a conversation.
+def build_prompt(
+    *,
+    window: list[Any],
+    candidates: list[dict[str, Any]],
+    scope_key: str | None = None,
+    session_date: str | None = None,
+    agent_id: str | None = None,
+    version: str = PROMPT_VERSION,
+    today: str | None = None,
+) -> str:
+    """Render the active extractor prompt. The only prompt path in production.
 
-THE TEST FOR EVERY MEMORY
-Would this still be worth knowing in three months? If it is only true of this
-one session's work, it is not a memory. A changelog is not a memory.
+    Everything a prompt could want is passed in and each version takes what it
+    uses -- `prompts.render` ignores the rest -- so adding context to a new
+    version does not change this signature.
 
-  BAD  "Merged PR #203, fixed 3 stale test suites, 162/162 suites green"
-  GOOD "Auth for the API lives in auth/ and uses session cookies, not JWT"
-
-  BAD  "User implemented converting LMS subpages into modal/drawer patterns,
-        built side-drawer editors at 880px, deleted old route-level files"
-  GOOD "Prefers drawer/modal editors over separate route pages in the LMS UI"
-
-RULES
-
-1. ONE FACT PER OPERATION, AT MOST TWO SENTENCES, UNDER 200 CHARACTERS.
-   If you are writing a list, a summary, or anything with semicolons joining
-   unrelated points, you are writing a changelog. Split it or drop it.
-2. Self-contained. Someone reading it in a year, with no other context, must
-   understand it. Never write "he", "it", "this project".
-3. Resolve relative time to absolute dates. Today is {today}.
-   "last month" -> "(June 2026)".
-4. Store what is true about the user and their world. Do NOT store what the
-   assistant did. The assistant's turns are context only -- they are there so
-   you can resolve "it" and "that project", never as source material. Prefixing
-   "User implemented..." to a summary of the assistant's work does not make it
-   a fact about the user.
-5. All three scopes matter, and each earns its keep differently:
-     scope=user     durable across every project -- preferences, identity,
-                    skills, working style, tools they insist on
-     scope=project  durable for the life of one codebase -- where things live,
-                    architectural decisions and the reason behind them
-     scope=task     only for genuinely short-lived work; these expire in days
-   A window of technical work usually contains BOTH: what the user prefers in
-   general, and what was decided about this codebase. Look for both. If you
-   emit only project facts from a long conversation, you have probably missed
-   the user's preferences hiding in how they asked for things.
-6. If new information contradicts or refines a CANDIDATE, emit UPDATE with
-   that candidate's id. Do not emit ADD.
-7. Returning an empty operations list is correct and common. Most windows
-   contain nothing worth remembering.
-8. Write the memory in the same language the user used.
-9. Never store credentials, tokens, keys, connection strings, file contents,
-   or command output. If a message contains them, extract only the surrounding
-   intent, never the value.
-
-TASK WORKFLOW STATUS
-Set task_status only for type=task and only when the conversation is explicit:
-  todo     clearly planned, assigned, requested, or not yet started
-  doing    explicitly in progress now
-  done     explicitly completed, fixed, shipped, or resolved
-  unknown  the task exists but its workflow state is unclear
-For non-task memories task_status must be null. Do not guess progress from tone.
-
-IMPORTANCE -- use the full range; do not cluster everything in the middle
-  0.9-1.0  identity and hard constraints: who they are, what they will not do,
-           things that should shape almost every answer
-  0.7-0.8  strong stable preferences and real skills: tools they insist on,
-           languages they work in daily, firm architectural positions
-  0.4-0.6  useful but narrow: where one module lives, one decision's reason
-  0.1-0.3  weak signal, mentioned once, probably situational
-  below    do not emit at all
-A single conversation should not produce five facts all at 0.5. Differentiate.
-
-CANDIDATES (existing memories, may be empty)
-{candidates}
-
-CONVERSATION WINDOW
-Assistant turns are truncated on purpose: they are context, not content.
-{window}"""
+    The context arguments are not decoration. Without `session_date` rule 3
+    resolves "last month" against today's date, which is wrong for every
+    backfilled window in a ten-month corpus. Without the project, rule 2 produces
+    facts that say "this project" and nothing else.
+    """
+    return prompts.render(
+        version,
+        today=today or datetime.now(UTC).strftime("%Y-%m-%d"),
+        window=render_window(window),
+        candidates=render_candidates(candidates),
+        project=scope_key,
+        session_date=session_date,
+        agent_id=agent_id,
+    )
 
 
 TOOL = providers.anthropic_tool()   # kept for tests and docs
@@ -180,6 +160,9 @@ class Op:
     confidence: float | None = None
     valid_until: str | None = None
     task_status: str | None = None
+    # The model's own answer to the travel test, kept for the eval and for reading
+    # judge_runs by eye. `scope` above is already corrected from it.
+    holds_in_other_repos: bool | None = None
 
     @classmethod
     def parse(cls, raw: dict[str, Any]) -> Op | None:
@@ -202,17 +185,42 @@ class Op:
             task_status = None
         if raw.get("type") not in (None, "task"):
             task_status = None
+        # An out-of-vocabulary scope is worse than a wrong one: it satisfies no
+        # branch of the read path's should-clause, so the fact is written to
+        # SQLite and Qdrant and can never be retrieved. Fall back to the scope
+        # that is always readable, the same way task_status falls back above.
+        scope = raw.get("scope")
+        if scope not in SCOPES:
+            scope = "user"
+        # The travel test, applied by code rather than trusted to the model.
+        # Measured under v4: 41 of 62 facts came back scope=project and roughly 17
+        # of those were personal preferences bound to a repository only by their
+        # wording, leaving 34% of the store reachable without naming a project.
+        # v6 makes the model answer "would this sentence still be true in another
+        # project?" separately, and the promotion happens here.
+        #
+        # One-directional on purpose: project -> user only. A user-scoped fact is
+        # never demoted, so this cannot regress the direction that was measured.
+        # Versions before v6 do not ask the question and return null, which leaves
+        # them byte-identical on the same eval.
+        if scope == "project" and raw.get("holds_in_other_repos") is True:
+            scope = "user"
         return cls(
             op=op,
             reason=raw.get("reason") or "",
             id=raw.get("id"),
             text=(raw.get("text") or "").strip() or None,
             type=raw.get("type"),
-            scope=raw.get("scope") or "user",
+            scope=scope,
             importance=_clamp(raw.get("importance"), 0.6),
             confidence=_clamp(raw.get("confidence"), 0.9),
             valid_until=raw.get("valid_until"),
             task_status=task_status,
+            holds_in_other_repos=(
+                raw["holds_in_other_repos"]
+                if isinstance(raw.get("holds_in_other_repos"), bool)
+                else None
+            ),
         )
 
 
@@ -363,8 +371,17 @@ def extract(
     location: str = "",
     model: str = DEFAULT_MODEL,
     effort: str = "low",
+    scope_key: str | None = None,
+    session_date: str | None = None,
+    agent_id: str | None = None,
+    version: str | None = None,
 ) -> JudgeResult:
     """Call the judge and log the run.
+
+    ``version`` overrides the active prompt version, which is what
+    ``POST /v1/admin/reextract`` needs: docs/04-judge.md's whole argument for
+    recording `extraction_version` is that two versions can be compared on one
+    eval, and that is only possible if an old version can be replayed on demand.
 
     Every call is recorded in `judge_runs` whether it succeeds or fails --
     docs/06-roadmap.md is right that reading those rows by eye for the first
@@ -381,17 +398,26 @@ def extract(
         )
         return JudgeResult([], None, 0, 0, 0.0, 0, error="monthly_cost_limit_reached")
 
-    prompt = SYSTEM_PROMPT.format(
-        today=datetime.now(UTC).strftime("%Y-%m-%d"),
-        candidates=render_candidates(candidates),
-        window=render_window(window),
+    active_version = version or PROMPT_VERSION
+    prompt = build_prompt(
+        window=window,
+        candidates=candidates,
+        scope_key=scope_key,
+        session_date=session_date,
+        agent_id=agent_id,
+        version=active_version,
     )
     payload = {
-        "prompt_version": PROMPT_VERSION,
+        "prompt_version": active_version,
         "model": model,
         "window_size": len(window),
         "candidate_ids": [c["id"] for c in candidates],
         "message_ids": [int(m["id"]) for m in window],
+        # Recorded so a run can be explained later without re-deriving the
+        # context: which project and which conversation date the prompt saw.
+        "scope_key": scope_key,
+        "session_date": session_date,
+        "agent_id": agent_id,
     }
 
     t0 = time.perf_counter()
@@ -428,7 +454,7 @@ def extract(
             input_tokens, output_tokens, cost_usd, latency_ms, created_at)
            VALUES ('extract', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
-            model, PROMPT_VERSION, json.dumps(payload, ensure_ascii=False),
+            model, active_version, json.dumps(payload, ensure_ascii=False),
             json.dumps(raw_output, ensure_ascii=False) if raw_output else None,
             error, in_tok, out_tok, cost, latency_ms,
             datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z"),

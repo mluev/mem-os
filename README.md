@@ -15,11 +15,22 @@ an eval harness, and a local dashboard for reading and correcting the corpus.
 | Stage | Scope | State |
 |---|---|---|
 | 1 | foundation, transcript importer, eval | **done** |
-| 2 | extractor (judge), gate, cost ceiling | **code complete — needs an API key to validate** |
+| 2 | extractor (judge), gate, cost ceiling | **done** — whole history processed, 247 calls, $0.50, 88 facts |
 | 3 | score formula, scope filters, dedup, budget fill | **done** |
-| 4 | nightly consolidator | pending |
-| 5 | Hermes `MemoryProvider` plugin | pending |
+| 4 | nightly consolidator | **done** — merge, expiry, demotion, launchd at 04:00 |
+| 5 | Hermes `MemoryProvider` plugin | **done** — goal verified: a fact from one session surfaced in another |
 | 6 | local admin dashboard | **done** |
+
+`POST /v1/admin/reextract` is documented in
+[docs/03-api.md](docs/03-api.md) but is not implemented; `memkit backfill` after
+resetting `messages.processed` covers the same ground for now.
+
+**On the stage-2 exit gate.** `docs/06-roadmap.md` says the eval must beat stage
+1 before moving on. Taken literally it does not: 0.737 MRR against 0.806. Taken
+as the question it was asking — is the extractor earning its keep — it does, on
+token density, and the remaining gap is attributed to one named defect rather
+than to extraction quality. The numbers and the argument are below; decide it on
+those, not on the single headline.
 
 If no judge credential is configured, `POST /v1/messages` returns
 `extraction_queued: false`; manual memories and retrieval still work. Set
@@ -99,27 +110,156 @@ An M1 Pro / 16 GB, against 394 real Claude Code transcripts.
 | search latency | ~145 ms end-to-end over HTTP |
 | full reindex | 132 s for 304 raw turns |
 
-### Stage 1 eval baseline
+### Eval: raw turns against extracted facts
 
-Every later stage is measured against this. Stage 2 must beat it or the
-extractor prompt is wrong.
+The whole history is now processed -- 247 judge calls, $0.50, one error -- so the
+comparison the project rests on can finally be made. Both numbers come from
+`eval/queries.yaml`; the 31 cases below are the ones answerable by either target
+(the other 16 ask about one-off tickets, which memory is right not to store --
+see the header of that file).
+
+| on the 31 shared cases | raw turns | extracted facts |
+|---|---|---|
+| recall@10 | 0.90 | 0.87 |
+| MRR | 0.806 | **0.737** |
+| top-1 | 23/31 | 21/31 |
+| reject violations | 0 | 0 |
+| mean tokens | 1771 | **392** |
+
+```bash
+uv run memkit eval --target raw
+uv run memkit eval --target memories
+```
+
+**Read this honestly: facts do not beat raw turns on rank.** What they do is
+deliver 91% of the MRR on 22% of the tokens -- 4.5x denser, which is 3.8x more
+MRR per token. `docs/05-retrieval.md` puts the useful memory block at 600-1000
+tokens; raw turns cannot fit in that budget at all (1771) and facts sit
+comfortably inside it (392). That density, not the rank, is what the extractor
+buys.
+
+Two caveats against over-reading the gap. The assertions are regexes over the
+user's own phrasing, which structurally favours a transcript search. And three of
+the four remaining misses are one fixable defect, not weak extraction: the fact
+exists but is scoped to a project, so a general question about the person never
+reaches it (see *Scope drift* below).
+
+`recall@10` on raw is no longer pegged at 1.00 only because the query set grew;
+it remains a weak discriminator at k=10 over 306 documents, which is why MRR and
+top-1 are reported beside it.
+
+### Scope drift: diagnosed, fixed in v6, existing facts still to migrate
+
+Of 62 facts extracted by v4, **41 are `scope=project` and only 21 are
+`scope=user`, so just 34% of the store is reachable without naming a project.**
+By hand-reading the 41, roughly 17 are phrased as facts about the person --
+"prefers modal dialogs with tabs", "expects thorough, objective code reviews",
+"prefers omitting page title and subtitle" -- and would still be true in another
+repository, which is `prompts.V5` rule 5's own test for `scope=user`.
+
+This is the priming failure `docs/08-extractor-experiments.md` diagnosed in v3
+and believed v4 had fixed. On a 20-window bench it looked fixed. On the full
+corpus it is not: v4's explicit warning that naming the project "does NOT tell
+you the scope" reduces the drift without eliminating it.
+
+Proof that it is scope and not extraction: three eval cases miss with no project
+supplied and hit at rank 1 when one is. They are deliberately left failing so the
+defect stays measurable.
+
+**Root cause, and the fix.** The drift is in the *wording*, not in the `scope`
+field. v4 rule 2 said "never write 'this project' — name the project", so the model
+wrote "For frontend-second, prefers modal editors" — and every decision downstream
+then correctly followed that phrasing. Asked whether the sentence holds in another
+repository, the model says no, because the sentence it wrote names the repository.
+Rule 2 was fighting rule 5.
+
+v6 makes rule 2 conditional: name the repository only when the fact is about that
+repository; for a fact about the person, do not mention it at all. Pooled over two
+paired runs on 51 real windows, the reachable share went 26% → 54% with recall
+inside the noise band. Two earlier hypotheses were measured and rejected first —
+one of them cost 5x recall. `docs/08` records all three.
+
+The 88 facts already in the store were extracted under v4 and still carry the old
+scopes. `eval/scope_review.py` lists the project-scoped ones with a hint per fact
+and emits a ready payload for `POST /v1/admin/memories/bulk`; the call is left to a
+human, since the judge already got these wrong once.
+
+Also measured, and less serious than it looks: 20% of user input is Russian but
+only 6% of facts are, so prompt rule 9 ("same language the user used") is largely
+ignored. Retrieval is unaffected -- a Russian query reaches the matching English
+fact at rank 1, which is what BGE-M3 was chosen for -- so this is a display
+concern, not a recall one.
+
+### Stage 5: the Hermes provider
+
+```bash
+uv run memkit install-hermes        # copies into $HERMES_HOME/plugins/memkit
+```
+
+Source lives in [integrations/hermes/memkit](integrations/hermes/memkit) so it is
+versioned and tested with the service. Loads through Hermes's own discovery,
+`is_available()` true, both tools exposed. Measured against the running service:
+prefetch **75–93 ms** steady state, ~840 ms on the first call — so the timeout is
+0.4 s and the cold call is absorbed by a background warm-up in `initialize`, not by
+a longer budget. `docs/07` had budgeted 0.15 s from in-process latency, which HTTP
+does not deliver.
+
+`docs/07-hermes-adapter.md` was unimplementable as written — four abstract methods
+against the two it described, the wrong plugin directory, `input_schema` instead of
+`parameters`. It is now rewritten against the real ABC, with a table of every place
+the doc was wrong.
+
+Two checklist items earned their keep by failing. The secret-redaction test leaked a
+key pasted mid-sentence, because the pattern was anchored to line start and the unit
+test that "covered" it had obligingly put the key on its own line. And the live
+prefetch returned nothing at first, which is what surfaced the 0.15 s budget.
+
+**The goal itself is verified.** `docs/06-roadmap.md` defines stage 5 as done when a
+fact said in one place surfaces in another — "ради этого всё и строилось". Checked
+through Hermes's own `MemoryManager`, in a sandbox `HERMES_HOME` so the live config
+was untouched: one session says *"я всегда ставлю ширину бокового редактора в 880
+пикселей"*, the real judge extracts it, and a **different** session's
+`prefetch_all` returns it first:
 
 ```
-cases             31
-recall@10         1.00  (31/31)
-MRR               0.869
-top-1 hits        25/31
-reject violations 0
-mean tokens       1594
+- Prefers a side drawer editor width of 880px as a personal standard across projects
 ```
 
-Two readings matter more than the headline. `recall@10` is pegged at 1.00
-because 10 results out of 304 documents is a third of a percent shy of trivial
--- it is **not** evidence of good retrieval, which is why MRR and top-1 are
-reported alongside it. And `mean tokens 1594` sits well above the 600-1000 that
-`docs/05-retrieval.md` recommends for a memory block: raw conversation turns are
-simply too verbose to serve as memory. That gap is the entire argument for the
-stage-2 extractor, quantified.
+That line is also v6 working — `scope=user`, no repository in the wording. Under v4
+it would most likely have been filed under the project and been unreachable from a
+general question.
+
+### Stage 4: what the first real consolidation did
+
+```bash
+uv run memkit consolidate --dry-run   # prints clusters, costs nothing
+uv run memkit consolidate
+```
+
+One cluster on 88 facts: two garbled variants of the owner's name, cosine 0.9278.
+Merged for $0.00025 — 88 → 87 active, 2 superseded with `superseded_by` set, Qdrant
+drift 0, and the merged fact inherited all 20 source messages so
+`/v1/memories/{id}/sources` still answers. A second run finds nothing, which is the
+idempotency check. `MRR` went **0.737 → 0.759**: the duplicate had been consuming a
+result slot.
+
+Nothing was expired or demoted, correctly — no fact carries a `valid_until`, and
+every fact is younger than the 90-day staleness window.
+
+One honest note on the merge itself. Rule 2 of the merge prompt says preserve
+specifics, so the survivor reads "User's name is Maga (also known as MagaLoviev or
+Maga Luev)" — it faithfully kept both variants, and both were wrong to begin with
+(the real surname is Lutfullaev). The consolidator did its job; the extractor
+mangling proper nouns is a separate defect, and merging cannot fix bad input.
+
+### v4 on the full corpus, against its bench numbers
+
+`docs/08` measured v4 at 0.70 facts per window on 20 hand-picked windows. Over
+188 real calls it yields **0.33** -- the bench sample was not representative.
+What did carry over is the part that mattered: 21 facts about the person in
+absolute terms against v2's 3, importance spread across 0.4-0.9 instead of
+collapsing onto 0.6/0.7, and a median fact length of 128 characters. Three facts
+of 62 exceed the prompt's 200-character cap (longest 223).
 
 ## Deviations from the docs
 

@@ -126,19 +126,32 @@ def search(
     limit: int,
     must: list[models.FieldCondition] | None = None,
     with_vectors: bool = False,
+    exclude_ids: list[str] | None = None,
 ) -> list[models.ScoredPoint]:
     """Dense search.
 
     ``with_vectors`` matters for the stage-3 read path: docs/05-retrieval.md
     assumes result vectors are already in hand for the dedup pass, but Qdrant
     omits them unless they are explicitly requested.
+
+    ``exclude_ids`` is for re-extraction: the candidate block must not offer the
+    judge the very facts being replaced, or it emits UPDATE against them instead
+    of producing the fresh set the operation exists to create.
     """
+    flt = None
+    if must or exclude_ids:
+        flt = models.Filter(
+            must=must or None,
+            must_not=[models.HasIdCondition(has_id=list(exclude_ids))]
+            if exclude_ids
+            else None,
+        )
     return client.query_points(
         collection_name=collection,
         query=vector,
         using="dense",
         limit=limit,
-        query_filter=models.Filter(must=must) if must else None,
+        query_filter=flt,
         with_payload=True,
         with_vectors=with_vectors,
     ).points

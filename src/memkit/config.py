@@ -68,6 +68,18 @@ class Settings(BaseSettings):
     # while still separating distinct facts. Decide it on the eval, not by feel.
     dedup_cosine: float = 0.90
 
+    # Nightly consolidation (stage 4). Clustering is stricter than the read-path
+    # dedup above: dedup only hides a duplicate from one answer, consolidation
+    # rewrites the store, so a wrong merge is permanent where a wrong hide is not.
+    # Measured on this corpus: a real duplicate pair ("User's name is Maga Luev" /
+    # "User's name is Maga (or MagaLoviev)") sits at 0.9278, and the pair that must
+    # never merge ("Prefers pnpm" / "Prefers pytest") at 0.7422. So the documented
+    # 0.92 does catch this class, contrary to docs/05's pessimism.
+    consolidate_cosine: float = 0.92
+    # Facts not retrieved in this long lose importance on the nightly pass.
+    consolidate_stale_days: int = 90
+    consolidate_demotion: float = 0.1
+
 
 _settings: Settings | None = None
 

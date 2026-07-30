@@ -135,7 +135,9 @@ class TestTaskBoard(unittest.TestCase):
         request = SimpleNamespace(
             app=SimpleNamespace(
                 state=SimpleNamespace(
-                    conn=self.conn,
+                    # One connection per thread in production; the tests hand back
+                    # the same one, which is all a single-threaded test needs.
+                    db=lambda: self.conn,
                     qdrant=self.q,
                     embedder=self.embedder,
                     index_dirty=False,
@@ -167,7 +169,9 @@ class TestTaskBoard(unittest.TestCase):
         request = SimpleNamespace(
             app=SimpleNamespace(
                 state=SimpleNamespace(
-                    conn=self.conn,
+                    # One connection per thread in production; the tests hand back
+                    # the same one, which is all a single-threaded test needs.
+                    db=lambda: self.conn,
                     qdrant=self.q,
                     embedder=self.embedder,
                     index_dirty=False,

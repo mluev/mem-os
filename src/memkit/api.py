@@ -28,7 +28,7 @@ from pydantic import BaseModel, Field
 
 from . import admin, extract, judge, retrieval, store, taskboard, vectors
 from .config import Settings, get_settings
-from .db import connect, init_db, transaction, utcnow
+from .db import ConnectionPool, init_db, transaction, utcnow
 from .embed import get_embedder
 
 logger = logging.getLogger(__name__)
@@ -91,7 +91,11 @@ class MemoryIn(BaseModel):
 async def lifespan(app: FastAPI):
     s = get_settings()
     init_db(s.db_path)
-    app.state.conn = connect(s.db_path)
+    # One connection per thread, not one shared by all of them. FastAPI runs the
+    # sync endpoints in a threadpool and background extraction alongside them, and
+    # `transaction()` commits the connection rather than the block — so a shared
+    # connection lets one request commit another's half-written work.
+    app.state.db = ConnectionPool(s.db_path)
     app.state.qdrant = vectors.get_client(s.qdrant_url)
     vectors.ensure_collections(app.state.qdrant)
     app.state.embedder = get_embedder()
@@ -104,7 +108,7 @@ async def lifespan(app: FastAPI):
     # silently has no memory at all.
     app.state.embedder.load()
     yield
-    app.state.conn.close()
+    app.state.db.close_all()
 
 
 _startup_settings = get_settings()
@@ -155,6 +159,18 @@ def healthz() -> dict[str, Any]:
     except Exception:
         qdrant_ok = False
     emb = app.state.embedder
+    # docs/03-api.md promises queue_depth. There is no queue -- extraction runs as
+    # a FastAPI background task, not through the asyncio.Queue docs/01 sketched --
+    # so the honest equivalent is how much unprocessed history is waiting for the
+    # judge. That is the number worth watching anyway.
+    try:
+        backlog = int(
+            app.state.db()
+            .execute("SELECT COUNT(*) n FROM messages WHERE processed = 0")
+            .fetchone()["n"]
+        )
+    except Exception:
+        backlog = -1
     return {
         "ok": qdrant_ok,
         "qdrant": qdrant_ok,
@@ -163,6 +179,7 @@ def healthz() -> dict[str, Any]:
         "memories": vectors.count(app.state.qdrant, vectors.MEMORIES),
         "raw": vectors.count(app.state.qdrant, vectors.RAW),
         "db": str(s.db_path),
+        "queue_depth": backlog,
         "index_dirty": bool(getattr(app.state, "index_dirty", False)),
         "reindex": getattr(app.state, "reindex_job", {"status": "idle"}),
     }
@@ -171,7 +188,7 @@ def healthz() -> dict[str, Any]:
 def _extract_now(session_id: str, owner_id: str, agent_id: str, force: bool) -> None:
     """Background extraction. Never raises into the request path."""
     s = get_settings()
-    conn = app.state.conn
+    conn = app.state.db()
     try:
         with transaction(conn):
             outcome = extract.run_extraction(
@@ -192,7 +209,7 @@ def _extract_now(session_id: str, owner_id: str, agent_id: str, force: bool) -> 
 @app.post("/v1/messages", dependencies=[Depends(require_key)], status_code=201)
 def post_message(body: MessageIn, background: BackgroundTasks) -> MessageOut:
     s = get_settings()
-    conn = app.state.conn
+    conn = app.state.db()
     owner = body.owner_id or s.owner_id
     with transaction(conn):
         message_id, dedup = store.add_message(
@@ -226,7 +243,7 @@ def post_message(body: MessageIn, background: BackgroundTasks) -> MessageOut:
 def close_session(session_id: str, owner_id: str | None = None) -> dict[str, Any]:
     """Close a session and force extraction from whatever is left in the tail."""
     s = get_settings()
-    conn = app.state.conn
+    conn = app.state.db()
     row = conn.execute(
         "SELECT agent_id FROM sessions WHERE id = ?", (session_id,)
     ).fetchone()
@@ -262,12 +279,17 @@ def close_session(session_id: str, owner_id: str | None = None) -> dict[str, Any
         total.deleted += outcome.deleted
         total.skipped += outcome.skipped
         total.fast_forwarded += outcome.fast_forwarded
+        total.abandoned += outcome.abandoned
         total.cost_usd += outcome.cost_usd
         if outcome.error:
             total.error = outcome.error
             break
-        if outcome.judge_run_id is None and outcome.fast_forwarded == 0:
-            break  # drained
+        if (
+            outcome.judge_run_id is None
+            and outcome.fast_forwarded == 0
+            and outcome.abandoned == 0
+        ):
+            break  # drained — nothing was read, skipped, or given up on
     return {"extracted": total.applied, **total.as_dict()}
 
 
@@ -279,7 +301,7 @@ def memory_sources(memory_id: str) -> dict[str, Any]:
     remembers something absurd about you, the only useful question is which
     messages produced it and which judge run agreed.
     """
-    conn = app.state.conn
+    conn = app.state.db()
     mem = conn.execute("SELECT * FROM memories WHERE id = ?", (memory_id,)).fetchone()
     if mem is None:
         raise HTTPException(status_code=404, detail="unknown memory")
@@ -352,13 +374,16 @@ def post_search(body: SearchIn) -> dict[str, Any]:
         project=body.scope_key or body.project,
         task=body.task_key,
         types=list(body.types) if body.types else None,
+        scopes=list(body.scopes) if body.scopes else None,
         limit=body.limit,
         budget_tokens=body.budget_tokens,
     )
     out = [s.as_dict() for s in scored]
 
     if out:
-        store.record_retrieval(app.state.conn, [m["id"] for m in out])
+        conn = app.state.db()
+        with transaction(conn):
+            store.record_retrieval(conn, [m["id"] for m in out])
 
     raw: list[dict[str, Any]] = []
     if body.include_raw:
@@ -381,7 +406,7 @@ def post_memory(body: MemoryIn) -> dict[str, str]:
     if getattr(app.state, "reindex_job", {}).get("status") == "running":
         raise HTTPException(409, "memory mutations are disabled while reindex runs")
     s = get_settings()
-    conn = app.state.conn
+    conn = app.state.db()
     with transaction(conn):
         mem_id = store.add_memory(
             conn,
@@ -421,7 +446,7 @@ def list_memories(
 ) -> dict[str, Any]:
     s = get_settings()
     return admin.list_memories_data(
-        app.state.conn,
+        app.state.db(),
         owner_id=owner_id or s.owner_id,
         type=type,
         status=status,
@@ -444,8 +469,37 @@ def list_memories(
 
 @app.post("/v1/admin/reindex", dependencies=[Depends(require_key)])
 def admin_reindex() -> dict[str, Any]:
+    """Synchronous rebuild, as docs/03-api.md specifies. Blocks the caller.
+
+    Claims the same `reindex_job` slot as `POST /v1/admin/reindex/start`. It used
+    not to, which meant mutations stayed open while the collections were dropped
+    and refilled -- a memory written in that gap got no point and no error, since
+    reindex had already read its source rows. Two reindexes could also run at once
+    and drop each other's freshly written collection.
+    """
+    lock = app.state.reindex_lock
+    with lock:
+        if app.state.reindex_job.get("status") == "running":
+            raise HTTPException(409, "reindex already running")
+        app.state.reindex_job = {
+            "status": "running",
+            "phase": "starting",
+            "completed": 0,
+            "total": 0,
+            "started_at": utcnow(),
+        }
     t0 = time.perf_counter()
-    counts = store.reindex(app.state.conn, app.state.qdrant, app.state.embedder)
+    try:
+        counts = store.reindex(app.state.db(), app.state.qdrant, app.state.embedder)
+    except Exception as exc:
+        with lock:
+            app.state.reindex_job = {"status": "error", "error": str(exc)}
+        raise
+    with lock:
+        app.state.reindex_job = {
+            "status": "complete", "counts": counts, "finished_at": utcnow()
+        }
+        app.state.index_dirty = False
     return {**counts, "took_ms": round((time.perf_counter() - t0) * 1000)}
 
 

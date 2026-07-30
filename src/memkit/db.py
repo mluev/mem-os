@@ -13,6 +13,7 @@ Schema follows docs/02-data-model.md, with two documented deviations:
 from __future__ import annotations
 
 import sqlite3
+import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -208,9 +209,61 @@ def ensure_session(
 
 @contextmanager
 def transaction(conn: sqlite3.Connection) -> Iterator[sqlite3.Connection]:
+    """Commit on success, roll back on failure.
+
+    Note that COMMIT and ROLLBACK act on the *connection*, not on the block. That
+    is why a connection must never be shared between threads that write — see
+    ``ConnectionPool``.
+    """
     try:
         yield conn
         conn.commit()
     except Exception:
         conn.rollback()
         raise
+
+
+class ConnectionPool:
+    """One SQLite connection per thread, opened on first use.
+
+    A single shared connection cannot be used with manual transactions from more
+    than one thread: ``transaction()`` commits the connection, not the caller's
+    unit of work, so one thread's COMMIT persists another thread's half-finished
+    write and one thread's ROLLBACK discards it. FastAPI runs every ``def``
+    endpoint in a threadpool and runs background tasks alongside them, so two
+    concurrent writers is the normal case here, not an edge case — an extraction
+    backfill with the dashboard open hits it immediately.
+
+    Connections are cheap (same file, WAL, no handshake) and the threadpool reuses
+    threads, so this opens a handful in practice. WAL allows one writer plus many
+    concurrent readers; a second writer waits out ``busy_timeout`` and then fails
+    loudly, which is the outcome we want instead of silent interleaving.
+    """
+
+    def __init__(self, db_path: Path) -> None:
+        self.db_path = db_path
+        self._local = threading.local()
+        self._opened: list[sqlite3.Connection] = []
+        self._lock = threading.Lock()
+
+    def __call__(self) -> sqlite3.Connection:
+        conn: sqlite3.Connection | None = getattr(self._local, "conn", None)
+        if conn is None:
+            conn = connect(self.db_path)
+            self._local.conn = conn
+            with self._lock:
+                self._opened.append(conn)
+        return conn
+
+    def close_all(self) -> None:
+        """Close every connection this pool handed out. Shutdown only."""
+        with self._lock:
+            for conn in self._opened:
+                try:
+                    conn.close()
+                except sqlite3.Error:
+                    # Best effort: shutdown must not fail because a connection
+                    # from a dead thread was already closed.
+                    pass
+            self._opened.clear()
+        self._local = threading.local()

@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Nightly consolidation at 04:00, per docs/01-architecture.md.
+
+  Install:
+    cp deploy/ai.memkit.consolidate.plist ~/Library/LaunchAgents/
+    # edit WorkingDirectory and the uv path below to match this checkout
+    launchctl load ~/Library/LaunchAgents/ai.memkit.consolidate.plist
+
+  Check:
+    launchctl list | grep memkit
+    tail -f /tmp/memkit-consolidate.log
+
+  Uninstall:
+    launchctl unload ~/Library/LaunchAgents/ai.memkit.consolidate.plist
+
+  The run needs Qdrant up and a judge credential in .env. It is safe to miss a
+  night: expiry and demotion are idempotent, and clustering re-derives itself from
+  whatever is active at the time. RunAtLoad is deliberately false — loading the
+  agent should not spend money.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>ai.memkit.consolidate</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/mlutfullaev/.local/bin/uv</string>
+        <string>run</string>
+        <string>memkit</string>
+        <string>consolidate</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/mlutfullaev/dev/indie/mem-os</string>
+
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>4</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/memkit-consolidate.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/memkit-consolidate.log</string>
+
+    <!-- launchd starts agents with a bare environment; the model needs a key and
+         the CLI needs to find the checkout's .env, which it reads from
+         WorkingDirectory. -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/Users/mlutfullaev/.local/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>LowPriorityIO</key>
+    <true/>
+</dict>
+</plist>

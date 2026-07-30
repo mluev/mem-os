@@ -5,10 +5,22 @@
 # reextract endpoint mints new ids by design, so an id-pinned file invalidates
 # itself the first time the thing it exists to measure actually runs.
 #
-# Stage 1 searches raw turns, so patterns match the user's own words. When the
-# stage-2 extractor lands, these same queries should be satisfied by shorter,
-# self-contained facts instead -- the query set stays, the corpus under it
-# improves. That is the comparison the whole project rests on.
+# The original plan was that these same queries would be satisfied by shorter,
+# self-contained facts once the extractor landed -- "the query set stays, the
+# corpus under it improves". Measured, that turned out to be wrong for half the
+# file: 19 of 22 misses against `memories` were one-off tickets ("the header is
+# too big", "run the seeder") that prompt rule 8 forbids storing. The extractor
+# was refusing them correctly and the eval was scoring it down for doing so.
+#
+# So each case now declares what can answer it:
+#
+#   answerable_by: [raw]   a question about a past work session. Real use --
+#                          searching your own transcript -- but not memory's job.
+#   (omitted)              answerable by both; this is the honest head-to-head.
+#
+# A question about one codebase must also carry `project:`, or the read path
+# drops it: docs/05-retrieval.md excludes other projects' facts before ranking.
+# Against raw that was unnecessary, which is why several cases lacked it.
 
 # --- identity and contact -------------------------------------------------
 - id: github-username
@@ -35,6 +47,7 @@
 
 - id: eslint-problem
   query: linting errors blocking my commit
+  answerable_by: [raw]
   expect_any: ["eslint", "lint"]
 
 - id: pnpm-version
@@ -48,27 +61,33 @@
 
 - id: enbek-module
   query: enbek module work
+  project: frontend-second
   expect_any: ["enbek"]
   reject: ["portfolio", "built by hand"]
 
 - id: certificates-page
   query: certificates page layout
+  answerable_by: [raw]
   expect_any: ["certificate"]
 
 - id: analytics-page
   query: the analytics page looks bad
+  answerable_by: [raw]
   expect_any: ["analytics"]
 
 - id: chat-module
   query: problems with the chat in the dashboard
+  answerable_by: [raw]
   expect_any: ["chat"]
 
 - id: schedule-modal
   query: the schedule modal needs work
+  answerable_by: [raw]
   expect_any: ["schedule", "modal"]
 
 - id: process-page
   query: process page buttons like copy link and finish
+  answerable_by: [raw]
   expect_any: ["process", "copy link"]
 
 # --- design and UI feedback ----------------------------------------------
@@ -78,14 +97,17 @@
 
 - id: elements-too-big
   query: elements are too big and not adaptive
+  answerable_by: [raw]
   expect_any: ["too big", "adapt", "big element"]
 
 - id: header-too-large
   query: the header is too big, remove the title
+  answerable_by: [raw]
   expect_any: ["header"]
 
 - id: search-tabs-row
   query: put search and tabs in one row
+  answerable_by: [raw]
   expect_any: ["tabs", "search"]
 
 - id: validation-errors
@@ -95,20 +117,24 @@
 # --- portfolio ------------------------------------------------------------
 - id: portfolio-photo
   query: add my profile photo to the portfolio
+  answerable_by: [raw]
   expect_any: ["photo", "portfolio", "profile"]
   reject: ["enbek", "lms"]
 
 - id: portfolio-text
   query: remove the built by hand text from the bottom
+  answerable_by: [raw]
   expect_any: ["built by hand", "bottom"]
 
 # --- testing and tooling --------------------------------------------------
 - id: e2e-testing
   query: test the whole app end to end
+  answerable_by: [raw]
   expect_any: ["e2e", "test"]
 
 - id: seeder-tenant
   query: run the seeder and prepare a tenant
+  answerable_by: [raw]
   expect_any: ["seeder", "tenant"]
 
 - id: agents-not-finishing
@@ -129,18 +155,21 @@
 # the model choice is not earning its cost.
 - id: xling-signing-buttons
   query: unify the buttons that trigger signing and sending
-  expect_any: ["подписан", "кнопк"]
+  project: frontend-second
+  expect_any: ["подписан", "кнопк", "sign.*button", "button.*sign"]
 
 - id: xling-brief-summary
   query: summarise briefly what you did
+  answerable_by: [raw]
   expect_any: ["коротко", "двух словах", "brief", "summar"]
 
 - id: ru-query-finds-content
   query: что нужно поправить в интерфейсе
-  expect_any: ["[а-яА-Я]{5,}"]
+  expect_any: ["[а-яА-Я]{5,}", "polish", "consisten", "spacing", "UI"]
 
 - id: ru-substitution
   query: значения не всегда подставляются
+  answerable_by: [raw]
   expect_any: ["подставля", "не всегда"]
 
 # --- scope filtering: same query, one project ----------------------------
@@ -148,6 +177,7 @@
 # supports it, so the plumbing is measured from stage 1.
 - id: project-scoped-portfolio
   query: profile photo and layout
+  answerable_by: [raw]
   project: portfolio
   expect_any: ["photo", "profile", "portfolio"]
 
@@ -155,3 +185,87 @@
   query: module refactor and cleanup
   project: frontend-second
   expect_any: ["refactor", "clean", "module"]
+
+# --- memory-shaped questions ----------------------------------------------
+# Added after the first honest run against `memories` (MRR 0.253) turned out to
+# be measuring the wrong thing: 19 of 22 misses were one-off tickets the
+# extractor is *right* to refuse. Those are marked `answerable_by: [raw]` above.
+#
+# These ask what a memory store is for -- durable identity, taste, working
+# style, architecture decisions. They are deliberately left answerable by BOTH
+# targets: the user's own words are in the transcript too, so raw gets a fair
+# shot. If raw keeps winning here, that is a real finding about this corpus
+# size, not a rigged comparison.
+#
+# Regexes match concepts, not the phrasing of any particular stored fact.
+
+- id: mem-commit-language
+  query: what language should my commit messages be in
+  expect_any: ["english"]
+
+- id: mem-location
+  query: where do i live and work from
+  expect_any: ["tashkent", "ташкент"]
+
+- id: mem-profession
+  query: what do i do for a living
+  expect_any: ["design engineer", "product design", "frontend developer"]
+
+- id: mem-logic-placement
+  query: should business logic live in the frontend or the backend
+  expect_any: ["backend"]
+
+- id: mem-debugging-style
+  query: how do i want problems investigated
+  expect_any: ["systematic", "investigat", "debug"]
+
+- id: mem-planning-style
+  query: do i plan the architecture before writing code
+  expect_any: ["brainstorm", "plan", "architect", "paper"]
+
+- id: mem-writing-tone
+  query: what tone do i want for bio and career copy
+  expect_any: ["minimalist", "poetic", "calm", "short"]
+
+- id: mem-review-expectations
+  query: what kind of code review do i expect
+  expect_any: ["review", "objective", "flaw"]
+
+- id: mem-over-engineering
+  query: how do i feel about over-engineering
+  expect_any: ["over-?engineer", "readable", "scalable", "accidental complexity"]
+
+- id: mem-design-polish
+  query: how much visual polish and animation do i want
+  expect_any: ["polish", "micro-?interaction", "transition", "animat"]
+
+- id: mem-new-ui-framework
+  query: what framework is the new frontend written in
+  expect_any: ["vue"]
+
+- id: mem-page-titles
+  query: do my pages need a title and subtitle at the top
+  expect_any: ["title", "subtitle", "tidy"]
+
+- id: mem-notiky-login
+  query: how does signing in work in notiky
+  project: notiky
+  expect_any: ["otp", "email"]
+
+- id: mem-migration-style
+  query: how do i prefer to migrate or redesign modules
+  expect_any: ["gradual", "step-by-step", "incremental", "migrat"]
+
+- id: mem-attendance-decision
+  query: what did we decide about attendance report templates
+  expect_any: ["template"]
+  project: frontend
+
+# Scope plumbing against facts: the same question inside one project must not
+# return another project's answer. project-scoped-portfolio above is raw-only
+# because it asks about a ticket; this asks about a durable portfolio preference.
+- id: mem-project-scoped-portfolio
+  query: how should animations and page transitions behave here
+  project: portfolio
+  expect_any: ["animat", "transition", "scroll"]
+  reject: ["attendance", "enbek"]

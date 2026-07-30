@@ -1,263 +1,254 @@
 # 07 — Адаптер для Hermes
 
-Hermes Agent (NousResearch) подключает внешнюю память через плагин, реализующий
-ABC `MemoryProvider`. Наш сервис — один такой провайдер; всё внутреннее
-устройство (Qdrant, BGE-M3, судья) снаружи не видно.
+Hermes Agent подключает внешнюю память плагином, реализующим ABC `MemoryProvider`.
+Наш сервис — один такой провайдер; всё внутреннее устройство (Qdrant, BGE-M3,
+судья) снаружи не видно, плагин говорит только HTTP на 127.0.0.1.
+
+> **Переписано 2026-07-30 по факту.** Первая версия этой доки писалась до чтения
+> реального ABC и была нереализуема: класс по ней не создался бы. Ниже — то, что
+> есть в `~/.hermes/hermes-agent/agent/memory_provider.py` (315 строк) и в
+> `plugins/memory/__init__.py`. Расхождения перечислены в конце, чтобы было видно,
+> где именно доверять доке было нельзя.
+
+Реализация: `integrations/hermes/memkit/` в этом репозитории.
+Установка: `memkit install-hermes`.
 
 ## Размещение
 
+Пользовательские плагины Hermes ищет в **`$HERMES_HOME/plugins/<name>/`**:
+
 ```
-plugins/memory/memkit/
-    __init__.py
-    provider.py      # класс MemkitProvider
-    client.py        # HTTP-клиент к сервису
+~/.hermes/plugins/memkit/
+    __init__.py      # класс MemkitProvider + register(ctx)
+    client.py        # HTTP-клиент на stdlib urllib + circuit breaker
     scrub.py         # вычистка секретов
-    cli.py           # опц., register_cli(subparser)
+    plugin.yaml      # name/version/description для `hermes memory setup`
 ```
 
-Конфиг Hermes:
+Путь `plugins/memory/<name>/` — это папка **встроенных** провайдеров внутри пакета
+hermes-agent; писать туда значит править чужой пакет.
+
+Исходники держим в этом репозитории, а `memkit install-hermes` копирует их на
+место. Копия, а не симлинк: симлинк в git-checkout означает, что переключение ветки
+молча меняет то, что грузит Hermes.
+
+Конфиг в `$HERMES_HOME/config.yaml`:
 
 ```yaml
 memory:
   provider: memkit
+plugins:
   memkit:
-    base_url: http://127.0.0.1:8077/v1
-    api_key_env: MEMKIT_API_KEY
+    base_url: http://127.0.0.1:8077
     owner_id: u-1
     budget_tokens: 800
-    send_tool_results: false     # см. раздел про секреты
+    prefetch_timeout: 0.4
+    send_tool_results: false
+    db_path: /path/to/mem-os/data/memkit.db   # для backup_paths
 ```
 
-`$HERMES_HOME` брать через `hermes_constants.get_hermes_home()`, не хардкодить
-`~/.hermes`.
+Ключ — из переменной окружения `MEMKIT_API_KEY`.
+
+## Обязательные методы: их четыре, а не два
+
+```python
+@property
+def name(self) -> str: ...          # abstract
+def is_available(self) -> bool: ... # abstract
+def initialize(self, session_id: str, **kwargs) -> None: ...  # abstract
+def get_tool_schemas(self) -> list[dict]: ...                 # abstract
+```
+
+Без любого из них класс не инстанцируется, и провайдер молча не загрузится.
+
+`is_available()` **не должен делать сетевых вызовов** — так написано в ABC. Он
+проверяет только конфиг; жив ли сервис, решает circuit breaker по ходу дела.
+
+`initialize` получает в `kwargs`: `hermes_home`, `platform`, и опционально
+`agent_context` (`primary` / `subagent` / `cron` / `flush`), `agent_identity`,
+`agent_workspace`, `parent_session_id`, `user_id`. **Писать нужно только из
+`primary`**: системный промпт крона — это не пользователь, и его запись испортила бы
+представление о человеке.
 
 ## Маппинг методов
 
 | Метод Hermes | Наш эндпоинт | Примечание |
 |---|---|---|
-| `initialize(session_id, **kw)` | `POST /v1/sessions` | создать сессию, прогреть кэш |
-| `system_prompt_block()` | — | статичная строка, что провайдер умеет |
-| `prefetch(query)` | `POST /v1/search` | синхронно с таймаутом, см. ниже |
-| `sync_turn(user, assistant, ...)` | `POST /v1/messages` ×2 | в фоновом потоке |
-| `get_tool_schemas()` | — | схемы `memkit_search`, `memkit_remember` |
-| `handle_tool_call(name, args)` | `/v1/search`, `/v1/memories` | |
+| `initialize(session_id, **kw)` | — | сессия создаётся первым сообщением; отдельного `POST /v1/sessions` нет |
+| `is_available()` | — | только конфиг, без сети |
+| `system_prompt_block()` | — | статичная строка про возможности |
+| `prefetch(query, *, session_id="")` | `POST /v1/search` | синхронно, таймаут, кэш-фолбэк |
+| `queue_prefetch(query, *, session_id="")` | `POST /v1/search` | прогрев кэша на следующий ход |
+| `sync_turn(user, assistant, *, session_id, messages)` | `POST /v1/messages` ×2 | в фоновом потоке |
+| `get_tool_schemas()` | — | `memkit_search`, `memkit_remember` |
+| `handle_tool_call(name, args, **kw)` | `/v1/search`, `/v1/memories` | |
+| `on_session_end(messages)` | `POST /v1/sessions/{id}/close` | синхронно, щедрый таймаут |
+| `on_session_switch(new_id, **kw)` | `close` + сброс кэша | |
+| `on_memory_write(action, target, content, metadata=None)` | `POST /v1/memories` | зеркало встроенной памяти |
+| `get_config_schema()` / `save_config(values, hermes_home)` | — | для `hermes memory setup` |
+| `backup_paths()` | — | **обязательно**, см. ниже |
 | `shutdown()` | — | дождаться фоновых потоков |
-| `on_session_end()` | `POST /v1/sessions/{id}/close` | форсирует извлечение из хвоста |
-| `on_session_switch(new_id)` | `close` + `sessions` | сбросить кэш prefetch |
-| `on_memory_write(...)` | `POST /v1/memories` | зеркало встроенной памяти |
-| `on_turn_start`, `on_pre_compress`, `on_delegation` | no-op | пока не нужны |
+| `on_turn_start`, `on_pre_compress`, `on_delegation` | no-op | |
 
-## prefetch: синхронно, но с таймаутом
-
-Штатный контракт Hermes — возвращаться мгновенно из фонового кэша, из-за чего
-у облачных провайдеров память отстаёт на один ход. У нас всё локальное
-(BGE-M3 на MPS ~30 мс + Qdrant ~10 мс), поэтому успеваем ответить по существу.
+## Схемы инструментов: ключ `parameters`
 
 ```python
-def prefetch(self, query: str) -> str:
-    key = _key(query)
-    try:
-        mems = self._client.search(query, budget_tokens=self.budget, timeout=0.15)
-        self._cache[key] = mems
-    except (Timeout, ConnectionError, CircuitOpen):
-        mems = self._cache.get(key) or self._cache.get(_LAST) or []
-    if not mems:
-        return ""
-    self._cache[_LAST] = mems
-    return "\n".join(f"- {m['text']}" for m in mems)
+{"name": "memkit_search", "description": "...", "parameters": {...}}
 ```
 
-Два правила:
+Не `input_schema`. Так делают все четыре поставляемых провайдера (`mem0`,
+`hindsight`, `holographic`, `supermemory`); с неверным ключом инструменты просто
+молча не работают.
+
+## prefetch: синхронно, но с измеренным таймаутом
+
+Штатный контракт Hermes — возвращаться мгновенно из фонового кэша, из-за чего у
+облачных провайдеров память отстаёт на ход. У нас всё локальное, поэтому успеваем
+ответить по существу.
+
+**Замерено против живого сервиса:** первый запрос ~840 мс, каждый следующий
+75–93 мс. Дока обещала 0.15 с из расчёта «BGE-M3 30 мс + Qdrant 10 мс» — это
+стоимость в процессе, а не то, что даёт HTTP. Поэтому:
+
+- таймаут 0.4 с (настройка `prefetch_timeout`), с запасом покрывает устойчивое
+  состояние и всё равно не может подвесить ход;
+- холодный вызов оплачивается прогревом в фоне из `initialize`, а не удлинением
+  таймаута. Без него первый ход после каждого рестарта молча остаётся без памяти —
+  и именно это и произошло на первом живом прогоне.
+
+Два правила остаются в силе:
 
 - **Никогда не поднимать исключение наружу.** Провайдер, падающий в prefetch,
   ломает ход агента. Любая ошибка → пустая строка.
-- **Не оборачивать результат в `<memory-context>`.** Hermes сам оборачивает;
-  если провайдер вернёт готовую обёртку, Hermes её срежет и напишет warning.
-
-Замерь реальный p95 после фазы 3. Если таймаут срабатывает чаще 5% — вынеси
-в фон и живи с отставанием на ход.
+- **Не оборачивать результат в `<memory-context>`.** Hermes оборачивает сам и
+  срезает готовую обёртку с warning.
 
 ## sync_turn: секреты и идемпотентность
 
-```python
-def sync_turn(self, user_content, assistant_content, *,
-              session_id="", messages=None):
-    payloads = [
-        self._mk("user", user_content, session_id),
-        self._mk("assistant", assistant_content, session_id),
-    ]
-    if self.send_tool_results and messages:
-        payloads += [self._mk(m["role"], m["content"], session_id)
-                     for m in messages if m["role"] == "tool"]
-
-    t = threading.Thread(target=self._post_all, args=(payloads,), daemon=True)
-    t.start()
-    self._threads.append(t)
-```
-
 ### Почему `send_tool_results` по умолчанию `false`
 
-`messages` содержит вызовы инструментов и их результаты: пути к файлам, вывод
-команд, содержимое рабочего окружения. Кодовый агент регулярно видит `.env`,
-вывод `git remote -v`, токены в логах.
+`messages` содержит вызовы инструментов и их результаты: пути, вывод команд,
+содержимое рабочего окружения. Кодовый агент регулярно видит `.env` и вывод
+`git remote -v`. Наш судья — облачный API, и что до него дойдёт, осядет в базе
+постоянным фактом. Структурный запрет надёжнее любой регулярки, поэтому
+tool-сообщения не отправляются вообще.
 
-Наш судья — облачный API. Значит эти данные уйдут наружу **и осядут в базе как
-постоянные факты**. Структурный запрет надёжнее любой регулярки, поэтому по
-умолчанию tool-сообщения не отправляются вообще.
+### Регулярки — второй рубеж, и они уже один раз промахнулись
 
-Если включишь — обязателен скраб:
+Шаблоны в `scrub.py` были взяты из первой версии этой доки, включая правило для
+`NAME=value`, **привязанное к началу строки**. Юнит-тест его «покрывал», потому что
+я сам поставил ключ на отдельную строку. На первом живом прогоне чек-листа ключ,
+вставленный посреди фразы («вот ключ `AWS_SECRET_ACCESS_KEY=...` поставь в прод»),
+прошёл в базу нетронутым.
 
-```python
-# scrub.py
-PATTERNS = [
-    (r"(?i)\b(sk|pk)-[A-Za-z0-9_\-]{20,}",            "[KEY]"),
-    (r"\bAKIA[0-9A-Z]{16}\b",                          "[AWS_KEY]"),
-    (r"\bghp_[A-Za-z0-9]{36}\b",                       "[GH_TOKEN]"),
-    (r"\beyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}", "[JWT]"),
-    (r"(?i)(bearer|authorization:)\s+\S+",             r"\1 [REDACTED]"),
-    (r"(?i)^\s*\w*(secret|token|password|passwd|api_?key|credential)\w*\s*=.*$",
-                                                        "[ENV_LINE]"),
-    (r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----",
-                                                        "[PRIVATE_KEY]"),
-    (r"://[^:/\s]+:[^@/\s]+@",                         "://[CRED]@"),
-]
+Исправлено: шаблон ловит присваивание в любом месте текста и заменяет **значение**,
+а не строку — фраза пользователя остаётся читаемой, а её и должен читать экстрактор.
 
-def scrub(text: str) -> str:
-    for pat, repl in PATTERNS:
-        text = re.sub(pat, repl, text, flags=re.MULTILINE)
-    return text
-```
-
-Плюс строка в промпт экстрактора (`04-judge.md`):
-
-```
-8. Never store credentials, tokens, keys, connection strings, file contents,
-   or command output. If a message contains them, extract only the surrounding
-   intent, never the value.
-```
-
-Регулярки — второй рубеж, не первый. Они всегда что-нибудь пропустят.
+Вывод не про регулярку, а про порядок проверки: этот пункт чек-листа поймал то, что
+тест не поймал, потому что тест писал тот же человек, что и шаблон.
 
 ### Идемпотентность
 
-У Hermes **три** канала записи в нас: `sync_turn`, зеркало встроенной памяти
-через `on_memory_write`, и tools через `handle_tool_call`. Один и тот же
-контент придёт дважды.
+У Hermes три канала записи в нас: `sync_turn`, зеркало через `on_memory_write` и
+инструменты через `handle_tool_call`. Один и тот же контент придёт дважды.
 
-Каждое сообщение уходит со стабильным внешним id:
+`external_id = sha256(f"{session_id}|{role}|{body}")[:32]`, хэш от содержимого, а не
+uuid: при переотправке того же хода после сбоя сети id совпадёт. На стороне сервиса
+`UNIQUE (external_source, external_id)` и `ON CONFLICT DO NOTHING`.
 
-```python
-def _mk(self, role, content, session_id):
-    body = scrub(content)
-    ext_id = hashlib.sha256(
-        f"{session_id}|{role}|{body}".encode()
-    ).hexdigest()[:32]
-    return {
-        "session_id": session_id, "owner_id": self.owner_id,
-        "agent_id": "hermes", "role": role, "content": body,
-        "external_source": "hermes", "external_id": ext_id,
-    }
-```
+**Проверено живьём:** один ход, отправленный дважды, оставил ровно одну пару
+сообщений.
 
-На стороне сервиса — `UNIQUE (external_source, external_id)` и
-`INSERT ... ON CONFLICT DO NOTHING`. Повтор просто не создаёт запись.
+## backup_paths: без него бэкап теряет всю память
 
-Хэш от содержимого, а не uuid: если Hermes переотправит тот же ход после
-сбоя сети, id совпадёт.
+`hermes backup` обходит только `HERMES_HOME`. SQLite-источник правды memkit и
+хранилище Qdrant лежат снаружи, поэтому непровозглашённые пути означают, что цикл
+backup/restore молча теряет каждый факт. Метод обязан работать **без**
+`initialize()` и без сети — разрешается только из конфига.
 
 ## Circuit breaker
 
-Скопировано из mem0-провайдера для Hermes: пять неудач подряд → пауза две
-минуты, агент продолжает работать без памяти.
-
-```python
-class Breaker:
-    def __init__(self, fails=5, cooldown=120):
-        self.fails, self.cooldown = fails, cooldown
-        self._n, self._until = 0, 0.0
-
-    def allow(self) -> bool:
-        return time.time() >= self._until
-
-    def ok(self):
-        self._n = 0
-
-    def fail(self):
-        self._n += 1
-        if self._n >= self.fails:
-            self._until = time.time() + self.cooldown
-            self._n = 0
-            logger.warning("memkit: breaker open for %ss", self.cooldown)
-```
-
-404 на несуществующий id — ожидаемая ошибка, брейкер не трогает. Считаем
-только сетевые ошибки и 5xx.
-
-## Tools провайдера
-
-```python
-def get_tool_schemas(self):
-    return [
-        {"name": "memkit_search",
-         "description": "Search long-term memory about the user and projects.",
-         "input_schema": {"type": "object", "properties": {
-             "query": {"type": "string"},
-             "scope": {"enum": ["user", "project", "task"]}},
-             "required": ["query"]}},
-        {"name": "memkit_remember",
-         "description": "Store a fact the user explicitly asked to remember.",
-         "input_schema": {"type": "object", "properties": {
-             "text": {"type": "string"},
-             "type": {"enum": ["preference", "fact", "skill", "relation",
-                               "project", "decision", "task"]}},
-             "required": ["text"]}},
-    ]
-```
-
-`memkit_remember` идёт в `POST /v1/memories` **мимо судьи**, с
-`importance=0.9`. Если пользователь сказал «запомни» явно — обсуждать нечего.
-
-Отдельного read-tool могло бы не быть, раз prefetch и так подставляет контекст.
-Но он нужен: prefetch ищет по последней реплике, а модель иногда хочет задать
-поиску более точный запрос.
+Пять неудач подряд → пауза две минуты, агент продолжает работать без памяти. 4xx —
+это ответ сервиса, а не отказ: неизвестный id или отклонённое тело не двигают
+брейкер. Считаются только сетевые ошибки и 5xx.
 
 ## Дублирование истории — это нормально
 
-Hermes ведёт свою `messages` в SessionDB с FTS5-поиском по сессиям. Мы ведём
-свою. Это не ошибка: у Hermes это история разговора для поиска по ней, у нас —
-сырьё для реэкстракции и provenance.
-
-Условие только одно: связь должна быть явной. `external_id` даёт возможность
-проследить факт до конкретного сообщения в базе Hermes и заметить расхождение.
-Без него две базы разъедутся молча.
-
-## Дельта к остальным докам
-
-`02-data-model.md`, таблица `messages`:
-
-```sql
-ALTER TABLE messages ADD COLUMN external_source TEXT;
-ALTER TABLE messages ADD COLUMN external_id     TEXT;
-CREATE UNIQUE INDEX idx_messages_external
-    ON messages(external_source, external_id)
-    WHERE external_id IS NOT NULL;
-```
-
-`03-api.md`: `POST /v1/messages` принимает `external_source` и `external_id`,
-на конфликте возвращает `200` с существующим `message_id` и
-`"deduplicated": true` вместо `201`.
-
-`04-judge.md`: правило 8 в промпт экстрактора.
-
-`06-roadmap.md`: адаптер — это фаза 5. Прежде чем его писать, сервис должен
-проходить эвал сам по себе, через curl.
+Hermes ведёт свою `messages` в SessionDB с FTS5. Мы ведём свою. У Hermes это
+история разговора для поиска по ней, у нас — сырьё для реэкстракции и provenance.
+Условие одно: связь должна быть явной, и `external_id` её даёт.
 
 ## Чек-лист приёмки
 
-- [ ] Сервис остановлен → Hermes работает, память пустая, ошибок в ходе нет
-- [ ] Сервис отвечает 3 секунды → prefetch отдаёт кэш, ход не блокируется
-- [ ] Один ход отправлен дважды → в базе одна пара сообщений
-- [ ] Строка `AWS_SECRET_ACCESS_KEY=...` в выводе команды → в базу не попала
-- [ ] Факт, сказанный в чате → всплыл в кодовом агенте
-- [ ] `on_session_end` → извлечение из хвоста сессии произошло
-- [ ] Прерванный ход → в память ничего не записалось
+Отмечено то, что проверено. Автотесты — `tests/test_hermes_provider.py` (28 штук).
+
+- [x] Сервис остановлен → Hermes работает, память пустая, ошибок в ходе нет
+- [x] Сервис не отвечает → prefetch отдаёт кэш либо пустую строку, ход не блокируется
+- [x] Один ход отправлен дважды → в базе одна пара сообщений
+- [x] Строка `AWS_SECRET_ACCESS_KEY=...` в реплике → значение в базу не попало
+      *(поймало настоящий дефект, см. выше)*
+- [x] `on_session_end` → `POST .../close` вызван
+- [x] Провайдер грузится механизмом Hermes, `is_available()` = true, инструменты видны
+- [x] **Факт, сказанный в чате, всплыл в кодовом агенте**
+
+### Последний пункт — как именно проверен
+
+Это цель всей постройки, поэтому проверка сделана через собственный
+`MemoryManager` Hermes, а не только через наш провайдер, и в песочничном
+`HERMES_HOME`, чтобы не менять живой конфиг.
+
+1. Провайдер в сессии `goal-chat-session` отправляет реплику
+   «я всегда ставлю ширину бокового редактора в 880 пикселей, это мой стандарт»,
+   затем `on_session_end` форсирует извлечение из хвоста. Судья настоящий.
+2. Второй провайдер в **другой** сессии `goal-coder-session` добавляется в
+   `MemoryManager()`, и вызывается `mgr.prefetch_all("какой ширины делать боковой
+   редактор")`.
+
+Результат — факт первой строкой:
+
+```
+- Prefers a side drawer editor width of 880px as a personal standard across projects
+```
+
+Заодно виден v6 в работе: `scope=user`, без привязки к репозиторию, и формулировка
+сама говорит «across projects». Под v4 этот факт почти наверняка получил бы префикс
+с именем проекта и стал бы недостижим для общего вопроса.
+
+Чтобы включить провайдера в живом профиле:
+
+```yaml
+# ~/.hermes/config.yaml
+memory:
+  provider: memkit
+plugins:
+  memkit:
+    base_url: http://127.0.0.1:8077
+    owner_id: u-1
+    budget_tokens: 800
+```
+
+Откат — `hermes memory off`.
+
+## Где доке нельзя было верить
+
+| было в доке | реальность |
+|---|---|
+| обязательных методов два | четыре: `name`, `is_available`, `initialize`, `get_tool_schemas` |
+| путь `plugins/memory/memkit/` | пользовательские — `$HERMES_HOME/plugins/memkit/` |
+| схемы через `input_schema` | через `parameters` |
+| `prefetch(query)` | `prefetch(query, *, session_id="")` |
+| `on_session_end()` | `on_session_end(messages)` |
+| `POST /v1/sessions` создаёт сессию | такого эндпоинта нет, сессия создаётся первым сообщением |
+| — | не упомянуты `queue_prefetch`, `get_config_schema`, `save_config`, `backup_paths` |
+| таймаут prefetch 0.15 с | замерено 840 мс холодный, 75–93 мс устойчивый → 0.4 с плюс прогрев |
+| `scrub` для `NAME=value` с начала строки | ключ посреди фразы утекал |
+
+## Дельта к остальным докам
+
+`02-data-model.md`: `external_source` / `external_id` уже в базовой схеме, а не
+миграцией — импортёру они нужны с первого дня.
+
+`03-api.md`: `POST /v1/messages` принимает `external_source` / `external_id` и на
+конфликте возвращает существующий `message_id` с `"deduplicated": true`.
+
+`04-judge.md`: правило про креды — в промпте экстрактора.

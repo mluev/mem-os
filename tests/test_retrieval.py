@@ -118,6 +118,24 @@ class TestScopeBoost(unittest.TestCase):
             retrieval.scope_boost("project", "memkit", project=None, task=None)
         )
 
+    def test_unkeyed_task_fact_is_visible_without_a_current_task(self):
+        # Nothing in this system issues task ids, so the extractor cannot key a
+        # task fact against one. Requiring a key made every extracted task fact
+        # write-only: stored, then dropped by the filter at every query.
+        self.assertEqual(
+            retrieval.scope_boost("task", None, project=None, task=None), 1.0
+        )
+        self.assertEqual(
+            retrieval.scope_boost("task", None, project="memkit", task="t-9"), 1.0
+        )
+
+    def test_unknown_scope_is_background_not_a_crash(self):
+        # Op.parse coerces these to 'user' before they are written; if one ever
+        # reaches the ranker it must not raise.
+        self.assertEqual(
+            retrieval.scope_boost("global", None, project="p", task="t"), 0.0
+        )
+
 
 class TestScoreFormula(unittest.TestCase):
     def test_weights_sum_to_one(self):
@@ -271,10 +289,22 @@ class TestScopeFilterShape(unittest.TestCase):
         self.assertEqual(keys, {"owner_id", "status"})
 
     def test_should_grows_with_scope_context(self):
+        # Two branches are unconditional: scope=user, and scope=task with no key.
+        # The second is what makes an extracted task fact readable at all — see
+        # test_unkeyed_task_fact_is_visible_without_a_current_task.
         none = retrieval.scope_filter(owner_id="u", project=None, task=None)
         both = retrieval.scope_filter(owner_id="u", project="p", task="t")
-        self.assertEqual(len(none.should), 1)   # user scope only
-        self.assertEqual(len(both.should), 3)
+        self.assertEqual(len(none.should), 2)
+        self.assertEqual(len(both.should), 4)
+
+    def test_unkeyed_task_branch_is_always_present(self):
+        for project, task in ((None, None), ("p", None), (None, "t"), ("p", "t")):
+            f = retrieval.scope_filter(owner_id="u", project=project, task=task)
+            has_unkeyed_task = any(
+                any(getattr(c, "is_empty", None) is not None for c in branch.must)
+                for branch in f.should
+            )
+            self.assertTrue(has_unkeyed_task, f"project={project} task={task}")
 
     def test_min_should_set_so_should_is_required_not_a_boost(self):
         # Without min_should, Qdrant can treat `should` as optional when `must`

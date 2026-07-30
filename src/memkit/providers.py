@@ -43,8 +43,18 @@ SCOPES = ["user", "project", "task"]
 
 _OP_FIELDS = [
     "op", "id", "text", "type", "scope",
-    "importance", "confidence", "valid_until", "task_status", "reason",
+    "importance", "confidence", "valid_until", "task_status",
+    "holds_in_other_repos", "reason",
 ]
+
+# The question `holds_in_other_repos` asks, worded as V5 rule 5's own scope test.
+# Kept here rather than in the prompt text so both provider schemas and every
+# prompt version state it identically.
+_HOLDS_ELSEWHERE_DESC = (
+    "Would this exact sentence still be true if the user switched to a different "
+    "project? true for facts about the person (preferences, taste, identity, "
+    "working style); false for facts about one codebase. Null if not assessed."
+)
 
 
 @dataclass
@@ -103,6 +113,16 @@ def anthropic_tool() -> dict[str, Any]:
                             "task_status": {
                                 "enum": ["unknown", "todo", "doing", "done", None]
                             },
+                            # Nullable on purpose. Strict mode requires every
+                            # property in `required`, so it cannot be omitted --
+                            # but only the v6 prompt asks for it, and a version
+                            # that does not returns null. That keeps older
+                            # versions comparable on the same eval after the
+                            # schema grew.
+                            "holds_in_other_repos": {
+                                "type": ["boolean", "null"],
+                                "description": _HOLDS_ELSEWHERE_DESC,
+                            },
                             "reason": {"type": "string"},
                         },
                         "required": _OP_FIELDS,
@@ -117,11 +137,15 @@ def anthropic_tool() -> dict[str, Any]:
 def gemini_schema() -> dict[str, Any]:
     """Response schema for Vertex AI.
 
-    Optional enums are nullable plain strings rather than enum-with-null, which
-    providers handle inconsistently. ``Op.parse`` rejects any value outside the
-    allowed set, so the constraint is still enforced -- just one layer later.
-    The allowed values stay in the field descriptions so the model still sees
-    them.
+    Optional fields are nullable, and their allowed values are constrained with
+    ``enum`` alongside the nullable type rather than being described in prose
+    only. Prose-only was the earlier choice, on the reasoning that ``Op.parse``
+    is the real gate anyway -- but it left the model free to return any string
+    for ``scope``, and an unrecognised scope produces a fact that no read-path
+    filter can ever match. Constrain it here *and* in ``Op.parse``; the schema is
+    what makes the model retry, the parse is what protects the store.
+
+    The values stay in the descriptions too, since that is what the model reads.
     """
     return {
         "type": "object",
@@ -144,10 +168,12 @@ def gemini_schema() -> dict[str, Any]:
                         },
                         "type": {
                             "type": ["string", "null"],
+                            "enum": [*MEMORY_TYPES, None],
                             "description": "One of: " + ", ".join(MEMORY_TYPES),
                         },
                         "scope": {
                             "type": ["string", "null"],
+                            "enum": [*SCOPES, None],
                             "description": "One of: " + ", ".join(SCOPES),
                         },
                         "importance": {"type": ["number", "null"]},
@@ -155,7 +181,12 @@ def gemini_schema() -> dict[str, Any]:
                         "valid_until": {"type": ["string", "null"]},
                         "task_status": {
                             "type": ["string", "null"],
+                            "enum": ["unknown", "todo", "doing", "done", None],
                             "description": "For task memories only: unknown, todo, doing, or done.",
+                        },
+                        "holds_in_other_repos": {
+                            "type": ["boolean", "null"],
+                            "description": _HOLDS_ELSEWHERE_DESC,
                         },
                         "reason": {"type": "string"},
                     },
@@ -281,6 +312,125 @@ def call_vertex(
 
     result.raw = parsed
     result.operations = list((parsed or {}).get("operations") or [])
+    return result
+
+
+def merge_schema() -> dict[str, Any]:
+    """Response schema for the consolidator.
+
+    A separate, much smaller schema than the extractor's: consolidation answers one
+    question about one cluster. `text` is nullable because "these are actually
+    different things" is a first-class answer -- see rule 4 of the merge prompt.
+    """
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "text": {
+                "type": ["string", "null"],
+                "description": (
+                    "The merged fact, under 200 characters. Null if the memories "
+                    "are about different things and must not be merged."
+                ),
+            },
+            "importance": {
+                "type": ["number", "null"],
+                "description": "Importance of the merged fact, 0.0-1.0.",
+            },
+            "reason": {"type": "string"},
+        },
+        "required": ["text", "importance", "reason"],
+    }
+
+
+def merge_tool() -> dict[str, Any]:
+    """Anthropic equivalent of `merge_schema`, strict mode."""
+    schema = merge_schema()
+    return {
+        "name": "emit_merge",
+        "description": "Emit one merged memory, or null if they must not merge.",
+        "strict": True,
+        "input_schema": schema,
+    }
+
+
+def call_merge(
+    *,
+    model: str,
+    prompt: str,
+    anthropic_api_key: str = "",
+    gemini_api_key: str = "",
+    project: str = "",
+    location: str = "",
+) -> ProviderResult:
+    """One consolidation call. `raw` carries the merge object, `operations` is unused."""
+    which = provider_of(model)
+    if which == "gemini":
+        if not (gemini_api_key or project):
+            return ProviderResult(error="no GEMINI_API_KEY and no VERTEX_PROJECT")
+        from google import genai
+        from google.genai import types
+
+        client = (
+            genai.Client(vertexai=True, project=project, location=location or "global",
+                         api_key=gemini_api_key or None)
+            if project
+            else genai.Client(api_key=gemini_api_key)
+        )
+        response = client.models.generate_content(
+            model=model,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                thinking_config=types.ThinkingConfig(thinking_level="MINIMAL"),
+                response_mime_type="application/json",
+                response_json_schema=merge_schema(),
+                max_output_tokens=1024,
+            ),
+        )
+        usage = getattr(response, "usage_metadata", None)
+        result = ProviderResult(
+            input_tokens=getattr(usage, "prompt_token_count", 0) or 0,
+            output_tokens=(
+                (getattr(usage, "candidates_token_count", 0) or 0)
+                + (getattr(usage, "thoughts_token_count", 0) or 0)
+            ),
+        )
+        text = getattr(response, "text", None)
+        if not text:
+            result.error = "empty_response"
+            return result
+        try:
+            result.raw = json.loads(text)
+        except ValueError as exc:
+            result.error = f"json_decode_error: {exc}"
+        return result
+
+    if not anthropic_api_key:
+        return ProviderResult(error="no ANTHROPIC_API_KEY configured")
+    from anthropic import Anthropic
+
+    tool = merge_tool()
+    extra: dict[str, Any] = {}
+    if not model.startswith("claude-haiku"):
+        extra["output_config"] = {"effort": "low"}
+    response = Anthropic(api_key=anthropic_api_key).messages.create(
+        model=model,
+        max_tokens=1024,
+        tools=[tool],
+        tool_choice={"type": "tool", "name": tool["name"]},
+        messages=[{"role": "user", "content": prompt}],
+        **extra,
+    )
+    result = ProviderResult(
+        input_tokens=response.usage.input_tokens,
+        output_tokens=response.usage.output_tokens,
+    )
+    if response.stop_reason == "refusal":
+        result.error = "refusal"
+        return result
+    for block in response.content:
+        if block.type == "tool_use" and block.name == tool["name"]:
+            result.raw = block.input
     return result
 
 

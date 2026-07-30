@@ -22,6 +22,8 @@ from typing import Any
 
 import yaml
 
+TARGETS = ("raw", "memories")
+
 
 @dataclass
 class Case:
@@ -31,9 +33,20 @@ class Case:
     expect_all: list[str]
     reject: list[str]
     project: str | None
+    answerable_by: tuple[str, ...]
 
     @classmethod
     def parse(cls, raw: dict[str, Any], index: int) -> Case:
+        declared = raw.get("answerable_by")
+        if declared is None:
+            answerable = TARGETS
+        else:
+            answerable = tuple(str(t) for t in declared)
+            unknown = set(answerable) - set(TARGETS)
+            if unknown:
+                raise ValueError(
+                    f"{raw.get('id')}: unknown answerable_by {sorted(unknown)}"
+                )
         return cls(
             id=str(raw.get("id") or f"q{index}"),
             query=raw["query"],
@@ -41,6 +54,7 @@ class Case:
             expect_all=[str(p) for p in raw.get("expect_all", [])],
             reject=[str(p) for p in raw.get("reject", [])],
             project=raw.get("project"),
+            answerable_by=answerable,
         )
 
 
@@ -80,12 +94,24 @@ def run_eval(queries_path: Path, limit: int = 10, target: str = "raw") -> int:
         print(f"no eval file at {queries_path}", file=sys.stderr)
         return 1
 
-    cases = [
+    all_cases = [
         Case.parse(raw, i)
         for i, raw in enumerate(yaml.safe_load(queries_path.read_text()) or [])
     ]
-    if not cases:
+    if not all_cases:
         print("eval file is empty", file=sys.stderr)
+        return 1
+
+    # A question the extractor is *right* to have no answer for must not be
+    # scored against the memory store. Measured before this split: 19 of 22
+    # misses against `memories` were windows the judge had read and correctly
+    # declined -- one-off tickets ("the header is too big", "run the seeder"),
+    # which prompt rule 8 forbids storing. Scoring those produced MRR 0.253 and
+    # read as an extractor failure when it was a specification conflict.
+    cases = [c for c in all_cases if target in c.answerable_by]
+    skipped = [c for c in all_cases if target not in c.answerable_by]
+    if not cases:
+        print(f"no cases answerable by {target!r}", file=sys.stderr)
         return 1
 
     s = get_settings()
@@ -153,6 +179,12 @@ def run_eval(queries_path: Path, limit: int = 10, target: str = "raw") -> int:
     n = len(cases)
     scored = len(reciprocal_ranks) or 1
     print(f"cases             {n}")
+    if skipped:
+        # Named, never silent: a suppressed case is a coverage claim not being
+        # made, and that has to be visible in the output that gets compared.
+        print(f"skipped           {len(skipped)} not answerable by {target} "
+              f"({', '.join(c.id for c in skipped[:6])}"
+              f"{', ...' if len(skipped) > 6 else ''})")
     print(f"recall@{limit:<11} {hits_at_k / n:.2f}  ({hits_at_k}/{n})")
     print(f"MRR               {sum(reciprocal_ranks) / scored:.3f}")
     print(f"top-1 hits        {top1}/{scored}")

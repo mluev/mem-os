@@ -94,7 +94,15 @@ def memories_where(
         clauses.append("importance <= ?")
         params.append(max_importance)
     if expired_validity:
-        clauses.append("valid_until IS NOT NULL AND valid_until <= datetime('now')")
+        # Compared against an ISO-with-Z stamp, not datetime('now'). Timestamps
+        # here are stored as "2026-07-29T00:00:00Z" while datetime('now') yields
+        # "2026-07-29 07:34:22": at offset 10 that is 'T' (0x54) against ' '
+        # (0x20), so a same-day value always sorted *after* now and an expiry
+        # earlier today was reported as still valid.
+        clauses.append(
+            "valid_until IS NOT NULL"
+            " AND valid_until <= strftime('%Y-%m-%dT%H:%M:%SZ','now')"
+        )
     if created_after:
         clauses.append("created_at >= ?")
         params.append(created_after)
@@ -188,9 +196,9 @@ def patch_memory(memory_id: str, body: MemoryPatch, request: Request) -> dict[st
     if "text" in changes and not (changes["text"] or "").strip():
         raise HTTPException(422, "text cannot be empty")
     try:
-        with transaction(request.app.state.conn):
+        with transaction(request.app.state.db()):
             result = mutate.update_memory(
-                request.app.state.conn,
+                request.app.state.db(),
                 request.app.state.qdrant,
                 request.app.state.embedder,
                 memory_id=memory_id,
@@ -213,16 +221,16 @@ def delete_memory(
 ) -> dict[str, Any]:
     _guard_mutation(request)
     try:
-        with transaction(request.app.state.conn):
+        with transaction(request.app.state.db()):
             if hard:
                 result = mutate.hard_delete(
-                    request.app.state.conn,
+                    request.app.state.db(),
                     request.app.state.qdrant,
                     memory_id=memory_id,
                 )
             else:
                 result = mutate.set_status(
-                    request.app.state.conn,
+                    request.app.state.db(),
                     request.app.state.qdrant,
                     request.app.state.embedder,
                     memory_id=memory_id,
@@ -251,9 +259,9 @@ def supersede_memory(
 ) -> dict[str, Any]:
     _guard_mutation(request)
     try:
-        with transaction(request.app.state.conn):
+        with transaction(request.app.state.db()):
             result = mutate.supersede(
-                request.app.state.conn,
+                request.app.state.db(),
                 request.app.state.qdrant,
                 memory_id=memory_id,
                 by_id=body.by,
@@ -277,9 +285,9 @@ def bulk_memories(body: BulkIn, request: Request) -> dict[str, Any]:
     _guard_mutation(request)
     if body.op == "hard_delete" and (not body.confirm or len(body.ids) > 100):
         raise HTTPException(422, "hard_delete requires confirm and at most 100 ids")
-    with transaction(request.app.state.conn):
+    with transaction(request.app.state.db()):
         result = mutate.bulk(
-            request.app.state.conn,
+            request.app.state.db(),
             request.app.state.qdrant,
             request.app.state.embedder,
             ids=body.ids,
@@ -355,7 +363,7 @@ def judge_runs(
     elif has_ops is False:
         clauses.append("(output_json IS NULL OR output_json LIKE '%\"operations\": []%')")
     where = " AND ".join(clauses)
-    rows = request.app.state.conn.execute(
+    rows = request.app.state.db().execute(
         f"""SELECT * FROM judge_runs WHERE {where}
              ORDER BY {JUDGE_SORTS[sort]} {order.upper()}, id ASC LIMIT ? OFFSET ?""",
         [*params, limit, offset],
@@ -365,7 +373,7 @@ def judge_runs(
         item = dict(row)
         item["ops"] = _ops(row["output_json"])
         items.append(item)
-    total = request.app.state.conn.execute(
+    total = request.app.state.db().execute(
         f"SELECT COUNT(*) n FROM judge_runs WHERE {where}", params
     ).fetchone()["n"]
     return {"items": items, "total": total, "limit": limit, "offset": offset}
@@ -373,7 +381,7 @@ def judge_runs(
 
 @router.get("/v1/admin/judge-runs/{run_id}")
 def judge_run_detail(run_id: int, request: Request) -> dict[str, Any]:
-    conn = request.app.state.conn
+    conn = request.app.state.db()
     row = conn.execute("SELECT * FROM judge_runs WHERE id=?", (run_id,)).fetchone()
     if row is None:
         raise HTTPException(404, "unknown judge run")
@@ -433,13 +441,13 @@ def cost_summary(conn: sqlite3.Connection, days: int) -> dict[str, Any]:
         """SELECT kind, COUNT(*) calls, COALESCE(SUM(cost_usd),0) usd,
                   COALESCE(SUM(input_tokens),0) tin,
                   COALESCE(SUM(output_tokens),0) tout
-             FROM judge_runs WHERE created_at >= datetime('now', ?)
+             FROM judge_runs WHERE created_at >= strftime('%Y-%m-%dT%H:%M:%SZ','now',?)
             GROUP BY kind""",
         (f"-{days} days",),
     ).fetchall()
     errors = conn.execute(
         """SELECT COUNT(*) n FROM judge_runs
-            WHERE error IS NOT NULL AND created_at >= datetime('now', ?)""",
+            WHERE error IS NOT NULL AND created_at >= strftime('%Y-%m-%dT%H:%M:%SZ','now',?)""",
         (f"-{days} days",),
     ).fetchone()["n"]
     settings = get_settings()
@@ -466,7 +474,7 @@ def daily_activity(
         for row in conn.execute(
             """SELECT substr(created_at,1,10) day, COUNT(*) n
                  FROM memories
-                WHERE owner_id=? AND created_at >= datetime('now', ?)
+                WHERE owner_id=? AND created_at >= strftime('%Y-%m-%dT%H:%M:%SZ','now',?)
                 GROUP BY day""",
             (owner_id, since),
         ).fetchall()
@@ -475,7 +483,7 @@ def daily_activity(
     for row in conn.execute(
         """SELECT substr(created_at,1,10) day, type, COUNT(*) n
              FROM memories
-            WHERE owner_id=? AND created_at >= datetime('now', ?)
+            WHERE owner_id=? AND created_at >= strftime('%Y-%m-%dT%H:%M:%SZ','now',?)
             GROUP BY day, type""",
         (owner_id, since),
     ).fetchall():
@@ -485,7 +493,7 @@ def daily_activity(
         for row in conn.execute(
             """SELECT substr(m.created_at,1,10) day, COUNT(*) n
                  FROM messages m JOIN sessions s ON s.id=m.session_id
-                WHERE s.owner_id=? AND m.created_at >= datetime('now', ?)
+                WHERE s.owner_id=? AND m.created_at >= strftime('%Y-%m-%dT%H:%M:%SZ','now',?)
                 GROUP BY day""",
             (owner_id, since),
         ).fetchall()
@@ -496,7 +504,7 @@ def daily_activity(
             """SELECT substr(created_at,1,10) day, COUNT(*) n,
                       COALESCE(SUM(cost_usd),0) usd
                  FROM judge_runs
-                WHERE created_at >= datetime('now', ?)
+                WHERE created_at >= strftime('%Y-%m-%dT%H:%M:%SZ','now',?)
                 GROUP BY day""",
             (since,),
         ).fetchall()
@@ -601,22 +609,22 @@ def activity(
     owner = owner_id or get_settings().owner_id
     return {
         "days": days,
-        "items": daily_activity(request.app.state.conn, owner_id=owner, days=days),
+        "items": daily_activity(request.app.state.db(), owner_id=owner, days=days),
     }
 
 
 @router.get("/v1/admin/costs")
 def costs(request: Request, days: int = Query(30, ge=1, le=3650)) -> dict[str, Any]:
-    return cost_summary(request.app.state.conn, days)
+    return cost_summary(request.app.state.db(), days)
 
 
 @router.get("/v1/admin/costs/daily")
 def costs_daily(
     request: Request, days: int = Query(30, ge=1, le=365)
 ) -> dict[str, Any]:
-    rows = request.app.state.conn.execute(
+    rows = request.app.state.db().execute(
         """SELECT substr(created_at,1,10) day, kind, SUM(COALESCE(cost_usd,0)) usd
-             FROM judge_runs WHERE created_at >= datetime('now', ?)
+             FROM judge_runs WHERE created_at >= strftime('%Y-%m-%dT%H:%M:%SZ','now',?)
             GROUP BY day, kind""",
         (f"-{days - 1} days",),
     ).fetchall()
@@ -644,7 +652,7 @@ def facets(request: Request, owner_id: str | None = None) -> dict[str, Any]:
     }.items():
         out[name] = [
             {"value": row["value"], "count": row["count"]}
-            for row in request.app.state.conn.execute(
+            for row in request.app.state.db().execute(
                 f"""SELECT {expression} value, COUNT(*) count FROM memories
                      WHERE owner_id=? GROUP BY {expression} ORDER BY count DESC""",
                 (owner,),
@@ -682,7 +690,7 @@ def sessions(
     elif has_unprocessed is False:
         having = "HAVING SUM(CASE WHEN m.processed=0 THEN 1 ELSE 0 END)=0"
     where = " AND ".join(clauses)
-    rows = request.app.state.conn.execute(
+    rows = request.app.state.db().execute(
         f"""SELECT s.*, COUNT(m.id) message_count,
                    SUM(CASE WHEN m.processed=0 THEN 1 ELSE 0 END) unprocessed_count
               FROM sessions s LEFT JOIN messages m ON m.session_id=s.id
@@ -695,7 +703,7 @@ def sessions(
     memory_counts: dict[str, int] = {}
     if session_ids:
         placeholders = ",".join("?" for _ in session_ids)
-        for row in request.app.state.conn.execute(
+        for row in request.app.state.db().execute(
             f"""SELECT m.session_id, COUNT(DISTINCT ms.memory_id) n
                   FROM messages m JOIN memory_sources ms ON ms.message_id=m.id
                  WHERE m.session_id IN ({placeholders}) GROUP BY m.session_id""",
@@ -708,7 +716,7 @@ def sessions(
             item["meta"] = json.loads(item["meta"]) if item["meta"] else {}
         except (ValueError, TypeError):
             item["meta"] = {}
-    total = request.app.state.conn.execute(
+    total = request.app.state.db().execute(
         f"SELECT COUNT(*) n FROM sessions s WHERE {where}", params
     ).fetchone()["n"]
     return {"items": items, "total": int(total), "limit": limit, "offset": offset}
@@ -722,7 +730,7 @@ def session_messages(
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
 ) -> dict[str, Any]:
-    conn = request.app.state.conn
+    conn = request.app.state.db()
     session = conn.execute("SELECT * FROM sessions WHERE id=?", (session_id,)).fetchone()
     if session is None:
         raise HTTPException(404, "unknown session")
@@ -760,7 +768,7 @@ def session_messages(
 
 @router.get("/v1/admin/messages/{message_id}")
 def message_detail(message_id: int, request: Request) -> dict[str, Any]:
-    row = request.app.state.conn.execute(
+    row = request.app.state.db().execute(
         """SELECT m.*,s.owner_id,s.agent_id,s.meta FROM messages m
              JOIN sessions s ON s.id=m.session_id WHERE m.id=?""",
         (message_id,),
@@ -770,7 +778,7 @@ def message_detail(message_id: int, request: Request) -> dict[str, Any]:
     out = dict(row)
     out["memory_ids"] = [
         item["memory_id"]
-        for item in request.app.state.conn.execute(
+        for item in request.app.state.db().execute(
             "SELECT memory_id FROM memory_sources WHERE message_id=?", (message_id,)
         ).fetchall()
     ]
@@ -830,7 +838,7 @@ def stats(
     owner_id: str | None = None,
     days: int = Query(30, ge=1, le=3650),
 ) -> dict[str, Any]:
-    conn = request.app.state.conn
+    conn = request.app.state.db()
     owner = owner_id or get_settings().owner_id
 
     def grouped(column: str) -> dict[str, int]:
@@ -863,10 +871,10 @@ def stats(
              SUM(CASE WHEN status='active' AND retrieval_count=0 THEN 1 ELSE 0 END) never_retrieved,
              SUM(CASE WHEN status='active' AND confidence<0.6 THEN 1 ELSE 0 END) low_confidence,
              SUM(CASE WHEN status='active' AND valid_until IS NOT NULL
-                       AND valid_until<=datetime('now','+7 days') THEN 1 ELSE 0 END) expiring_7d,
+                       AND valid_until<=strftime('%Y-%m-%dT%H:%M:%SZ','now','+7 days') THEN 1 ELSE 0 END) expiring_7d,
              SUM(CASE WHEN status='superseded' THEN 1 ELSE 0 END) superseded,
              SUM(CASE WHEN status='expired' THEN 1 ELSE 0 END) expired,
-             SUM(CASE WHEN status='active' AND updated_at<datetime('now','-90 days')
+             SUM(CASE WHEN status='active' AND updated_at<strftime('%Y-%m-%dT%H:%M:%SZ','now','-90 days')
                        THEN 1 ELSE 0 END) stale_90d
            FROM memories WHERE owner_id=?""",
         (owner,),
@@ -937,6 +945,140 @@ def _run_reindex(app: Any) -> None:
             app.state.reindex_job.update(status="error", error=str(exc))
     finally:
         conn.close()
+
+
+class ReextractIn(BaseModel):
+    owner_id: str | None = None
+    from_date: str | None = None
+    prompt_version: str | None = None
+    dry_run: bool = True
+    max_calls: int = Field(default=0, ge=0)
+    # Accepted so the documented body still validates, then rejected below. The doc
+    # offers it at half price; this service does not implement Batch, and quietly
+    # ignoring the flag would report a discount that was never applied.
+    use_batch: bool = False
+
+
+@router.post("/v1/admin/reextract")
+def reextract(body: ReextractIn, request: Request) -> dict[str, Any]:
+    """Replay history under another prompt version. `dry_run` defaults to true.
+
+    Old facts are superseded rather than overwritten, and the response carries their
+    ids so `POST /v1/admin/memories/bulk` with `op="restore"` is a full rollback.
+    """
+    from . import prompts
+    from . import reextract as reextractor
+
+    _guard_mutation(request)
+    settings = get_settings()
+    if body.use_batch:
+        raise HTTPException(
+            422,
+            "use_batch is not implemented: Gemini's Batch API is not wired here. "
+            "Re-run without it; a full replay of this corpus costs about $0.50.",
+        )
+    version = body.prompt_version or prompts.DEFAULT_VERSION
+    if version not in prompts.REGISTRY:
+        raise HTTPException(
+            422,
+            f"unknown prompt_version {version!r}; "
+            f"known: {', '.join(sorted(prompts.REGISTRY))}",
+        )
+
+    conn = request.app.state.db()
+    owner = body.owner_id or settings.owner_id
+    started = time.perf_counter()
+    model = settings.judge_model
+
+    if body.dry_run:
+        proposed = reextractor.plan(
+            conn, owner_id=owner, from_date=body.from_date, model=model
+        )
+        return {
+            **proposed.as_dict(),
+            "dry_run": True,
+            "prompt_version": version,
+            "model": model,
+            "took_ms": round((time.perf_counter() - started) * 1000),
+        }
+
+    with transaction(conn):
+        outcome = reextractor.run(
+            conn,
+            request.app.state.qdrant,
+            request.app.state.embedder,
+            owner_id=owner,
+            from_date=body.from_date,
+            version=version,
+            model=model,
+            monthly_limit_usd=settings.monthly_cost_limit_usd,
+            anthropic_api_key=settings.anthropic_api_key,
+            gemini_api_key=settings.gemini_api_key,
+            project=settings.vertex_project,
+            location=settings.vertex_location,
+            max_calls=body.max_calls,
+        )
+    return {
+        **outcome.as_dict(),
+        "dry_run": False,
+        "prompt_version": version,
+        "model": model,
+        "took_ms": round((time.perf_counter() - started) * 1000),
+    }
+
+
+class ConsolidateIn(BaseModel):
+    owner_id: str | None = None
+    dry_run: bool = True
+    # Exposed per-request so a threshold can be swept against the eval without a
+    # restart. docs/05 measured 0.90 as barely catching paraphrases, so the right
+    # value here is an empirical question, not a constant.
+    threshold: float | None = Field(default=None, ge=0.5, le=1.0)
+
+
+@router.post("/v1/admin/consolidate")
+def consolidate(body: ConsolidateIn, request: Request) -> dict[str, Any]:
+    """Stage 4, on demand. `dry_run` defaults to true.
+
+    Documented in docs/03-api.md from the start and unimplemented until now. Always
+    dry-run first: a merge supersedes its inputs, and while nothing is deleted, the
+    active set it leaves behind is what every later search sees.
+    """
+    from . import consolidate as consolidator
+
+    _guard_mutation(request)
+    settings = get_settings()
+    conn = request.app.state.db()
+    owner = body.owner_id or settings.owner_id
+    started = time.perf_counter()
+    with transaction(conn):
+        outcome = consolidator.run(
+            conn,
+            request.app.state.qdrant,
+            request.app.state.embedder,
+            owner_id=owner,
+            threshold=body.threshold or settings.consolidate_cosine,
+            stale_days=settings.consolidate_stale_days,
+            demotion=settings.consolidate_demotion,
+            model=settings.judge_model,
+            monthly_limit_usd=settings.monthly_cost_limit_usd,
+            anthropic_api_key=settings.anthropic_api_key,
+            gemini_api_key=settings.gemini_api_key,
+            project=settings.vertex_project,
+            location=settings.vertex_location,
+            dry_run=body.dry_run,
+        )
+    active = conn.execute(
+        "SELECT COUNT(*) n FROM memories WHERE owner_id=? AND status='active'",
+        (owner,),
+    ).fetchone()["n"]
+    return {
+        **outcome.as_dict(),
+        "dry_run": body.dry_run,
+        "threshold": body.threshold or settings.consolidate_cosine,
+        "active_after": int(active),
+        "took_ms": round((time.perf_counter() - started) * 1000),
+    }
 
 
 @router.post("/v1/admin/reindex/start", status_code=status.HTTP_202_ACCEPTED)
