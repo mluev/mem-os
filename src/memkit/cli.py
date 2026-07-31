@@ -416,8 +416,10 @@ def cmd_eval(args: argparse.Namespace) -> int:
     root = queries.resolve().parent.parent
     if str(root) not in sys.path:
         sys.path.insert(0, str(root))
-    from eval.run import run_eval
+    from eval.run import run_compare, run_eval
 
+    if args.compare:
+        return run_compare(queries, limit=args.limit)
     return run_eval(queries, limit=args.limit, target=args.target)
 
 
@@ -472,6 +474,9 @@ def main() -> int:
     sp.add_argument("--limit", type=int, default=10)
     sp.add_argument("--target", choices=("raw", "memories"), default="raw",
                     help="raw turns (stage-1 baseline) or extracted facts")
+    sp.add_argument("--compare", action="store_true",
+                    help="score both targets over the cases both can answer; "
+                         "the only honest raw-vs-facts comparison")
     sp.set_defaults(func=cmd_eval)
 
     args = p.parse_args()

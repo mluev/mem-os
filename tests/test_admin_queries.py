@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from fastapi import HTTPException  # noqa: E402
 from memkit import admin  # noqa: E402
 from memkit.db import utcnow  # noqa: E402
-from tests.test_extract import OWNER, make_db  # noqa: E402
+from tests.fixtures import OWNER, make_db  # noqa: E402
 
 
 class TestAdminQueries(unittest.TestCase):

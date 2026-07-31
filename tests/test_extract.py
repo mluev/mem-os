@@ -14,108 +14,23 @@ from __future__ import annotations
 
 import json
 import sys
-import tempfile
 import unittest
 from datetime import date
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from memkit import extract, judge, prompts, providers, retrieval  # noqa: E402
-from memkit.db import connect, ensure_owner, ensure_session, init_db  # noqa: E402
-
-OWNER = "u-test"
-
-
-class StubEmbedder:
-    """Deterministic unit vectors — no model load, no MPS."""
-
-    def encode_one(self, text: str) -> list[float]:
-        return [1.0] + [0.0] * 1023
-
-    def encode(self, texts: list[str], batch_size: int = 16) -> list[list[float]]:
-        return [self.encode_one(t) for t in texts]
-
-
-class StubQdrant:
-    def __init__(self) -> None:
-        self.points: dict[str, dict] = {}
-        self.deleted: list[str] = []
-
-    def upsert(self, collection_name, points, wait=True):
-        for p in points:
-            self.points[str(p.id)] = p.payload
-
-    def delete(self, collection_name, points_selector, wait=True):
-        for pid in points_selector:
-            self.deleted.append(str(pid))
-            self.points.pop(str(pid), None)
-
-    def set_payload(self, collection_name, points, payload, wait=True):
-        for pid in points:
-            self.points[str(pid)].update(payload)
-
-    def query_points(self, collection_name, **kwargs):
-        """Candidate lookup returns nothing.
-
-        Enough for the pipeline tests: what they assert is what happens to SQLite
-        and Qdrant after the judge answers, and an empty CANDIDATES block is the
-        common case in production anyway.
-        """
-        return SimpleNamespace(points=[])
-
-
-def make_db():
-    tmp = Path(tempfile.mkdtemp()) / "t.db"
-    init_db(tmp)
-    conn = connect(tmp)
-    ensure_owner(conn, OWNER, "test")
-    ensure_session(conn, "s-1", OWNER, "chat")
-    return conn
-
-
-def make_judge_run(conn, cost=0.002) -> int:
-    """Insert a real judge_runs row and return its id.
-
-    memories.judge_run_id is a foreign key, so a fabricated id is rejected —
-    provenance cannot point at a judge run that never happened. Production
-    always has a real row here because judge.extract() logs before applying.
-    """
-    cur = conn.execute(
-        """INSERT INTO judge_runs
-           (kind, model, prompt_version, input_json, cost_usd, created_at)
-           VALUES ('extract', ?, ?, '{}', ?, '2026-07-01T00:00:00Z')""",
-        (judge.DEFAULT_MODEL, judge.PROMPT_VERSION, cost),
-    )
-    conn.commit()
-    return int(cur.lastrowid)
-
-
-def add_messages(conn, n=10, role="user", content="hello there friend"):
-    ids = []
-    for i in range(n):
-        cur = conn.execute(
-            "INSERT INTO messages (session_id, role, content, created_at) "
-            "VALUES ('s-1', ?, ?, '2026-07-01T00:00:00Z')",
-            (role, f"{content} {i}"),
-        )
-        ids.append(int(cur.lastrowid))
-    conn.commit()
-    return ids
-
-
-def apply(conn, q, ops, **kw):
-    run_id = kw.get("judge_run_id")
-    if run_id is None:
-        run_id = make_judge_run(conn)
-    return extract.apply_ops(
-        conn, q, StubEmbedder(), ops=ops, owner_id=OWNER,
-        agent_id=kw.get("agent_id", "chat"), scope_key=kw.get("scope_key"),
-        judge_run_id=run_id,
-        source_message_ids=kw.get("source_message_ids", []),
-    )
+from tests.fixtures import (  # noqa: E402
+    OWNER,
+    StubEmbedder,
+    StubQdrant,
+    add_messages,
+    apply,
+    make_db,
+    make_judge_run,
+)
 
 
 # --------------------------------------------------------------------------

@@ -20,7 +20,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from memkit import consolidate, providers, store  # noqa: E402
-from tests.test_extract import OWNER, StubEmbedder, StubQdrant, make_db  # noqa: E402
+from tests.fixtures import OWNER, StubEmbedder, StubQdrant, make_db  # noqa: E402
 
 MEASURED_DUPLICATE = 0.9278
 MEASURED_DISTINCT = 0.7422

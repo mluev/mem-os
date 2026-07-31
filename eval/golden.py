@@ -28,7 +28,6 @@ import re
 import statistics
 import sys
 import time
-from collections import Counter
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path

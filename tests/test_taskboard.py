@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from memkit import mutate, retrieval, store, taskboard  # noqa: E402
 from memkit.db import connect, init_db, transaction  # noqa: E402
-from tests.test_extract import OWNER, StubEmbedder, StubQdrant, make_db  # noqa: E402
+from tests.fixtures import OWNER, StubEmbedder, StubQdrant, make_db  # noqa: E402
 
 
 class TestTaskBoardMigration(unittest.TestCase):

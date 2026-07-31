@@ -267,6 +267,14 @@ def add_memory(
 ) -> str:
     """Insert a fact into SQLite and mirror it into Qdrant."""
     ensure_owner(conn, owner_id, owner_id)
+    # A user-scoped fact has no key, the same normalisation mutate.update_memory
+    # applies on the edit path. Both paths write the same column and only one
+    # enforced it, so `POST /v1/memories` could create a `scope='user'` row
+    # carrying a project key: harmless to retrieval, which ignores the key for
+    # user scope, but it shows up under a project filter in the listing and the
+    # facets, claiming the fact belongs to one repo when it belongs to all.
+    if scope == "user":
+        scope_key = None
     mem_id = str(uuidlib.uuid4())
     now = utcnow()
     conn.execute(

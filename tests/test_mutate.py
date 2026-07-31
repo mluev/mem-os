@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from memkit import mutate, store  # noqa: E402
 from memkit.db import transaction  # noqa: E402
-from tests.test_extract import OWNER, StubEmbedder, StubQdrant, add_messages, make_db  # noqa: E402
+from tests.fixtures import OWNER, StubEmbedder, StubQdrant, add_messages, make_db  # noqa: E402
 
 
 class CountingEmbedder(StubEmbedder):
