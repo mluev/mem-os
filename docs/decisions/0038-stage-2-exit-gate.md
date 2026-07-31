@@ -15,27 +15,26 @@ prompt and do not move on.*
 
 ## The result
 
-On the 31 questions both targets can answer:
+Scored over the questions both targets can answer, extracted facts retrieve
+**worse than searching the raw transcript** on both recall and MRR, and use roughly
+a quarter of the tokens to do it. The figures are in
+[measurements.md](../measurements.md#head-to-head-31-shared-cases) and are not
+repeated here — an entry in this log states a relation, not a magnitude, so that
+re-running the eval cannot leave a stale copy behind.
 
-| | raw turns | extracted facts |
-|---|---|---|
-| MRR | 0.790 | 0.728 |
-| mean tokens | 1,674 | 423 |
-
-**Taken literally, the gate is not met.** Extracted facts retrieve worse than
-searching the raw transcript, by 0.062 MRR. Stage 2 was advanced anyway.
+**Taken literally, the gate is not met.** Stage 2 was advanced anyway.
 
 ## The argument for advancing
 
 The gate asked a question — is the extractor earning its keep? — and MRR alone
 does not answer it, because the two targets are not interchangeable outputs.
 
-Extracted facts deliver **3.7× the MRR per token** (1.723 against 0.472). That is
-not a rescaling of the same result; it is the difference between fitting in an
-agent's context and not. The read path targets 600–1,000 tokens of memory per
-request. Raw turns average 1,674 and peak at 9,829 — a single answer that would
-consume most of the budget the whole feature is allotted. A retrieval strategy
-that cannot be afforded has an effective MRR of zero.
+Extracted facts deliver several times the MRR per token. That is not a rescaling of
+the same result; it is the difference between fitting in an agent's context and not.
+The read path targets 600–1,000 tokens of memory per request, and the raw-turn mean
+is several times that ceiling, with a worst case an order of magnitude above it — a
+single answer consuming most of the budget the whole feature is allotted. A
+retrieval strategy that cannot be afforded has an effective MRR of zero.
 
 Two further caveats, both real and neither decisive:
 

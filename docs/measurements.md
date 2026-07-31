@@ -46,6 +46,11 @@ in `experiments/` and is never updated.**
 | — active | 97 |
 | provenance links (`memory_sources`) | 1,077 |
 
+The 6 unprocessed messages are not a backlog to be cleared. The service ingests
+continuously, so this number is normally small and non-zero; it is only worth acting
+on if it grows without bound, which means the gate has stopped firing or the judge is
+failing. A momentary zero is luck, not health.
+
 Active facts by scope: **60 project, 37 user**. The user share is what determines
 how much of the store is reachable without naming a project — see
 [`decisions/0039`](decisions/0039-relabel-v4-scoped-facts.md) for why it matters
@@ -252,15 +257,20 @@ no longer in production, or a state the system has moved past. They are kept
 because the reasoning built on them is still load-bearing, and they are **not
 current**.
 
-| what | when | where |
+A frozen result lives **with the decision it justified**, not here. This section is
+an index — what was measured, when, and where the values are — deliberately without
+the values, so that a one-off number has exactly one home like every other. Anything
+below with no destination is one that has not needed a decision written for it yet.
+
+| what was measured | when | values live in |
 |---|---|---|
-| v1→v6 prompt comparisons, per-window recall and scope shares | 2026-07-28 → 07-29 | [`experiments/extractor-prompts.md`](experiments/extractor-prompts.md) |
-| full-corpus extraction read: 247 calls, $0.50, 1 error, 88 active facts | 2026-07-29 | [`experiments/extractor-prompts.md`](experiments/extractor-prompts.md) |
-| first consolidation run: one cluster at 0.9278, $0.00025, 88 → 87 facts | 2026-07-29 | [`decisions/0031`](decisions/0031-consolidate-at-0.92.md) |
-| BGE-M3 dedup cosines: 1.0000 / 0.8979 / 0.8871 / 0.8620 / 0.7422 | 2026-07-29 | [`decisions/0030`](decisions/0030-dedup-stays-at-0.90.md) |
-| similarity-floor sweep: off 0.87, 0.40 → 0.87, 0.45 → 0.84, 0.50 → 0.77 | 2026-07-29 | [`decisions/0028`](decisions/0028-no-similarity-floor.md) |
-| Hermes prefetch: ~840 ms cold, 75–93 ms warm | 2026-07-30 | [`decisions/0040`](decisions/0040-prefetch-timeout-and-warmup.md) |
-| importer classification: 58,666 lines → 4,411 turns kept, 304 indexable | 2026-07-28 | [`decisions/0027`](decisions/0027-importer-two-signals.md) |
+| v1→v6 prompt comparisons: per-window recall, scope shares, fact lengths | 2026-07-28 → 07-29 | [`experiments/extractor-prompts.md`](experiments/extractor-prompts.md) |
+| the full-corpus extraction read that disagreed with the bench | 2026-07-29 | [`experiments/extractor-prompts.md`](experiments/extractor-prompts.md) |
+| the first consolidation run, and what it revealed about merging | 2026-07-29 | [`decisions/0031`](decisions/0031-consolidate-at-0.92.md) |
+| BGE-M3 cosines for restatements, paraphrases and distinct facts | 2026-07-29 | [`decisions/0030`](decisions/0030-dedup-stays-at-0.90.md) |
+| the similarity-floor sweep | 2026-07-29 | [`decisions/0028`](decisions/0028-no-similarity-floor.md) |
+| Hermes prefetch latency, cold and warm | 2026-07-30 | [`decisions/0040`](decisions/0040-prefetch-timeout-and-warmup.md) |
+| transcript-importer classification and rejection rates | 2026-07-28 | [`decisions/0027`](decisions/0027-importer-two-signals.md) |
 
 The extractor bench has documented run-to-run variance of more than 2× on the
 same prompt and corpus (0.24 to 0.60 facts per window across five runs of v4).

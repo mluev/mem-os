@@ -46,9 +46,10 @@ Building the mechanism before the cases exist means shipping a feature no test
 can tell is working. The honest order is cases first.
 
 The archived spec's own target was 200–1,200 tokens with a median around 400. The
-implemented budget fill produces a mean of 423 on the current eval, which lands
-inside that band without any of the machinery — which is some evidence that the
-machinery was solving a problem the budget already handles.
+implemented budget fill lands inside that band on the current eval
+([measurements.md](../measurements.md#head-to-head-31-shared-cases)) without any of
+the machinery — which is some evidence that the machinery was solving a problem the
+budget already handles.
 
 ## Revisit when
 
