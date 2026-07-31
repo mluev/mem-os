@@ -74,7 +74,7 @@ class Settings(BaseSettings):
     # Measured on this corpus: a real duplicate pair ("User's name is Maga Luev" /
     # "User's name is Maga (or MagaLoviev)") sits at 0.9278, and the pair that must
     # never merge ("Prefers pnpm" / "Prefers pytest") at 0.7422. So the documented
-    # 0.92 does catch this class, contrary to docs/05's pessimism.
+    # 0.92 does catch this class. See decisions/0031.
     consolidate_cosine: float = 0.92
     # Facts not retrieved in this long lose importance on the nightly pass.
     consolidate_stale_days: int = 90

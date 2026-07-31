@@ -1,212 +1,193 @@
-# 02 — Модель данных
+# Data model
 
-## SQLite — источник правды
+SQLite is the source of truth. Qdrant is a derived index that must be
+reconstructible from it with one command. That asymmetry is the first invariant in
+[README.md](README.md), and it is what makes the embedding model and the extractor
+prompt safe to change: if the index were authoritative for anything, changing
+either would become irreversible.
 
-```sql
--- Кто владелец памяти. Пока одна строка, но поле есть везде.
-CREATE TABLE owners (
-    id          TEXT PRIMARY KEY,          -- uuid
-    name        TEXT NOT NULL,
-    created_at  TEXT NOT NULL
-);
+## SQLite
 
--- Сессия = один разговор одного агента.
-CREATE TABLE sessions (
-    id          TEXT PRIMARY KEY,
-    owner_id    TEXT NOT NULL REFERENCES owners(id),
-    agent_id    TEXT NOT NULL,             -- 'chat', 'coder', 'research'
-    started_at  TEXT NOT NULL,
-    ended_at    TEXT,
-    meta        TEXT                       -- JSON
-);
+The tables below are the ones `init_db` produces, read from a freshly migrated
+database rather than transcribed by hand:
 
--- Сырые сообщения. НИКОГДА не удаляются.
-CREATE TABLE messages (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id      TEXT NOT NULL REFERENCES sessions(id),
-    role            TEXT NOT NULL,             -- 'user' | 'assistant'
-    content         TEXT NOT NULL,
-    created_at      TEXT NOT NULL,
-    processed       INTEGER NOT NULL DEFAULT 0, -- прошло через судью?
-    -- Перенесено сюда из 07-hermes-adapter.md: импортёр транскриптов нужен
-    -- в фазе 1, а он без идемпотентности работать не может.
-    external_source TEXT,
-    external_id     TEXT
-);
-CREATE INDEX idx_messages_session ON messages(session_id, id);
-CREATE INDEX idx_messages_unprocessed ON messages(processed) WHERE processed = 0;
-CREATE UNIQUE INDEX idx_messages_external
-    ON messages(external_source, external_id) WHERE external_id IS NOT NULL;
+<!-- generated:sqlite-schema -->
+`db.SCHEMA_VERSION = 3`, stored in `PRAGMA user_version`.
 
--- Извлечённые факты. Это то, что ищется.
-CREATE TABLE memories (
-    id                 TEXT PRIMARY KEY,   -- uuid, он же point id в Qdrant
-    owner_id           TEXT NOT NULL REFERENCES owners(id),
-    agent_id           TEXT,               -- NULL = общий для всех агентов
-    scope              TEXT NOT NULL,      -- 'user' | 'project' | 'task'
-    scope_key          TEXT,               -- имя проекта, id задачи
-    type               TEXT NOT NULL,      -- см. таблицу типов ниже
-    text               TEXT NOT NULL,      -- сам факт, самодостаточный
-    importance         REAL NOT NULL,      -- 0.0 .. 1.0
-    confidence         REAL NOT NULL,      -- 0.0 .. 1.0
-    status             TEXT NOT NULL,      -- 'active' | 'superseded' | 'expired'
-    superseded_by      TEXT REFERENCES memories(id),
-    valid_from         TEXT NOT NULL,
-    valid_until        TEXT,               -- NULL = бессрочно
-    created_at         TEXT NOT NULL,
-    updated_at         TEXT NOT NULL,
-    last_retrieved_at  TEXT,
-    retrieval_count    INTEGER NOT NULL DEFAULT 0,
-    extraction_version TEXT NOT NULL,      -- 'v3' — версия промпта
-    -- Без этой связи GET /v1/memories/{id}/sources не может вернуть judge_run,
-    -- который он обещает в 03-api.md.
-    judge_run_id       INTEGER REFERENCES judge_runs(id)
-);
-CREATE INDEX idx_memories_owner ON memories(owner_id, status);
-CREATE INDEX idx_memories_scope ON memories(owner_id, scope, scope_key);
+| table | columns |
+|---|---|
+| `judge_runs` | id, kind, model, prompt_version, input_json, output_json, error, input_tokens, output_tokens, cost_usd, latency_ms, created_at |
+| `memories` | id, owner_id, agent_id, scope, scope_key, type, text, importance, confidence, status, superseded_by, valid_from, valid_until, created_at, updated_at, last_retrieved_at, retrieval_count, extraction_version, judge_run_id, source_role |
+| `memory_sources` | memory_id, message_id |
+| `messages` | id, session_id, role, content, created_at, processed, external_source, external_id |
+| `owners` | id, name, created_at |
+| `sessions` | id, owner_id, agent_id, started_at, ended_at, meta |
+| `task_board` | memory_id, workflow_status, project_key, position, version, created_at, updated_at |
 
--- Kanban-поля задач. Отдельная таблица намеренно: перемещение карточки не
--- обновляет memories.updated_at и не делает задачу искусственно «свежей».
-CREATE TABLE task_board (
-    memory_id        TEXT PRIMARY KEY REFERENCES memories(id) ON DELETE CASCADE,
-    workflow_status  TEXT NOT NULL
-                     CHECK(workflow_status IN ('unknown','todo','doing','done')),
-    project_key      TEXT,
-    position         REAL NOT NULL,
-    version          INTEGER NOT NULL DEFAULT 1,
-    created_at       TEXT NOT NULL,
-    updated_at       TEXT NOT NULL
-);
-CREATE INDEX idx_task_board_order
-    ON task_board(workflow_status, project_key, position, memory_id);
+Indexes: `idx_judge_runs_created`, `idx_memories_owner`, `idx_memories_scope`, `idx_messages_external`, `idx_messages_session`, `idx_messages_unprocessed`, `idx_sessions_owner`, `idx_task_board_order`.
+<!-- /generated:sqlite-schema -->
 
--- Откуда взялся факт. Позволяет ответить «почему ты так решил».
-CREATE TABLE memory_sources (
-    memory_id   TEXT NOT NULL REFERENCES memories(id),
-    message_id  INTEGER NOT NULL REFERENCES messages(id),
-    PRIMARY KEY (memory_id, message_id)
-);
+Per-column commentary lives in `src/memkit/db.py`, beside the DDL, rather than
+being restated here. Reproducing DDL in prose is how a document ends up describing
+a schema that no longer exists.
 
--- Лог вызовов судьи. Для отладки, аудита и подсчёта денег.
-CREATE TABLE judge_runs (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    kind            TEXT NOT NULL,         -- 'extract' | 'consolidate'
-    model           TEXT NOT NULL,
-    prompt_version  TEXT NOT NULL,
-    input_json      TEXT NOT NULL,
-    output_json     TEXT,
-    error           TEXT,
-    input_tokens    INTEGER,
-    output_tokens   INTEGER,
-    cost_usd        REAL,
-    latency_ms      INTEGER,
-    created_at      TEXT NOT NULL
-);
-```
+### Why each table earns its place
 
-## Типы фактов
+**`owners`** exists from day one with one row. `owner_id` is on every table and in
+every Qdrant payload from the start, so adding a second user is an authentication
+change rather than a data migration and a rewrite of every query.
 
-| type | scope | Пример | Живёт |
-|---|---|---|---|
-| `preference` | user | «Предпочитает pnpm вместо npm» | годы |
-| `fact` | user | «Живёт в Ташкенте» | годы |
-| `skill` | user | «Уверенно пишет на Python, слабо на Rust» | месяцы |
-| `relation` | user | «Работает с Азизом над проектом X» | месяцы |
-| `project` | project | «Аутентификация лежит в `auth/`» | жизнь проекта |
-| `decision` | project | «Решили не брать Redux, слишком много кода» | жизнь проекта |
-| `task` | task | «Сегодня: починить баг #14» | часы |
+**`sessions`** carries `meta` as JSON, holding `project` and `git_branch`. The
+project is what scope filtering matches against, so it has to be recorded at
+ingest — it cannot be recovered afterwards.
 
-`type` влияет на скорость забывания — см. `05-retrieval.md`.
+**`messages`** is append-only. Nothing deletes a raw message, ever, because the
+extractor prompt will be rewritten many times and each rewrite has to be able to
+replay the whole history. `external_source` and `external_id` carry a unique
+partial index, so the same turn delivered twice leaves one row — see
+[03-api.md](03-api.md).
+
+**`judge_runs`** logs every model call: input, raw output, tokens, cost, latency
+and error. It is what makes spend auditable, and what
+[decisions/0007](decisions/0007-no-events-journal.md) relies on when declining a
+separate audit journal. `kind` separates `extract` from `consolidate`, so per-kind
+spend is a `GROUP BY`.
+
+**`memories`** holds the facts. `updated_at` is what retrieval ages from, not
+`created_at`: a fact the user confirms again today is fresh again. `status` moves
+between `active`, `expired` and `superseded`; the normal path hard-deletes nothing.
+
+**`task_board`** is separate from `memories` on purpose. Moving a card must not
+touch `memories.updated_at`, because retrieval reads recency from that column and a
+drag would otherwise make a stale task look freshly relevant. Ordering is a
+fractional `position REAL`; concurrent edits are caught by `version`.
+
+**`memory_sources`** links each fact to the messages behind it. Without it,
+`GET /v1/memories/{id}/sources` cannot answer the only question worth asking the
+first time the service remembers something absurd: which messages produced this.
+
+### Provenance
+
+`memories.source_role` records where a claim came from — the highest-authority role
+among the messages the fact cites, or `manual` when it cites none and the caller
+asserted it. It is `NOT NULL` and `CHECK`-constrained, with **no `DEFAULT`**: an
+insert that omits it fails, because a default would let a forgotten column label
+model-authored text as something a human typed, which is precisely the failure the
+column exists to detect.
+
+`provenance.may_write` refuses any ADD or UPDATE whose only evidence is assistant
+text. UPDATE is guarded as well as ADD, because confirmation is the loop and not
+just creation: left open, a model agrees with its own stored claim, the judge emits
+UPDATE, `updated_at` moves forward, and retrieval treats the fact as freshly
+confirmed.
+
+The full reasoning — including a candid account of what the guard does **not**
+protect today — is
+[decisions/0006](decisions/0006-source-role-and-may-write.md). Read it before
+relying on this.
+
+`source_role` is deliberately **not** in the Qdrant payload: it has no read-path
+use, and adding it would leave every existing point stale until a full reindex.
+
+### Vocabularies
+
+Each of these is declared in several modules. The table below is generated, and
+`tests/test_docs_contract.py` additionally asserts that the copies agree with one
+another — including that the `CHECK` constraints in the schema match the Python
+tuples, which nothing verified before.
+
+<!-- generated:vocabularies -->
+| vocabulary | values | defined in |
+|---|---|---|
+| type | `preference`, `fact`, `skill`, `relation`, `project`, `decision`, `task` | `providers.MEMORY_TYPES` |
+| scope | `user`, `project`, `task` | `providers.SCOPES` |
+| status | `active`, `expired`, `superseded` | `mutate` (literals) |
+| workflow_status | `unknown`, `todo`, `doing`, `done` | `taskboard.WORKFLOW_STATUSES` |
+| operation | `ADD`, `UPDATE`, `DELETE` | `judge.Op.parse` |
+| source_role | `user`, `assistant`, `tool`, `manual` | `provenance.ROLES` |
+| judge_runs.kind | `extract`, `consolidate` | `judge`, `consolidate` |
+<!-- /generated:vocabularies -->
+
+`scope` and `scope_key` work together: `scope='project'` is meaningless without a
+key naming the project, and `scope='user'` must never carry one — a user fact with a
+project key is reachable from one repository only. Both write paths normalise this.
+
+### Migrations
+
+One mechanism: an idempotent `CREATE TABLE IF NOT EXISTS` script, then
+version-gated backfills, then `PRAGMA user_version` is set. `init_db` refuses to
+open a database whose version exceeds `SCHEMA_VERSION`, so rolling the code back
+requires a backup rather than optimism.
+
+Schema 3 added `source_role` by **rebuilding the `memories` table**, because SQLite
+cannot add a `NOT NULL` column without a `DEFAULT` and cannot add a `CHECK` at all.
+Three details in that rebuild are load-bearing and non-obvious, all documented at
+the function:
+
+- Foreign keys must be off for the `DROP`. `task_board` references `memories(id)`
+  with `ON DELETE CASCADE`, so dropping the old table with them on deletes the
+  entire kanban board.
+- `PRAGMA foreign_keys` is a no-op inside a transaction, and `executescript`
+  issues its own `COMMIT` — so the statements run individually inside an explicit
+  `BEGIN`. The first version used `executescript`, and therefore had no transaction
+  at all; the migration test is what caught it.
+- `PRAGMA foreign_key_check` runs inside the transaction and rolls back on any
+  dangling reference, which is what makes the rebuild safe rather than hopeful.
+
+Before running a migration against real data, take a backup and gzip it. `init_db`
+migrates whatever database it is pointed at, **including a `.bak` file**, which
+destroys the rollback path; gzipping makes a backup un-openable by any tool that
+might try.
 
 ## Qdrant
 
-Одна коллекция `memories`. **Не по коллекции на агента** — фильтры дешёвые,
-коллекции нет.
+**Two collections, not one.** `memories` holds one point per active fact; `raw`
+holds indexed user turns. Merging them would break the one-point-per-fact invariant
+the read path depends on, and the scoring formula — importance, recency by type,
+scope — is meaningless for a raw turn. See
+[decisions/0019](decisions/0019-two-qdrant-collections.md).
 
-```python
-from qdrant_client import QdrantClient, models
+Both are created with a named dense vector `"dense"` of 1024 dimensions, cosine
+distance, and a declared-but-unused `bm25` sparse slot
+([decisions/0050](decisions/0050-bm25-deferred.md)).
 
-client.create_collection(
-    collection_name="memories",
-    vectors_config={
-        "dense": models.VectorParams(size=1024, distance=models.Distance.COSINE),
-    },
-    sparse_vectors_config={
-        "bm25": models.SparseVectorParams(),      # зарезервировано, фаза 2
-    },
-)
-```
+Payload keyword indexes:
 
-**Важно:** новый именованный вектор нельзя добавить в существующую коллекцию —
-только пересоздать и переиндексировать. Поэтому `bm25` объявляем сразу, даже
-если заполнять начнём позже. Переиндексация из SQLite возможна, но это лишний
-час работы на ровном месте.
+- `memories`: `owner_id`, `agent_id`, `scope`, `scope_key`, `type`, `status`,
+  `task_status`
+- `raw`: `owner_id`, `agent_id`, `project`, `role`, `session_id`
 
-Индексы по payload (без них фильтры идут перебором):
+The fact's `text` is duplicated into the payload deliberately. It costs a little
+space and lets the read path build a complete result without a second round trip to
+SQLite for every hit.
 
-```python
-for field, schema in [
-    ("owner_id", "keyword"),
-    ("agent_id", "keyword"),
-    ("scope",    "keyword"),
-    ("type",     "keyword"),
-    ("status",   "keyword"),
-    ("task_status", "keyword"),
-]:
-    client.create_payload_index("memories", field, schema)
-```
+For `type='task'` the payload always carries `task_status`, and all four workflow
+states including `done` stay searchable. Workflow status and lifecycle status are
+independent: a finished task is still a fact about what happened.
 
-Payload точки:
+### Rebuilding the index
 
-```json
-{
-  "owner_id": "u-1",
-  "agent_id": null,
-  "scope": "user",
-  "scope_key": null,
-  "type": "preference",
-  "task_status": null,
-  "text": "Перешёл с React на Vue (июнь 2026)",
-  "importance": 0.8,
-  "status": "active",
-  "created_at": "2026-06-14T10:00:00Z",
-  "updated_at": "2026-07-28T09:12:00Z"
-}
-```
+`POST /v1/admin/reindex` drops both collections and reloads:
 
-`text` дублируется в payload специально: иначе после поиска пришлось бы идти
-в SQLite за каждым результатом.
+- `memories` — **only `status='active'`**. Reloading everything would resurrect
+  every soft-deleted and superseded fact, turning the one operation guaranteed safe
+  into the one that silently undoes every correction ever made
+  ([decisions/0020](decisions/0020-reindex-loads-active-only.md)).
+- `raw` — every user turn at or above the 25-character floor. The same floor the
+  importer applies, or a rebuild would silently change the size of the collection.
 
-Для `type='task'` payload всегда содержит `task_status`. Все четыре состояния,
-включая `done`, остаются доступными поиску; lifecycle `expired` от workflow
-не зависит.
+`GET /v1/admin/stats` reports `index_drift` as `qdrant_memories - sqlite_active`.
+Any non-zero value means the derived index disagrees with the source of truth.
 
-## Размер
+While a rebuild runs, mutations answer **409**. They used not to, which meant a
+fact written during the window between "drop the collections" and "finish
+refilling" got no point and no error, because reindex had already read its source
+rows.
 
-100 000 фактов × 1024 измерения × 4 байта ≈ **410 MB**. Влезает в RAM.
-Если перевалит за 500k — включить скалярную квантизацию int8, станет ~4x меньше
-с почти нулевой потерей качества:
+## What is not recorded
 
-```python
-quantization_config=models.ScalarQuantization(
-    scalar=models.ScalarQuantizationConfig(type=models.ScalarType.INT8)
-)
-```
-
-Реалистичный прогноз для одного человека: 5–20 тысяч фактов за год. Это ничто.
-
-## Инвариант
-
-`memories` в SQLite и точки в Qdrant всегда синхронны по `id`.
-`POST /v1/admin/reindex` дропает коллекцию и заливает заново из SQLite.
-Эта команда должна работать всегда — проверяй её после каждой фазы.
-
-**Важно:** reindex заливает только `status='active'`. Мягкое удаление оставляет
-строку в SQLite, поэтому «залить всё из SQLite» означало бы воскресить каждый
-когда-либо удалённый факт.
-
-Коллекций две, не одна. `memories` — по одной точке на активный факт, это и есть
-инвариант. `raw` — проиндексированные сырые реплики: нужна фазе 1, чтобы поиск
-работал до появления судьи и дал базовое число для эвала. Держать их в одной
-коллекции (как предлагает `06-roadmap.md`) нельзя — это ломает соответствие
-«одна точка = один факт».
+There is no `events` table and no redaction endpoint. Audit is served by
+`judge_runs`, `memory_sources`, the `superseded_by` chain, and
+`last_retrieved_at` / `retrieval_count`. The argument, including what is genuinely
+lost by declining it, is
+[decisions/0007](decisions/0007-no-events-journal.md).

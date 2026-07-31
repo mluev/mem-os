@@ -1035,7 +1035,7 @@ class ConsolidateIn(BaseModel):
     owner_id: str | None = None
     dry_run: bool = True
     # Exposed per-request so a threshold can be swept against the eval without a
-    # restart. docs/05 measured 0.90 as barely catching paraphrases, so the right
+    # restart. 0.90 barely catches paraphrases (decisions/0030), so the right
     # value here is an empirical question, not a constant.
     threshold: float | None = Field(default=None, ge=0.5, le=1.0)
 
@@ -1044,7 +1044,7 @@ class ConsolidateIn(BaseModel):
 def consolidate(body: ConsolidateIn, request: Request) -> dict[str, Any]:
     """Stage 4, on demand. `dry_run` defaults to true.
 
-    Documented in docs/03-api.md from the start and unimplemented until now. Always
+    Documented in docs/03-api.md, which is the contract for it. Always
     dry-run first: a merge supersedes its inputs, and while nothing is deleted, the
     active set it leaves behind is what every later search sees.
     """

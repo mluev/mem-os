@@ -578,7 +578,7 @@ DEFAULT_VERSION = "v6"
 # Consolidator (stage 4)
 # --------------------------------------------------------------------------
 
-# Text from docs/04-judge.md. Rule 4 is the load-bearing one: "Prefers pnpm" and
+# Rule 4 is the load-bearing one: "Prefers pnpm" and
 # "Prefers pytest" score high together because both are about tooling, and merging
 # them would invent a preference the user never stated. A merge rewrites the store,
 # so unlike read-path dedup a wrong call here is permanent -- returning null has to

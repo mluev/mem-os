@@ -1,152 +1,111 @@
-# 06 — Порядок сборки
+# Roadmap
 
-Каждая фаза заканчивается работающей вещью. Не строим три недели вслепую.
+Stages, their exit criteria, and what is actually done. State is tracked **per
+item**, not per stage: the previous version of this document called stage 6 "not
+started" while listing one of its four items as finished, which is how a roadmap
+stops being usable.
 
----
+Current counts are in [measurements.md](measurements.md); nothing here restates
+them.
 
-## Фаза 0 — Скелет (полдня)
+## Stage 0 — the hardware gate — done
 
-- Docker: Qdrant на 6333
-- BGE-M3 через `sentence-transformers`, device `mps`, замерить время
-- SQLite, все таблицы из `02-data-model.md` сразу, включая `owner_id`
-- FastAPI: `/healthz`
+Embedding latency under 100 ms on MPS, 1024 dimensions. `memkit bench` is the gate
+and exits non-zero on a wrong dimension, because a silent model swap would make
+every stored vector incomparable and nothing else would notice.
 
-**Готово когда:** эмбеддинг одной фразы < 100 мс, `/healthz` отвечает `ok`.
+## Stage 1 — foundation — done
 
-Проверить сразу, до всего остального:
+Ingest, the transcript importer, raw-turn indexing, reindex-from-truth, and the eval
+harness. This stage's output is the baseline everything later is measured against:
+semantic search over the user's own messages.
 
-```python
-from sentence_transformers import SentenceTransformer
-m = SentenceTransformer("BAAI/bge-m3", device="mps")
-v = m.encode(["привет, я предпочитаю pnpm"])
-print(v.shape)   # (1, 1024)
-```
+## Stage 2 — the extractor — done, with the gate restated
 
-Если MPS не заводится — падать на CPU можно, но замерь: если больше 300 мс
-на эмбеддинг, поиск станет заметно тормозить, и это надо чинить до фазы 2.
+Judge, gate, cost ceiling, window abandonment, provenance guard. The whole imported
+history has been processed.
 
----
+**The exit criterion, as originally written:** the eval must beat stage 1.
 
-## Фаза 1 — Работает без судьи (1–2 дня)
+**The criterion actually in force:** comparable MRR inside a 600–1,000-token budget,
+which raw turns cannot meet — their mean answer alone is four times the ceiling.
 
-Никакой LLM. Сообщения кладутся в Qdrant как есть.
+That substitution is not a tidy-up. Taken literally the original gate was **not
+met**, and stage 2 was advanced anyway. The full argument, the numbers, and a
+recorded dissent are at
+[decisions/0038](decisions/0038-stage-2-exit-gate.md). It is restated here rather
+than left standing as written, because a gate nobody applies teaches everyone that
+the gates are decorative — but the substitution itself is on the record.
 
-- `POST /v1/messages` → SQLite + эмбеддинг + Qdrant
-- `POST /v1/search` → чистый косинус, без формулы
-- `POST /v1/admin/reindex`
-- **эвал: 30 запросов в `eval/queries.yaml` + прогон**
+## Stage 3 — retrieval — done
 
-**Готово когда:** ищет по смыслу, `reindex` восстанавливает всё из SQLite,
-эвал показывает какое-то число.
+Composite score, scope filtering, dedup, budget fill. Details in
+[05-retrieval.md](05-retrieval.md).
 
-Это уже полезно само по себе. И это база, относительно которой ты будешь
-измерять, помогает ли судья вообще.
+Two designs from this stage were declined after measurement rather than built: the
+similarity floor ([decisions/0028](decisions/0028-no-similarity-floor.md)) and the
+elbow-cut/modes machinery
+([decisions/0029](decisions/0029-budget-tokens-not-elbow.md)). Both have stated
+conditions for reopening.
 
----
+## Stage 4 — the nightly consolidator — done
 
-## Фаза 2 — Экстрактор (2–3 дня)
+Expiry, demotion, merging, scheduled at 04:00 via launchd. Two steps were added
+during implementation that no earlier document had specified, and both were
+necessary: validity expiry (before it, date-expired facts were being served as live)
+and importance demotion for facts nothing retrieves.
 
-- Gate: 10 сообщений / закрытие сессии / «запомни»
-- Вызов Haiku через tool use
-- Применение ADD / UPDATE / DELETE
-- `memory_sources`, `judge_runs`
-- `GET /v1/memories/{id}/sources`
-- лимит расходов $15/мес в коде
+## Stage 5 — the Hermes adapter — done
 
-**Готово когда:** эвал лучше, чем в фазе 1. Если не лучше — чини промпт,
-не двигайся дальше.
+`MemoryProvider` plugin, verified end to end: a fact stated in one session surfaced
+in another agent's session. See [07-hermes-adapter.md](07-hermes-adapter.md).
 
-Первую неделю читай `judge_runs` глазами каждый день. Там будет видно всё,
-что не так с промптом. Это скучно и это самая полезная часть проекта.
+## Stage 6 — the local dashboard — done
 
----
+Overview, memories with provenance, search scoring, judge runs, sessions and
+messages, operations, and the task board. Mutations go through the API, which means
+the dashboard cannot do anything an agent could not.
 
-## Фаза 3 — Путь чтения (1–2 дня)
+## Not started
 
-- формула score, τ по типам
-- фильтры scope/scope_key/status
-- дедуп, набивка бюджета
-- `last_retrieved_at`, `retrieval_count`
+Each of these is genuinely untouched, which is the right state for all four.
 
-**Готово когда:** эвал снова вырос, устаревшие факты перестали всплывать.
-
----
-
-## Фаза 4 — Ночная консолидация (1 день)
-
-- кластеризация по similarity > 0.92
-- Batch API
-- истечение `valid_until`, понижение неиспользуемых
-- cron / launchd в 4:00
-
-**Готово когда:** число активных фактов после прогона падает, а эвал — нет.
-Если эвал упал, консолидатор склеивает лишнее.
-
----
-
-## Фаза 5 — Второй агент (1 день)
-
-Подключить кодового агента к тому же сервису.
-
-**Готово когда:** факт, сказанный в чате, всплыл у кодового агента.
-Ради этого всё и строилось.
-
----
-
-## Фаза 6 — По потребности
-
-Только когда реально упрётся. **Ни один пункт ниже не начат, и это правильно** —
-раздел называется «по потребности», а потребность не наступила.
-
-- **BM25 в слот `bm25`, гибридный поиск.** Слот объявлен в коллекции с самого
-  начала, поэтому включение не потребует переиндексации. Это единственный пункт,
-  под который уже есть довод из замера: релевантные факты сидят на сходстве
-  0.40–0.43, то есть эмбеддинг слабо отделяет их от фона (см. `05-retrieval.md`).
-  Первый кандидат, если качество перестанет устраивать.
-- ~~отладочный веб-UI поверх `GET /v1/memories`~~ **готово**: `/ui/` показывает
-  overview, memories + provenance, search scoring, judge runs, sessions/messages и
-  operations; мутации идут SQLite-first.
-- **Второй пользователь.** `owner_id` есть везде, включая payload-индекс Qdrant;
-  нужна только аутентификация вместо статичного ключа. Пока пользователь один.
-- **Отдельная RAG-коллекция для документации.** Не начата и не нужна: смысл
-  границы из `01-architecture.md` в том, чтобы документация не пробивалась через
-  выдачу памяти.
-
----
-
-## Итого
-
-Фазы 0–5 закрыты, фаза 6 не начата по определению. Что стоит знать о состоянии:
-
-| | |
+| item | state |
 |---|---|
-| корпус | 4244 сообщения, 90 сессий, необработанных нет |
-| факты | 87 активных, 1067 связей происхождения |
-| судья | 249 вызовов, 1 ошибка, $0.50 всего |
-| эвал | recall@10 0.87, MRR 0.759, 408 токенов |
-| тесты | 234 |
+| BM25 hybrid retrieval | deferred with a measured trigger — [decisions/0050](decisions/0050-bm25-deferred.md) |
+| a second user | `owner_id` is already everywhere, including the Qdrant payload index; only authentication is missing |
+| a separate collection for documentation retrieval | not needed; the boundary in [01-architecture.md](01-architecture.md) exists so documentation cannot leak into memory results |
+| CI | the eval layers need MPS and a local Qdrant, neither of which a hosted runner has |
 
-Единственный незакрытый пункт — не код: 87 фактов извлечены под v4 и несут старые
-scope, из-за чего без указания проекта доступно 31% базы. Перекласификация — ручная
-по решению владельца, инструмент готов (`eval/scope_review.py`). Новые факты идут
-уже под v6, где доля user вдвое выше.
+## Open work
 
-## Чего не делать
+Not code, and not blocked on anything.
 
-- **Не начинать с mem0-как-фреймворка.** Возьми его внутрь фазы 2, если
-  хочешь, но за своим API. Иначе его модель данных станет твоей.
-- **Не строить графовую память** (Graphiti, knowledge graph) на старте.
-  Красиво, но окупается на масштабах, до которых один человек не доходит.
-- **Не откладывать эвал.** Без него все дальнейшие решения — вкусовщина.
-- **Не запускать локальную LLM для судьи на 16 GB.** Уже разбирали:
-  4 GB на модель, хуже JSON, и всё это ради экономии двух долларов.
-- **Не хранить документацию в памяти.** Отдельная коллекция.
+**Legacy over-scoped facts.** Roughly two-thirds of active facts are
+project-scoped, and by inspection a meaningful share of those are facts about the
+person that will only surface if the right repository is named. Reclassification is
+a manual review with a tool ready to assist it
+([decisions/0039](decisions/0039-relabel-v4-scoped-facts.md)). Facts extracted under
+the current prompt do not have the problem, so this is a backlog rather than a leak.
 
-## Первый шаг прямо сейчас
+**Eval case-mix gaps.** Three of the six prescribed case types have zero coverage,
+including the one that would measure whether the system knows when to say nothing.
+Listed in [08-testing.md](08-testing.md#the-case-mix-and-what-is-missing).
 
-```bash
-docker run -d -p 6333:6333 -v ~/qdrant_storage:/qdrant/storage qdrant/qdrant
-pip install sentence-transformers qdrant-client fastapi uvicorn anthropic
-```
+**Golden-set composition.** About a quarter of cases expect nothing, against a
+target of half. The empty-expectation cases are the ones that catch memory
+poisoning.
 
-Потом скрипт из фазы 0 и проверка, что `mps` работает.
+## What not to build
+
+Recorded so that each stays decided rather than being re-proposed.
+
+- **A local LLM as the judge.** 16 GB is already committed to the embedder and
+  Qdrant, and the judge is called rarely enough that the API cost is under a dollar
+  a month.
+- **A graph memory.** The retrieval problem here is ranking, not traversal.
+- **Documentation or code corpora in the memory collections.** Different scoring,
+  different lifecycle; a separate system if it is wanted at all.
+- **mem0 or a similar library as the core.** The interesting parts of this project
+  are the extraction gate, the scope model and the provenance guard, all of which
+  would have to be reimplemented on top of any such library anyway.

@@ -1,13 +1,17 @@
 """SQLite access. This is the source of truth; Qdrant is derived from it.
 
-Schema follows docs/02-data-model.md, with two documented deviations:
+The schema is documented in docs/02-data-model.md, which generates its table
+listing from this module rather than restating it.
 
-* ``messages.external_source`` / ``external_id`` are in the base schema rather
-  than bolted on later as docs/07-hermes-adapter.md proposes. The stage-1
-  transcript importer needs them for idempotency, so they cannot wait.
-* ``memories.judge_run_id`` exists so that ``GET /v1/memories/{id}/sources``
-  can actually return the judge run it promises. The docs describe that
-  response without ever linking the two tables.
+Two columns exist here that an early draft of the design left out, and both are
+load-bearing rather than conveniences:
+
+* ``messages.external_source`` / ``external_id`` are in the base schema, not
+  bolted on later. The transcript importer needs them for idempotency from the
+  first import, so they cannot wait for a migration.
+* ``memories.judge_run_id`` is what lets ``GET /v1/memories/{id}/sources``
+  return the judge run it advertises. Without it the endpoint cannot answer the
+  one question it exists for.
 """
 
 from __future__ import annotations

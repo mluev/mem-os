@@ -111,9 +111,9 @@ async def lifespan(app: FastAPI):
     app.state.reindex_job = {"status": "idle"}
     app.state.index_dirty = False
     # Load the model before accepting traffic. Costs ~11s at startup and saves a
-    # ~15s first request: docs/07-hermes-adapter.md gives prefetch a 150ms
-    # timeout, so a lazily-loaded model means the first turn after every restart
-    # silently has no memory at all.
+    # ~15s first request: the Hermes prefetch budget is 0.4s, so a lazily-loaded
+    # model means the first turn after every restart silently has no memory at
+    # all. See decisions/0025, and decisions/0040 for the other half of the fix.
     app.state.embedder.load()
     yield
     app.state.db.close_all()
@@ -167,10 +167,10 @@ def healthz() -> dict[str, Any]:
     except Exception:
         qdrant_ok = False
     emb = app.state.embedder
-    # docs/03-api.md promises queue_depth. There is no queue -- extraction runs as
-    # a FastAPI background task, not through the asyncio.Queue docs/01 sketched --
-    # so the honest equivalent is how much unprocessed history is waiting for the
-    # judge. That is the number worth watching anyway.
+    # The field is named queue_depth and there is no queue: extraction runs as a
+    # FastAPI background task. The honest equivalent is how much unprocessed
+    # history is waiting for the judge, which is the number worth watching
+    # anyway. See decisions/0018.
     try:
         backlog = int(
             app.state.db()

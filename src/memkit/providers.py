@@ -83,10 +83,10 @@ def provider_of(model: str) -> str:
 def anthropic_tool() -> dict[str, Any]:
     """Tool definition with strict mode.
 
-    docs/04-judge.md claims tool use alone means the model "physically cannot
-    return malformed JSON". That holds only with ``strict: true``, which in turn
-    requires ``additionalProperties: false`` and every property in ``required``
-    -- hence the nullable optional fields.
+    Tool use alone does not mean the model "physically cannot return malformed
+    JSON" -- that holds only with ``strict: true``, which in turn requires
+    ``additionalProperties: false`` and every property in ``required``, hence the
+    nullable optional fields.
     """
     return {
         "name": "emit_operations",

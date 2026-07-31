@@ -1,317 +1,224 @@
-# 03 — HTTP API
+# HTTP and CLI contract
 
-База: `http://localhost:8077/v1`
-Аутентификация: заголовок `X-API-Key`, статичный ключ из `.env`.
-Сервис слушает только `127.0.0.1`.
+Agents reach memkit only through this surface. Authentication is a single static
+key in the `X-API-Key` header on every route except `/healthz`.
 
----
+## The routes
 
-## Запись
+Generated from the running application's own schema, so it cannot omit a route or
+misreport a status code — both of which the hand-maintained version did:
+
+<!-- generated:http-routes -->
+| endpoint | success | auth |
+|---|---|---|
+| `GET /healthz` | 200 | — |
+| `GET /v1/admin/activity` | 200 | `X-API-Key` |
+| `POST /v1/admin/consolidate` | 200 | `X-API-Key` |
+| `GET /v1/admin/costs` | 200 | `X-API-Key` |
+| `GET /v1/admin/costs/daily` | 200 | `X-API-Key` |
+| `GET /v1/admin/facets` | 200 | `X-API-Key` |
+| `GET /v1/admin/judge-runs` | 200 | `X-API-Key` |
+| `GET /v1/admin/judge-runs/{run_id}` | 200 | `X-API-Key` |
+| `POST /v1/admin/memories/bulk` | 200 | `X-API-Key` |
+| `GET /v1/admin/messages/{message_id}` | 200 | `X-API-Key` |
+| `POST /v1/admin/reextract` | 200 | `X-API-Key` |
+| `POST /v1/admin/reindex` | 200 | `X-API-Key` |
+| `POST /v1/admin/reindex/start` | 202 | `X-API-Key` |
+| `GET /v1/admin/reindex/status` | 200 | `X-API-Key` |
+| `POST /v1/admin/search-preview` | 200 | `X-API-Key` |
+| `GET /v1/admin/sessions` | 200 | `X-API-Key` |
+| `GET /v1/admin/sessions/{session_id}/messages` | 200 | `X-API-Key` |
+| `GET /v1/admin/stats` | 200 | `X-API-Key` |
+| `POST /v1/admin/tasks` | 201 | `X-API-Key` |
+| `GET /v1/admin/tasks/board` | 200 | `X-API-Key` |
+| `PATCH /v1/admin/tasks/{memory_id}` | 200 | `X-API-Key` |
+| `GET /v1/memories` | 200 | `X-API-Key` |
+| `POST /v1/memories` | 201 | `X-API-Key` |
+| `DELETE /v1/memories/{memory_id}` | 200 | `X-API-Key` |
+| `PATCH /v1/memories/{memory_id}` | 200 | `X-API-Key` |
+| `GET /v1/memories/{memory_id}/sources` | 200 | `X-API-Key` |
+| `POST /v1/memories/{memory_id}/supersede` | 200 | `X-API-Key` |
+| `POST /v1/messages` | 201 | `X-API-Key` |
+| `POST /v1/search` | 200 | `X-API-Key` |
+| `POST /v1/sessions/{session_id}/close` | 200 | `X-API-Key` |
+
+30 routes, 29 behind the API key. 1 unauthenticated.
+<!-- /generated:http-routes -->
+
+The rest of this document covers semantics: what each of the interesting ones
+promises, and what it refuses.
+
+## Core
 
 ### `POST /v1/messages`
 
-Принять сообщение. Возвращает сразу, судья работает в фоне.
+Writes one message and returns **201**. The write is synchronous; extraction is not,
+and `extraction_queued` reports whether the gate opened. It is `false` whenever no
+judge credential is configured, which is a supported mode — manual memories and
+retrieval keep working without any cloud access at all.
 
-```json
-// запрос
-{
-  "session_id": "s-abc",
-  "owner_id": "u-1",
-  "agent_id": "chat",
-  "role": "user",
-  "content": "да я месяц назад слез с реакта, вью норм заходит"
-}
+**Idempotency.** With `external_source` and `external_id`, a repeated delivery
+returns the same `message_id` and `deduplicated: true`. This is not optional
+politeness: the Hermes adapter can deliver the same turn through `sync_turn` and
+again through `on_session_end`, and without it the corpus double-counts and the
+judge pays twice to read the same window.
 
-// ответ 202
-{ "message_id": 8814, "extraction_queued": true }
-```
-
-`extraction_queued: false` означает, что gate не сработал и сообщение просто
-легло в буфер. Это нормальное состояние для большинства сообщений.
+`role` accepts `user` and `assistant` only. Assistant turns are stored and never
+indexed.
 
 ### `POST /v1/sessions/{id}/close`
 
-Закрыть сессию и форсировать извлечение из хвоста.
+Closes the session and drains the tail: a long session can hold several unprocessed
+windows, so this loops until nothing is left to read. Returns the accumulated
+counts, including `rejected` — operations the provenance guard refused
+([02-data-model.md](02-data-model.md)).
 
-```json
-{ "extracted": 3, "cost_usd": 0.0021 }
-```
+404 for an unknown session. With no judge configured it still closes the session and
+returns `extracted: 0` with an explanatory `error`, rather than failing: closing is
+useful even when extracting is impossible.
 
-### `POST /v1/memories`
-
-Добавить факт руками, минуя судью. Для импорта и ручных правок.
-
-```json
-{
-  "owner_id": "u-1",
-  "scope": "user",
-  "type": "preference",
-  "text": "Не любит тёмные темы с низким контрастом",
-  "importance": 0.6
-}
-```
-
----
-
-## Чтение
+There is no `POST /v1/sessions`. A session is created by its first message.
 
 ### `POST /v1/search`
 
-Главный эндпоинт. Его дёргает каждый агент перед каждым ответом.
+The read path. `scope_key` is **required in practice**, not optional: without it
+every project-scoped fact is filtered out, so a request that omits it silently sees
+only user-scoped memory. `task_key` is separate because a request is usually inside a
+project *and* a task at once.
 
-```json
-// запрос
-{
-  "owner_id": "u-1",
-  "query": "как мне лучше построить фронтенд",
-  "agent_id": "coder",          // опц., NULL-факты попадут всё равно
-  "scopes": ["user", "project"], // опц., по умолчанию все
-  "scope_key": "memkit",         // опц., текущий проект/задача — см. ниже
-  "types": null,                 // опц., фильтр по типам
-  "budget_tokens": 800,          // сколько токенов отдать под память
-  "limit": 30
-}
+`budget_tokens` defaults to 800 and `limit` to 30. `include_raw` additionally
+searches the raw-turn collection, which is what the eval uses to compare extracted
+facts against the messages they came from.
 
-// ответ 200
-{
-  "memories": [
-    {
-      "id": "m-7f2a",
-      "text": "Перешёл с React на Vue (июнь 2026)",
-      "type": "preference",
-      "score": 0.87,
-      "similarity": 0.79,
-      "importance": 0.8,
-      "age_days": 44,
-      "updated_at": "2026-07-28T09:12:00Z"
-    }
-  ],
-  "used_tokens": 612,
-  "took_ms": 41
-}
-```
-
-`score` — итоговый ранг после пересчёта, `similarity` — сырое косинусное
-сходство. Оба в ответе, чтобы можно было отлаживать формулу глазами.
-
-`scope_key` обязателен в запросе, хотя изначально его тут не было: правило из
-`05-retrieval.md` требует выбрасывать факты чужого проекта или задачи, а сравнить
-их ключ не с чем, если текущий ключ не пришёл в запросе.
-
-### `GET /v1/memories`
-
-Листинг с фильтрами. Для отладочного UI и ревизии.
-
-```
-GET /v1/memories?owner_id=u-1&type=preference&status=active&limit=100
-```
+`agent_id` is accepted and currently unused. It is in the request because
+per-agent filtering is an obvious future need and removing a field later is worse
+than ignoring one now — but nothing filters on it today, and a caller expecting it to
+scope results will be disappointed.
 
 ### `GET /v1/memories/{id}/sources`
 
-Откуда взялся факт — исходные сообщения и запуск судьи.
+Where a fact came from: the messages, the judge run that agreed, the operations that
+run emitted, the supersession chain in both directions, and the provenance label with
+a per-role tally of the evidence.
 
-```json
-{
-  "memory": { "id": "m-7f2a", "text": "..." },
-  "messages": [
-    { "id": 8814, "content": "да я месяц назад слез с реакта...",
-      "created_at": "2026-07-28T09:11:00Z" }
-  ],
-  "judge_run": { "id": 412, "prompt_version": "v3", "model": "claude-haiku-4-5" }
-}
-```
+This endpoint looks optional and is not. The first time the service remembers
+something absurd about you, the only useful question is which messages produced it —
+and "was any of this actually me?" is answered by `source_roles`.
 
-Этот эндпоинт кажется необязательным. Он не необязательный: когда сервис
-запомнит про тебя чушь, ты захочешь узнать откуда.
+### `POST /v1/memories`
 
-### Task board
+A direct write, bypassing the judge. `source_role` declares who is asserting the
+fact; a caller writing on a model's behalf must say so, and the Hermes plugin sends
+`"assistant"` from both of its write paths. The reasoning is
+[decisions/0006](decisions/0006-source-role-and-may-write.md).
 
-`GET /v1/admin/tasks/board?include_archived=false` возвращает все task-memory,
-счётчики четырёх колонок и обнаруженные имена проектов.
+## Mutation
 
-`POST /v1/admin/tasks` создаёт task-memory и Kanban-метаданные:
+`PATCH` and `DELETE` on a memory, plus `/supersede` and the bulk endpoint.
 
-```json
-{
-  "text": "Проверить релиз",
-  "workflow_status": "todo",
-  "project_key": "memkit",
-  "importance": 0.7,
-  "valid_until": null
-}
-```
+**Optimistic concurrency.** `PATCH /v1/memories/{id}` accepts
+`expected_updated_at`; a mismatch is **409**. Two dashboard tabs editing the same
+fact must not silently overwrite each other. The task board has its own independent
+lock, `expected_board_version`, because the two tables move independently — a card
+can be dragged without the memory changing at all.
 
-`PATCH /v1/admin/tasks/{id}` правит содержимое или перемещает карточку.
-Перемещение задаётся `workflow_status`, `before_id`, `after_id` и
-`expected_board_version`. Для изменения memory-полей дополнительно нужен
-`expected_memory_updated_at`; устаревшая версия получает `409`.
+**Deletion is soft.** The row survives with `status='expired'` and the Qdrant point
+is removed. `?hard=true` deletes the row, unlinks its sources and clears its board
+metadata. For a task, soft deletion is archiving; workflow `done` remains a separate
+state, because finishing something and forgetting it are different.
 
----
+**Bulk** supports `expire`, `restore`, `hard_delete`, `set_type`, `set_importance`
+and `set_scope` over up to 500 ids. `hard_delete` additionally requires `confirm` and
+caps at 100 — the one irreversible operation gets the one extra hurdle.
 
-## Правки
+**While a reindex runs, every mutation answers 409.** Synchronous and asynchronous
+reindex share one slot.
 
-### `PATCH /v1/memories/{id}`
-
-```json
-{ "text": "...", "importance": 0.9, "status": "superseded" }
-```
-
-### `DELETE /v1/memories/{id}`
-
-Мягкое удаление: `status = 'expired'`. Точка из Qdrant убирается,
-строка в SQLite остаётся. Физическое удаление — только `?hard=true`,
-и оно не трогает `messages`. Для задач это архивирование/восстановление;
-workflow `done` остаётся отдельным состоянием.
-
----
-
-## Админ
-
-### `POST /v1/admin/reindex`
-
-Пересобрать Qdrant из SQLite. Должно работать всегда.
-
-```json
-{ "reindexed": 4821, "took_ms": 39400 }
-```
+## Replay and consolidation
 
 ### `POST /v1/admin/reextract`
 
-Прогнать историю заново с другой версией промпта.
+Replays history under a different prompt version. `dry_run` defaults to **true** and
+makes no model call — asserted by a test that patches the judge to raise, rather than
+promised in a comment.
 
-```json
-// запрос
-{
-  "owner_id": "u-1",
-  "from_date": "2026-01-01",
-  "prompt_version": "v4",
-  "dry_run": true,
-  "use_batch": true
-}
+Three invariants, each of which was a bug waiting to happen:
 
-// ответ при dry_run
-{
-  "messages_to_process": 2399,
-  "sessions": 85,
-  "estimated_calls": 260,
-  "facts_to_supersede": 86,
-  "input_tokens_per_call": 3007,
-  "output_tokens_per_call": 91,
-  "basis": "measured over 247 real calls",
-  "estimated_cost_usd": 0.293696
-}
-```
+- The facts about to be superseded are **excluded from the candidate block**.
+  Otherwise the judge sees them, emits UPDATE, and overwrites the old set in place —
+  losing exactly the comparison the replay was run for.
+- The old set is retired **after** the new one is written. A mid-run failure leaves
+  both alive, which is recoverable; the reverse order loses facts.
+- Under `max_calls`, only facts whose sources were **all** re-read are retired. A
+  fact spanning a re-read window and an untouched one survives.
 
-Всегда сначала `dry_run: true`. Он ничего не вызывает и считает цену по
-измеренному расходу токенов, если реальные вызовы уже были.
+The response carries `superseded_ids`, so rollback is one bulk call with
+`op="restore"`.
 
-`messages_to_process` меньше общего числа сообщений: окна без реплик пользователя
-отбрасываются так же, как на живом пути — из них факт о человеке не получится.
+`use_batch` is accepted by the schema and answered with **422**. Batch is not
+implemented, and silently ignoring the flag would report a discount that was never
+applied ([decisions/0012](decisions/0012-no-batch-api.md)).
 
-**`use_batch` отклоняется с 422, а не игнорируется.** Batch API здесь не
-реализован: полный прогон этого корпуса стоит около $0.29, а Batch покупает
-половинную скидку асинхронным ожиданием. Молча принять флаг значило бы отчитаться
-о скидке, которой не было — ровно тот класс дефекта, из-за которого фильтр
-`scopes` месяцами не работал.
-
-Старые факты не затираются — создаётся новый набор с новым `extraction_version`, а
-старый помечается `superseded`. Ответ содержит `superseded_ids`, поэтому откат —
-это один вызов `POST /v1/admin/memories/bulk` с `op="restore"`.
-
-Три инварианта, которые стоит знать:
-
-- кандидаты для судьи исключают заменяемые факты, иначе он выдал бы против них
-  UPDATE и переписал старый набор на месте — а сравнивать было бы уже нечего;
-- старый набор гасится **после** записи нового, поэтому сбой на середине оставляет
-  оба набора живыми;
-- при `max_calls` гасятся только факты, все источники которых были перечитаны. Факт,
-  собранный из перечитанного и нетронутого окна, остаётся активным: половина его
-  доказательной базы не заменена.
+An unknown `prompt_version` is 422, checked before any call.
 
 ### `POST /v1/admin/consolidate`
 
-Ручной запуск ночной консолидации. `dry_run` по умолчанию `true`.
+Stage 4 on demand. `dry_run` defaults to true, again with no model call. `threshold`
+overrides `MEMKIT_CONSOLIDATE_COSINE` per request so it can be swept against the
+eval without a restart.
 
-```json
-// запрос
-{ "dry_run": true, "threshold": 0.92 }
+Always dry-run first. A merge supersedes its inputs — nothing is deleted, but the
+active set it leaves behind is what every later search sees.
 
-// ответ
-{ "expired": 0, "demoted": 0, "clusters": 1, "merged": 0, "declined": 0,
-  "superseded": 0, "cost_usd": 0.0, "merges": [ ... ],
-  "dry_run": true, "threshold": 0.92, "active_after": 88, "took_ms": 4100 }
-```
+## Operations
 
-`threshold` в запросе перекрывает `MEMKIT_CONSOLIDATE_COSINE` — порог склейки это
-эмпирический вопрос, и его надо мочь свипать по эвалу без рестарта.
+The remaining `/v1/admin/*` routes are the dashboard's read surface: statistics,
+facets, daily activity, cost by kind, judge runs and their detail, sessions and their
+messages, and the ranking explainer described in
+[05-retrieval.md](05-retrieval.md).
 
-`declined` — кластеры, которые модель отказалась склеивать по правилу 4 («это про
-разное»). Это не ошибка, а нужное поведение.
+Two worth naming:
 
-То же из CLI: `memkit consolidate --dry-run`, расписание —
-`deploy/ai.memkit.consolidate.plist`.
+`GET /v1/admin/stats` reports `index_drift` (`qdrant_memories - sqlite_active`) and
+`by_source_role`. The first tells you the derived index is lying; the second is the
+long-run health metric from [08-testing.md](08-testing.md) — watch `assistant`.
 
-### `GET /v1/admin/costs?days=30`
+`POST /v1/admin/reindex/start` returns **202** and runs in a thread;
+`GET /v1/admin/reindex/status` polls it. The synchronous `POST /v1/admin/reindex`
+blocks instead. They share one slot, so the second caller gets 409.
 
-```json
-{ "total_usd": 6.42, "by_kind": { "extract": 4.10, "consolidate": 2.32 },
-  "calls": 3211 }
-```
+## Errors
 
-### Поверхность дашборда
-
-Появилась вместе с фазой 6 и в этой доке не была описана. Всё под тем же
-`X-API-Key`, всё только для чтения, кроме явно помеченного.
-
-| Эндпоинт | Зачем |
+| status | means |
 |---|---|
-| `GET /v1/admin/stats` | сводка: факты по статусу/типу/scope, backlog, расходы, здоровье индекса |
-| `GET /v1/admin/facets` | значения и счётчики для фильтров UI |
-| `GET /v1/admin/activity?days=` | дневной ряд с нулями для графиков и хитмапа |
-| `GET /v1/admin/costs/daily?days=` | расходы по дням и по `kind` |
-| `GET /v1/admin/judge-runs` | лог вызовов судьи с фильтрами и разобранными операциями |
-| `GET /v1/admin/judge-runs/{id}` | один вызов целиком: вход, выход, затронутые факты и сообщения |
-| `GET /v1/admin/sessions` | сессии со счётчиками сообщений, необработанных и фактов |
-| `GET /v1/admin/sessions/{id}/messages` | сообщения сессии с пометкой, какие факты из них вышли |
-| `GET /v1/admin/messages/{id}` | одно сообщение и его факты |
-| `POST /v1/admin/search-preview` | тот же путь чтения плюс диагностика: что отброшено по scope, дедупу и бюджету |
-| `POST /v1/admin/memories/bulk` | **мутация**: expire / restore / hard_delete / set_type / set_importance / set_scope |
-| `POST /v1/memories/{id}/supersede` | **мутация**: пометить факт замещённым другим |
-| `POST /v1/admin/reindex/start` + `GET .../reindex/status` | асинхронная пересборка с прогрессом |
+| 401 | missing or wrong `X-API-Key` |
+| 404 | unknown id |
+| 409 | lost an optimistic lock, or a mutation during reindex, or a job already running |
+| 422 | request the schema accepts but the service refuses — `use_batch`, an unknown prompt version, an unknown sort column, reversed ordering anchors |
 
-Синхронный `POST /v1/admin/reindex` из раздела выше и асинхронный
-`reindex/start` делят один слот: пока идёт любой из них, мутации отвечают `409`.
+422 rather than 400 for the refusals is deliberate: the body was syntactically
+valid and semantically rejected, and the distinction tells a caller whether to fix
+their serialisation or their intent.
 
-### `GET /healthz`
+Sort and order parameters are validated against an allowlist before reaching SQL. A
+value like `updated_at; DROP TABLE memories` is a 422, and a test asserts the table
+is still there afterwards.
 
-```json
-{ "ok": true, "qdrant": true, "embedder": true, "queue_depth": 2 }
-```
+## CLI
 
-`queue_depth` — число сообщений с `processed = 0`. Очереди как таковой нет:
-экстракция идёт фоновой задачей FastAPI, а не через `asyncio.Queue` из
-`01-architecture.md`. Осмысленный аналог — сколько истории ещё ждёт судью.
+| command | does |
+|---|---|
+| `memkit serve` | run the API |
+| `memkit bench` | embedder latency gate; exits non-zero if the dimension is not 1024 |
+| `memkit import-claude-code` | import transcripts; `--dry-run` reports classification and writes nothing |
+| `memkit backfill` | extract from unprocessed history; `--dry-run` prices it first |
+| `memkit eval` | retrieval eval; `--compare` for the only valid raw-vs-facts comparison |
+| `memkit consolidate` | stage 4; `--dry-run` by default in practice |
+| `memkit reindex` | rebuild both collections from SQLite |
+| `memkit judge-runs` | print recent judge calls with their operations |
+| `memkit install-hermes` | copy the plugin into `$HERMES_HOME/plugins/` |
 
----
-
-## Как агент это использует
-
-```python
-mem = requests.post(f"{BASE}/search", json={
-    "owner_id": OWNER, "query": user_message, "budget_tokens": 800
-}).json()
-
-block = "\n".join(f"- {m['text']}" for m in mem["memories"])
-system = f"Что ты знаешь о пользователе:\n{block}"
-
-reply = llm(system=system, messages=history + [user_message])
-
-for role, content in [("user", user_message), ("assistant", reply)]:
-    requests.post(f"{BASE}/messages", json={
-        "session_id": sid, "owner_id": OWNER, "agent_id": "chat",
-        "role": role, "content": content
-    })
-```
-
-Девять строк на стороне агента. Так и должно быть — вся сложность внутри
-сервиса, а не размазана по агентам.
+Every command that spends money prints the estimate first and refuses without the
+right credential. `bench` exits non-zero on a wrong dimension because a silent
+embedding-model swap would make every stored vector incomparable, and nothing else
+would notice.

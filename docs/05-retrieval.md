@@ -1,211 +1,174 @@
-# 05 — Поиск и сборка контекста
+# Retrieval
 
-Самая сложная часть. Записать факт легко. Достать нужный из десяти тысяч —
-нет.
+The hardest part of the system, and the part where being wrong is least visible: a
+bad fact announces itself, but a good fact that never surfaces looks exactly like a
+system with nothing to say.
 
-Косинусного сходства недостаточно: оно не знает, что факт устарел, что он
-неважный, и что ты уже двадцать раз им не воспользовался.
+Reading is local and free — no model call — which is what makes it affordable on
+every turn.
 
-## Формула
+## The score
+
+Each candidate gets a composite score:
 
 ```python
-score = (0.55 * similarity
-       + 0.20 * importance
-       + 0.15 * recency
-       + 0.10 * scope_boost)
+score = (W_SIMILARITY * similarity
+         + W_IMPORTANCE * importance
+         + W_RECENCY    * recency
+         + W_SCOPE      * scope_boost)
 ```
 
-Веса — стартовые. Крутить их **только по эвалу**, не по ощущениям.
+The literals are not written here on purpose; they are generated from the module so
+this document cannot disagree with the code:
 
-### similarity
+<!-- generated:retrieval-weights -->
+| term | weight | constant |
+|---|---|---|
+| similarity | 0.55 | `retrieval.W_SIMILARITY` |
+| importance | 0.20 | `retrieval.W_IMPORTANCE` |
+| recency | 0.15 | `retrieval.W_RECENCY` |
+| scope_boost | 0.10 | `retrieval.W_SCOPE` |
 
-Косинус из Qdrant, 0..1. Берём top-50, потом пересчитываем — переранжирование
-дешёвое, а расширенная выборка спасает от того, что нужный факт был
-пятидесятым по косинусу, но первым по важности.
+The four weights sum to 1.00.
 
-### recency — забывание
+| parameter | value | constant |
+|---|---|---|
+| overfetch | 50 | `retrieval.OVERFETCH` |
+| dedup cosine | 0.90 | `retrieval.DEDUP_COSINE`, overridable with `MEMKIT_DEDUP_COSINE` |
+| characters per token | 3 | `retrieval.CHARS_PER_TOKEN` |
+<!-- /generated:retrieval-weights -->
 
+These are starting values. They are tuned against the eval
+([08-testing.md](08-testing.md)), never by feel — a weight adjusted because a
+single query looked wrong is how a ranking function stops being explainable.
+
+### Similarity
+
+Cosine, from Qdrant, over BGE-M3 vectors. Embeddings are L2-normalised so the dot
+product *is* the cosine.
+
+Retrieval is **dense only**. There is no BM25, no lexical arm and no fusion. Both
+collections declare a sparse slot that nothing writes to, purely so that enabling
+hybrid search later does not require recreating the collections
+([decisions/0050](decisions/0050-bm25-deferred.md)).
+
+### Recency
+
+`exp(-age_days / tau[type])`, with age measured from **`updated_at`**, not
+`created_at`. A fact the user restates today is fresh again; the alternative would
+make a five-year-old confirmed preference decay identically to a forgotten one.
+
+<!-- generated:retrieval-tau -->
 ```python
-recency = exp(-age_days / tau[type])
-```
-
-```python
-tau = {
-    "preference": 540,   # полтора года
+# Recency half-life per type, in days. retrieval.TAU
+TAU = {
+    "preference": 540,
     "fact":       900,
     "skill":      270,
     "relation":   270,
     "project":    180,
     "decision":   180,
-    "task":         2,   # задачи умирают почти сразу
+    "task":       2,
 }
+TAU_DEFAULT = 180  # unknown type
 ```
+<!-- /generated:retrieval-tau -->
 
-`age_days` считается от `updated_at`, **не** от `created_at`. Факт,
-подтверждённый вчера, свежий, даже если создан два года назад.
+The spread is the point. A `fact` — where someone lives, what they are called —
+should survive a year of silence. A `task` should be almost gone in days, because a
+stale task is worse than no task: it invites an agent to act on something already
+finished. `preference` sits in between, on the reasoning that people change tools
+faster than they change cities.
 
-Kanban-перемещения обновляют только `task_board.updated_at`, поэтому не влияют
-на эту свежесть. Результат task-memory дополнительно содержит `task_status`;
-`unknown`, `todo`, `doing` и `done` ищутся одинаково.
+### Scope
 
-Смысл разных τ: «живёт в Ташкенте» через год всё ещё правда, «сегодня чиню
-баг #14» через два дня — мусор.
+The scope boost is not really a boost. It returns `None` for a fact that must not be
+returned at all, and a filtered fact is **discarded, not down-weighted**:
 
-### scope_boost
-
-```python
-0.0  # scope='user'        — общий фон
-0.5  # scope='project' и проект совпадает с текущим
-1.0  # scope='task'  и задача совпадает с текущей
--∞   # scope='project'/'task', но ключ НЕ совпадает → выбрасываем
-```
-
-Факты из чужого проекта не должны просто получать меньший вес — они должны
-отфильтровываться на уровне Qdrant, до всякого ранжирования.
-
-## Дедуп на чтении
-
-Даже с ночным консолидатором в выдачу попадут почти-одинаковые факты. Жадный
-проход сверху вниз:
-
-```python
-kept = []
-for m in ranked:
-    if all(cos(m.vec, k.vec) < 0.90 for k in kept):
-        kept.append(m)
-```
-
-**Поправка:** Qdrant не возвращает векторы, если их не попросить. Нужен
-`with_vectors=True` в запросе, иначе дедуп молча не работает.
-
-**Про порог 0.90.** Замерено на BGE-M3 на этом корпусе:
-
-| Пара | Косинус | При 0.90 |
+| scope | key | result |
 |---|---|---|
-| дословный повтор | 1.0000 | склеится |
-| «Prefers pnpm over npm for all projects» / «Prefers pnpm rather than npm everywhere» | **0.8979** | **не склеится** |
-| «Lives in Tashkent» / «Lives in Tashkent, Uzbekistan» | 0.8871 | не склеится |
-| «Writes Vue 3 with TypeScript» / «Uses Vue 3 and TypeScript on the frontend» | 0.8620 | не склеится |
-| «Prefers pnpm» / «Prefers pytest» | 0.7422 | не склеится (и правильно) |
+| `user` | — | 0.0, always admitted |
+| `project` | matches the request | 0.5 |
+| `project` | different project | **discarded** |
+| `project` | no key | **discarded** |
+| `task` | no key | 1.0, always admitted |
+| `task` | matches the current task | 1.0 |
+| `task` | different task | **discarded** |
 
-То есть 0.90 ловит только почти дословные повторы: настоящий пересказ того же
-факта не дотягивает до порога буквально на 0.002. Порог около 0.85 ловил бы
-пересказы и всё ещё разделял pnpm и pytest. Но менять его — только по эвалу,
-поэтому он вынесен в настройку `MEMKIT_DEDUP_COSINE` и оставлен на 0.90.
+Down-weighting would be wrong rather than merely weaker. On a thin corpus a
+down-weighted foreign fact still reaches the top of a short result list, and "the
+auth module lives in `app/auth`" surfacing while you work in a different repository
+is not a slightly worse answer — it is a confidently wrong one.
 
-Тот же замер важен для фазы 4: порог кластеризации 0.92 у консолидатора ещё
-строже и почти ничего не склеит.
+The same rule is applied twice: once as a Qdrant filter, so foreign facts never
+leave the database, and once in the rescoring pass as a belt-and-braces check. An
+unkeyed `project` fact is a bug at write time; making it unreachable means the bug
+costs nothing until it is fixed.
 
-## Набивка бюджета
+## Dedup
 
-Агент даёт `budget_tokens`. Набиваем по убыванию score, пока влезает.
+A greedy top-down pass: for each candidate, if it is at least as similar as the
+threshold to something already kept, drop it and record what beat it. Items with no
+vector are kept unconditionally — the absence of a vector is an indexing problem,
+and dropping the fact would hide it.
 
-```python
-out, used = [], 0
-for m in kept:
-    t = len(m.text) // 3            # грубая оценка для кириллицы
-    if used + t > budget_tokens:
-        break
-    out.append(m); used += t
-```
+The threshold is 0.90, and it is probably slightly too strict. That is argued, with
+the measurements, at
+[decisions/0030](decisions/0030-dedup-stays-at-0.90.md).
 
-Почему бюджет, а не `limit=10`: у фактов очень разная длина, и десять длинных
-съедят половину промпта.
+Dedup needs the vectors back from Qdrant, which requires asking for them:
+`with_vectors=True`. Qdrant does not return them by default, and without that flag
+dedup silently does nothing — the comparison runs against `None` for every item and
+never fires. This cost a working feature once.
 
-Ориентир: **600–1000 токенов памяти** на запрос. Больше — модель начинает
-теряться и цепляться за нерелевантное. Меньше памяти часто работает лучше,
-чем больше. Это контринтуитивно, но проверяется эвалом.
+## Filling the budget
 
-## Обратная связь
+The caller supplies `budget_tokens` (default 800) and `limit` (default 30). Results
+are added in descending score until the next one does not fit. An item too large for
+the remaining space is **skipped, not terminal** — one verbose fact should not
+truncate everything below it.
 
-После выдачи:
+Tokens are estimated as `len(text) // 3`, not `// 4`. Cyrillic tokenises denser than
+English, and the corpus is mixed, so the usual four-characters-per-token rule
+underestimates by enough to overflow a budget that looked comfortable.
 
-```sql
-UPDATE memories
-   SET last_retrieved_at = ?, retrieval_count = retrieval_count + 1
- WHERE id IN (...);
-```
+Aim for 600–1,000 tokens of memory per request. Above that, memory starts competing
+with the thing the agent is actually doing.
 
-Даёт две вещи:
-- ночью понижать importance у фактов, не всплывавших 90 дней;
-- видеть, какие факты не достаются никогда — это ошибки экстрактора,
-  их надо разбирать руками.
+There is no elbow detection, no `mode` parameter and no separate `max_tokens`
+ceiling. All three were designed and are declined, with the reasoning and the
+conditions for reopening, at
+[decisions/0029](decisions/0029-budget-tokens-not-elbow.md).
 
-## Эвал — делать в фазе 1, не потом
+## What is not filtered
 
-Без этого ты не сможешь ответить, стало лучше или хуже. Все правки формулы
-превратятся в гадание.
+There is no minimum-similarity floor. Vector search returns `k` results however
+distant they are, so a floor sounds obviously right; measured, only the most timid
+threshold was quality-neutral and it saved 8% of tokens. See
+[decisions/0028](decisions/0028-no-similarity-floor.md).
 
-Файл `eval/queries.yaml`, 30 строк, пополняется по ходу:
+An empty result is still a correct and reachable answer — it just arrives through
+scope filtering and the budget rather than through a distance cutoff.
 
-Проверки — **по содержимому, а не по id**. `reextract` по своему устройству
-создаёт новые id, поэтому файл с зашитыми id обесценивается при первом же
-запуске той самой операции, ради которой эвал и существует.
+## Retrieval feedback
 
-```yaml
-- id: framework
-  query: "какой фреймворк я использую"
-  expect_any: ["vue"]         # регексп по тексту выдачи, хотя бы один
-  reject: ["\\breact\\b"]     # устаревший React-факт всплывать не должен
+Every returned fact gets `last_retrieved_at` set and `retrieval_count` incremented.
+Those two columns are what the nightly consolidator uses to demote facts nothing
+ever asks for ([04-judge.md](04-judge.md)), and they are the cheapest available
+signal about which facts are dead weight.
 
-- id: auth-location
-  query: "где лежит авторизация"
-  expect_any: ["auth/"]
-  project: memkit
-```
+Note that this makes reading a write. It is a deliberate cost: without it there is
+no way to distinguish a fact that matters from one that has never been used since it
+was stored.
 
-Метрики: `recall@10`, `MRR`, доля top-1, число нарушений `reject`, средний
-`used_tokens`.
+## Explaining a result
 
-`recall@10` быстро упирается в 1.00: десять результатов из трёхсот — это треть
-процента от полноты, и такое число уже ничего не различает. Поэтому рядом
-считаются `MRR` и доля top-1 — они продолжают двигаться и после того, как recall
-насытился.
+`POST /v1/admin/search-preview` returns the same ranking with every component
+exposed — similarity, importance, recency, scope boost, the final score, and three
+separate lists of what was dropped and why: by scope, by dedup, by budget. It also
+reports the live weights and half-lives, so a surprising result can be diagnosed
+without reading the source.
 
-Прогон — одна команда, до и после каждой правки весов или промпта:
-
-```bash
-python -m eval.run --before v3 --after v4
-```
-
-30 запросов достаточно. Смысл не в статистической строгости, а в том, чтобы
-регресс было видно сразу.
-
-## Замеренное отступление: порог по сходству не окупается
-
-На общем вопросе («какой ширины делать боковой редактор») выдача набивается почти
-всеми user-фактами: у ранга 1 сходство 0.706, у остальных 0.31–0.43. Причина
-структурная и следует прямо из формулы: на свежем корпусе `0.20*importance +
-0.15*recency` даёт каждому факту около 0.33 базы независимо от релевантности, так
-что вклад сходства сжимается до 0.55×(0.71−0.31) ≈ 0.22 диапазона.
-
-Проверил отсечение по сырому косинусу до композита, на 31 вопросе эвала:
-
-| порог | recall@10 | MRR | top-1 | токены |
-|---|---|---|---|---|
-| выкл. | 0.87 | 0.759 | 22 | 395 |
-| 0.40 | 0.87 | 0.759 | 22 | 362 |
-| 0.45 | 0.84 | 0.746 | 22 | 289 |
-| 0.50 | 0.77 | 0.728 | 22 | 166 |
-
-Единственное безопасное значение — 0.40, и оно экономит 8% токенов при нулевом
-изменении качества. **Настройку не добавляю: 8% не стоят ещё одной ручки.**
-Замер записан, чтобы этот эксперимент не проводили заново.
-
-Что он говорит по существу: остаток качества лежит не в фильтрах. Релевантные
-факты сами сидят на 0.40–0.43, то есть эмбеддинг слабо разделяет их от фона. Это
-довод в пользу пункта 4 ниже — гибридного поиска с BM25 — а не пунктов 2 и 3.
-
-## Порядок оптимизации
-
-Когда качество не устраивает, чинить в таком порядке:
-
-1. **Экстрактор.** Плохие факты нельзя вытащить хорошим поиском. 80% проблем
-   здесь.
-2. **Фильтры.** Не отсекается ли лишнее по scope и status.
-3. **Веса формулы.**
-4. **Гибридный поиск** (добавить BM25 в слот `bm25`). Помогает там, где нужен
-   точный термин: имена, версии, названия пакетов. Дай эмбеддингу шанс
-   провалиться сам, прежде чем это строить.
-
-Типичная ошибка — начать с пункта 4, потому что он самый интересный.
+This is the endpoint to reach for when a query returns something baffling. "Why did
+that surface?" is answerable; "why did *this* not?" needs the `dropped_scope` list,
+which is why the preview endpoint runs a second unfiltered query to populate it.

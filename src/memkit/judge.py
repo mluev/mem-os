@@ -1,11 +1,9 @@
 """The extractor: turns a window of conversation into memory operations.
 
-The default judge is **Gemini 3.5 Flash-Lite**, not the
-`claude-haiku-4-5` of docs/04-judge.md. The doc's Haiku pricing was accurate
-($1/$5 per Mtok, and Batch really is half price), but Flash-Lite is cheaper
-still, Google recommends it for exactly this shape of work, and it bills to
-Google Cloud where this deployment's credits live. Claude models still work --
-see `providers.py` -- so the two can be compared on the same eval.
+The default judge is **Gemini 3.5 Flash-Lite**: cheaper than Haiku, and
+measured *better* on this task, where the failure mode is eagerness rather than
+weakness. Claude models still work -- see `providers.py` -- so versions can be
+compared on one eval. See decisions/0008.
 
 Key-only auth uses the Gemini Developer API. Project auth uses Vertex AI.
 
@@ -27,7 +25,8 @@ Corrections to the doc's contract:
   single path to it, and `PROMPT_VERSION` names the version that path renders.
   These were once separate -- a literal copy of v2 here, `DEFAULT_VERSION`
   ("v4") on the label -- which made `extraction_version` lie and made every
-  measurement in docs/08 describe a prompt production never ran.
+  measurement in the extractor notebook describe a prompt production never ran.
+#  See decisions/0016.
 * Structured output is enforced per provider -- `strict: true` on Anthropic,
   `response_json_schema` on Vertex. The doc claims tool use alone means the
   model "physically cannot return malformed JSON"; that holds only in strict
@@ -60,7 +59,7 @@ logger = logging.getLogger(__name__)
 # The active version, and the *only* place the prompt text comes from. judge.py
 # used to carry its own literal copy of the prompt while stamping every fact with
 # prompts.DEFAULT_VERSION, so the version column claimed "v4" for text that was
-# actually v2 and every measurement in docs/08 described a prompt production
+# actually v2 and every measurement in the extractor notebook described a prompt
 # never ran. `build_prompt` below is now the single path; the invariant is
 # guarded by test_production_prompt_is_the_active_registry_version.
 PROMPT_VERSION = prompts.DEFAULT_VERSION

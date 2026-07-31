@@ -14,7 +14,7 @@ Four jobs, in the order they run:
 
 Two deliberate deviations from the docs:
 
-* **No Batch API.** docs/04-judge.md is right that Batch is half price, but at this
+* **No Batch API.** Batch is half price (decisions/0012), but at this
   corpus size a whole run is a handful of calls -- roughly $0.01 -- and Batch buys
   that discount with asynchronous polling. The complexity is not worth a cent.
 * **Clustering is stricter than read-path dedup** (0.92 against 0.90) because the

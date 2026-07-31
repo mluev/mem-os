@@ -9,9 +9,9 @@ Two collections, not one:
 ``raw``
     Indexed raw user turns. This exists only so stage 1 has a working semantic
     search, and a baseline number to judge whether the stage-2 extractor helps
-    at all. docs/06-roadmap.md puts raw messages in the same collection as
-    facts, which would break the one-point-per-fact invariant the data model
-    depends on; keeping them apart costs one collection and preserves it.
+    at all. Putting raw turns in the same collection as facts would break the
+    one-point-per-fact invariant the read path depends on; keeping them apart
+    costs one collection and preserves it. See decisions/0019.
 
 Both declare a ``bm25`` sparse slot up front. Qdrant cannot add a named vector
 to an existing collection, so a slot left undeclared means a full reindex later
