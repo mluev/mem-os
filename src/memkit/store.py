@@ -10,7 +10,7 @@ from typing import Any
 
 from qdrant_client import QdrantClient
 
-from . import vectors
+from . import provenance, vectors
 from .db import ensure_owner, ensure_session, utcnow
 from .embed import Embedder
 from .importers.claude_code import MIN_INDEX_CHARS
@@ -264,6 +264,7 @@ def add_memory(
     judge_run_id: int | None = None,
     valid_until: str | None = None,
     task_status: str | None = None,
+    source_role: str = provenance.DEFAULT_ROLE,
 ) -> str:
     """Insert a fact into SQLite and mirror it into Qdrant."""
     ensure_owner(conn, owner_id, owner_id)
@@ -275,17 +276,21 @@ def add_memory(
     # facets, claiming the fact belongs to one repo when it belongs to all.
     if scope == "user":
         scope_key = None
+    # Validated here rather than trusted: an out-of-vocabulary provenance label
+    # would pass the CHECK constraint's blame to SQLite and lose the call site.
+    provenance.validate(source_role)
     mem_id = str(uuidlib.uuid4())
     now = utcnow()
     conn.execute(
         """INSERT INTO memories
            (id, owner_id, agent_id, scope, scope_key, type, text, importance,
             confidence, status, valid_from, valid_until, created_at, updated_at,
-            extraction_version, judge_run_id)
-           VALUES (?,?,?,?,?,?,?,?,?,'active',?,?,?,?,?,?)""",
+            extraction_version, judge_run_id, source_role)
+           VALUES (?,?,?,?,?,?,?,?,?,'active',?,?,?,?,?,?,?)""",
         (
             mem_id, owner_id, agent_id, scope, scope_key, type, text, importance,
             confidence, now, valid_until, now, now, extraction_version, judge_run_id,
+            source_role,
         ),
     )
     workflow_status: str | None = None

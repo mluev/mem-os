@@ -32,7 +32,7 @@ from typing import Any
 
 from qdrant_client import QdrantClient
 
-from . import mutate, prompts, providers, store, vectors
+from . import mutate, prompts, providers, provenance, store, vectors
 from .db import utcnow
 from .embed import Embedder
 
@@ -195,7 +195,7 @@ def find_clusters(
     Clusters of one are not clusters.
     """
     rows = conn.execute(
-        """SELECT id, type, text, importance, updated_at FROM memories
+        """SELECT id, type, text, importance, updated_at, source_role FROM memories
             WHERE owner_id = ? AND status = 'active' ORDER BY id""",
         (owner_id,),
     ).fetchall()
@@ -413,6 +413,13 @@ def _apply_merge(
         "SELECT scope, scope_key, agent_id, valid_until FROM memories WHERE id=?",
         (newest["id"],),
     ).fetchone()
+    # The survivor is no better sourced than its inputs, so it takes the weakest
+    # label in the cluster and not the newest member's. Otherwise a merge could
+    # launder an assistant-sourced sentence into a user-sourced fact, and a merge
+    # is permanent where a bad search result is not.
+    inherited_role = provenance.weakest(
+        {member["source_role"] for member in cluster}
+    )
     survivor_id = store.add_memory(
         conn,
         client,
@@ -426,6 +433,7 @@ def _apply_merge(
         importance=merge.importance if merge.importance is not None else 0.6,
         extraction_version=f"consolidated:{prompts.CONSOLIDATE_VERSION}",
         valid_until=row["valid_until"],
+        source_role=inherited_role,
     )
     # Provenance: the merged fact inherits every source message of its inputs, so
     # GET /v1/memories/{id}/sources still answers "where did this come from".

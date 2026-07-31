@@ -12,7 +12,7 @@ from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from memkit import mutate, retrieval, store, taskboard  # noqa: E402
-from memkit.db import connect, init_db, transaction  # noqa: E402
+from memkit.db import SCHEMA_VERSION, connect, init_db, transaction  # noqa: E402
 from tests.fixtures import OWNER, StubEmbedder, StubQdrant, make_db  # noqa: E402
 
 
@@ -69,7 +69,19 @@ class TestTaskBoardMigration(unittest.TestCase):
         self.assertEqual(rows[0]["workflow_status"], "unknown")
         self.assertEqual(rows[0]["project_key"], "memkit")
         self.assertIsNone(rows[1]["project_key"])
-        self.assertEqual(migrated.execute("PRAGMA user_version").fetchone()[0], 2)
+        # Reads the constant rather than a literal: this assertion is about
+        # "init_db brought the file fully up to date", not about any one version.
+        self.assertEqual(
+            migrated.execute("PRAGMA user_version").fetchone()[0], SCHEMA_VERSION
+        )
+        # This v1 file also crosses the v3 boundary, so it is the only test that
+        # runs the source_role rebuild against a table it did not create.
+        self.assertEqual(
+            {row["source_role"] for row in migrated.execute(
+                "SELECT source_role FROM memories")},
+            {"manual"},
+            "pre-v3 facts with no linked messages can only be labelled manual",
+        )
 
 
 class TestTaskBoard(unittest.TestCase):

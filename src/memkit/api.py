@@ -85,6 +85,14 @@ class MemoryIn(BaseModel):
     agent_id: str | None = None
     importance: float = Field(default=0.6, ge=0.0, le=1.0)
     confidence: float = Field(default=0.9, ge=0.0, le=1.0)
+    # Who is asserting this. A caller writing on a model's behalf must say so:
+    # Hermes' on_memory_write and memkit_remember send "assistant", because both
+    # store text the model composed without the judge or the prompt rules ever
+    # seeing it. Declared rather than detected -- exactly as trustworthy as the
+    # owner_id the same caller declares -- and that is the point: unlabelled, a
+    # model writing thirty facts about you a week is invisible. See
+    # provenance.py and decisions/0006.
+    source_role: Literal["user", "assistant", "manual"] = "manual"
 
 
 @asynccontextmanager
@@ -339,8 +347,23 @@ def memory_sources(memory_id: str) -> dict[str, Any]:
             "SELECT * FROM memories WHERE id=?", (mem["superseded_by"],)
         ).fetchone()
         successor = dict(row) if row else None
+    # The stored label plus the actual tally. `source_role` is the authority this
+    # fact was written under; `source_roles` is how much of its evidence came
+    # from whom. They answer different questions, and the second one is the
+    # answer to "was any of this me?" -- the reason this endpoint exists.
+    role_counts = {
+        row["role"]: row["n"]
+        for row in conn.execute(
+            """SELECT m.role, COUNT(*) n
+                 FROM memory_sources ms JOIN messages m ON m.id = ms.message_id
+                WHERE ms.memory_id = ? GROUP BY m.role""",
+            (memory_id,),
+        ).fetchall()
+    }
     return {
         "memory": dict(mem),
+        "source_role": mem["source_role"],
+        "source_roles": role_counts,
         "task_board": (
             dict(board)
             if (
@@ -420,6 +443,7 @@ def post_memory(body: MemoryIn) -> dict[str, str]:
             agent_id=body.agent_id,
             importance=body.importance,
             confidence=body.confidence,
+            source_role=body.source_role,
         )
     return {"id": mem_id}
 

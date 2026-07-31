@@ -15,7 +15,7 @@ from typing import Any
 
 from qdrant_client import QdrantClient
 
-from . import judge, mutate, taskboard, vectors
+from . import judge, mutate, provenance, taskboard, vectors
 from .db import utcnow
 from .embed import Embedder
 
@@ -43,6 +43,10 @@ class ExtractionOutcome:
     updated: int = 0
     deleted: int = 0
     skipped: int = 0
+    # Operations refused by the write-time provenance guard, as distinct from
+    # `skipped` (the judge referenced a fact that is gone). A non-zero value here
+    # means the model tried to store its own words. See provenance.py.
+    rejected: int = 0
     fast_forwarded: int = 0
     abandoned: int = 0
     cost_usd: float = 0.0
@@ -61,6 +65,7 @@ class ExtractionOutcome:
             "updated": self.updated,
             "deleted": self.deleted,
             "skipped": self.skipped,
+            "rejected": self.rejected,
             "fast_forwarded": self.fast_forwarded,
             "abandoned": self.abandoned,
             "cost_usd": round(self.cost_usd, 6),
@@ -279,11 +284,28 @@ def apply_ops(
     now = utcnow()
     # Stamped from the version that actually rendered the prompt, so a re-extraction
     # under an older version labels its facts with that version and not the active
-    # one. Getting this wrong is the defect that made every measurement in
-    # docs/08 describe a prompt production never ran.
+    # one. Getting this wrong is the defect that made every measurement in the
+    # extractor experiments describe a prompt production never ran.
     stamp = version or judge.PROMPT_VERSION
 
+    # One query for the whole batch: every op in a call cites the same window.
+    roles = provenance.roles_of(conn, source_message_ids)
+    evidence_role = provenance.source_role_for(roles)
+
     for op in ops:
+        # A fact whose only evidence is the assistant's own text may not be
+        # written or refreshed. Today this cannot fire from the live pipeline --
+        # the window always contains a user turn and every op cites the whole
+        # window -- so it is a regression detector, not a running defence. See
+        # provenance.py for what it does and does not buy.
+        if not provenance.may_write(op=op.op, roles=roles):
+            out.rejected += 1
+            logger.warning(
+                "rejected %s (%s): %.80s",
+                op.op, provenance.REJECTED_ASSISTANT_ONLY, op.text or "",
+            )
+            continue
+
         if op.op == "ADD":
             mem_id = str(uuidlib.uuid4())
             row = {
@@ -302,12 +324,13 @@ def apply_ops(
                 """INSERT INTO memories
                    (id, owner_id, agent_id, scope, scope_key, type, text,
                     importance, confidence, status, valid_from, valid_until,
-                    created_at, updated_at, extraction_version, judge_run_id)
-                   VALUES (?,?,?,?,?,?,?,?,?,'active',?,?,?,?,?,?)""",
+                    created_at, updated_at, extraction_version, judge_run_id,
+                    source_role)
+                   VALUES (?,?,?,?,?,?,?,?,?,'active',?,?,?,?,?,?,?)""",
                 (
                     mem_id, owner_id, agent_id, row["scope"], row["scope_key"],
                     op.type, op.text, op.importance, op.confidence, now,
-                    op.valid_until, now, now, stamp, judge_run_id,
+                    op.valid_until, now, now, stamp, judge_run_id, evidence_role,
                 ),
             )
             workflow_status = None

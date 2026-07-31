@@ -131,8 +131,21 @@ class Client:
 
     def add_memory(
         self, text: str, *, type: str = "fact", importance: float = 0.9,
-        scope: str = "user",
+        scope: str = "user", source_role: str = "assistant",
     ) -> dict[str, Any]:
+        """Write a fact directly, bypassing the judge.
+
+        `source_role` defaults to "assistant" because every caller of this method
+        inside the plugin is the model: `on_memory_write` mirrors what the agent
+        decided to remember, and `memkit_remember` is a tool the model invokes.
+        Neither passes through the extractor prompt, so neither has been checked
+        against "store what the user stated, not what the assistant said".
+
+        Before the label existed these landed indistinguishable from a human
+        write. Measured on one real session: eight new facts, seven of them from
+        this path at importance 0.8-0.95, including the same claim stored four
+        times in slightly different words.
+        """
         return self._request(
             "POST",
             "/v1/memories",
@@ -143,6 +156,7 @@ class Client:
                 "scope": scope,
                 "importance": importance,
                 "agent_id": "hermes",
+                "source_role": source_role,
             },
         ) or {}
 

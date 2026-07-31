@@ -12,6 +12,7 @@ Schema follows docs/02-data-model.md, with two documented deviations:
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 import threading
 from collections.abc import Iterator
@@ -19,7 +20,9 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
-SCHEMA_VERSION = 2
+logger = logging.getLogger(__name__)
+
+SCHEMA_VERSION = 3
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS owners (
@@ -93,7 +96,18 @@ CREATE TABLE IF NOT EXISTS memories (
     last_retrieved_at  TEXT,
     retrieval_count    INTEGER NOT NULL DEFAULT 0,
     extraction_version TEXT NOT NULL,
-    judge_run_id       INTEGER REFERENCES judge_runs(id)
+    judge_run_id       INTEGER REFERENCES judge_runs(id),
+    -- Who the claim came from: the highest-authority role among the messages
+    -- this fact cites, or 'manual' when it cites none and the caller asserted
+    -- it. NOT NULL and CHECKed so no write path can leave the question open --
+    -- that is the whole point, see provenance.py and decisions/0006.
+    --
+    -- Deliberately no DEFAULT. A default would make an INSERT that forgets this
+    -- column succeed and label model-authored text as something a human typed,
+    -- which is the precise failure the column exists to detect. Omitting it is
+    -- an error, and it should read like one.
+    source_role        TEXT NOT NULL
+                       CHECK(source_role IN ('user','assistant','tool','manual'))
 );
 CREATE INDEX IF NOT EXISTS idx_memories_owner ON memories(owner_id, status);
 CREATE INDEX IF NOT EXISTS idx_memories_scope
@@ -154,7 +168,120 @@ def init_db(db_path: Path) -> None:
         conn.executescript(SCHEMA)
         if current < 2:
             _backfill_task_board(conn)
+        if current < 3:
+            _migrate_source_role(conn)
         conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
+
+
+# The authority order from provenance.py, inlined as SQL. Kept in sync by
+# tests/test_provenance.py rather than by importing -- db.py deliberately has no
+# imports from the rest of the package.
+_SOURCE_ROLE_FROM_SOURCES = """
+    SELECT CASE
+             WHEN SUM(msg.role = 'user')      > 0 THEN 'user'
+             WHEN SUM(msg.role = 'tool')      > 0 THEN 'tool'
+             WHEN SUM(msg.role = 'assistant') > 0 THEN 'assistant'
+           END
+      FROM memory_sources ms
+      JOIN messages msg ON msg.id = ms.message_id
+     WHERE ms.memory_id = memories.id
+"""
+
+_MEMORIES_V3_REBUILD: tuple[str, ...] = (
+    """
+CREATE TABLE memories_v3 (
+    id                 TEXT PRIMARY KEY,
+    owner_id           TEXT NOT NULL REFERENCES owners(id),
+    agent_id           TEXT,
+    scope              TEXT NOT NULL,
+    scope_key          TEXT,
+    type               TEXT NOT NULL,
+    text               TEXT NOT NULL,
+    importance         REAL NOT NULL,
+    confidence         REAL NOT NULL,
+    status             TEXT NOT NULL,
+    superseded_by      TEXT REFERENCES memories(id),
+    valid_from         TEXT NOT NULL,
+    valid_until        TEXT,
+    created_at         TEXT NOT NULL,
+    updated_at         TEXT NOT NULL,
+    last_retrieved_at  TEXT,
+    retrieval_count    INTEGER NOT NULL DEFAULT 0,
+    extraction_version TEXT NOT NULL,
+    judge_run_id       INTEGER REFERENCES judge_runs(id),
+    source_role        TEXT NOT NULL
+                       CHECK(source_role IN ('user','assistant','tool','manual'))
+)""",
+    # Derived from the evidence, not from extraction_version: that column cannot
+    # tell a human POST /v1/memories from a Hermes on_memory_write, since both
+    # land as 'manual'. The join is the only honest answer available
+    # retrospectively.
+    f"""
+INSERT INTO memories_v3
+SELECT id, owner_id, agent_id, scope, scope_key, type, text, importance,
+       confidence, status, superseded_by, valid_from, valid_until, created_at,
+       updated_at, last_retrieved_at, retrieval_count, extraction_version,
+       judge_run_id,
+       COALESCE(({_SOURCE_ROLE_FROM_SOURCES}), 'manual')
+  FROM memories""",
+    "DROP TABLE memories",
+    "ALTER TABLE memories_v3 RENAME TO memories",
+    "CREATE INDEX IF NOT EXISTS idx_memories_owner ON memories(owner_id, status)",
+    "CREATE INDEX IF NOT EXISTS idx_memories_scope "
+    "ON memories(owner_id, scope, scope_key)",
+)
+
+
+def _migrate_source_role(conn: sqlite3.Connection) -> None:
+    """Add memories.source_role by rebuilding the table. Idempotent.
+
+    A rebuild rather than ``ALTER TABLE ADD COLUMN`` because SQLite cannot add a
+    NOT NULL column without a DEFAULT, and cannot add a CHECK at all -- and the
+    DEFAULT is exactly what must not exist here (see the schema comment).
+
+    Three things have to be right, in this order:
+
+    * ``PRAGMA foreign_keys`` is a no-op inside a transaction, so it is set after
+      committing whatever the caller had open, and the rebuild runs in its own
+      explicit BEGIN/COMMIT. Python's legacy sqlite3 only auto-begins on DML, so
+      the DROP and RENAME would otherwise autocommit halfway through.
+    * The statements are executed one at a time and NOT through
+      ``executescript``, which issues its own COMMIT before running and would
+      silently end the transaction opened just above -- leaving the DROP and
+      RENAME running in autocommit with no rollback. The first version of this
+      function did exactly that, and the migration test is what caught it.
+    * Foreign keys must be OFF for the DROP. ``task_board`` references
+      ``memories(id)`` ON DELETE CASCADE -- with them on, dropping the old table
+      deletes the entire kanban board. This is the one reason the pragma dance is
+      not optional.
+    * ``PRAGMA foreign_key_check`` inside the transaction proves the RENAME
+      restored every reference before anything is committed, which is what makes
+      the rollback path safe.
+    """
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(memories)")}
+    if "source_role" in columns:
+        return  # fresh database: the schema script already created the column
+
+    conn.commit()
+    conn.execute("PRAGMA foreign_keys=OFF")
+    try:
+        conn.execute("BEGIN")
+        for statement in _MEMORIES_V3_REBUILD:
+            conn.execute(statement)
+        broken = conn.execute("PRAGMA foreign_key_check").fetchall()
+        if broken:
+            raise RuntimeError(
+                f"source_role migration left {len(broken)} dangling references; "
+                "rolled back, database unchanged"
+            )
+        migrated = conn.execute("SELECT COUNT(*) n FROM memories").fetchone()["n"]
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+    finally:
+        conn.execute("PRAGMA foreign_keys=ON")
+    logger.info("migrated %d memories to schema 3 (source_role)", migrated)
 
 
 def _backfill_task_board(conn: sqlite3.Connection) -> None:

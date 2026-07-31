@@ -895,6 +895,10 @@ def stats(
             "by_type": grouped("type"),
             "by_scope": grouped("scope"),
             "by_scope_key": grouped("scope_key"),
+            # The long-run health metric from docs/08-testing.md: how much of the
+            # store the user actually said. Watch `assistant` -- a rising count
+            # means model-authored text is accumulating as remembered fact.
+            "by_source_role": grouped("source_role"),
             "importance": importance,
             **{key: int(value or 0) for key, value in dict(triage).items()},
         },

@@ -18,13 +18,17 @@ class TestAdminQueries(unittest.TestCase):
     def setUp(self):
         self.conn = make_db()
 
-    def add(self, memory_id: str, text: str, updated: str = "2026-07-01T00:00:00Z"):
+    def add(self, memory_id: str, text: str, updated: str = "2026-07-01T00:00:00Z",
+            source_role: str = "user"):
+        # source_role is spelled out because the column has no DEFAULT: an insert
+        # that forgets provenance must fail rather than quietly claim a human
+        # wrote it. See src/memkit/provenance.py.
         self.conn.execute(
             """INSERT INTO memories
                (id,owner_id,scope,type,text,importance,confidence,status,
-                valid_from,created_at,updated_at,extraction_version)
-               VALUES(?,?,'user','fact',?,.5,.9,'active',?,?,?,'manual')""",
-            (memory_id, OWNER, text, updated, updated, updated),
+                valid_from,created_at,updated_at,extraction_version,source_role)
+               VALUES(?,?,'user','fact',?,.5,.9,'active',?,?,?,'manual',?)""",
+            (memory_id, OWNER, text, updated, updated, updated, source_role),
         )
 
     def test_cyrillic_casefold_and_literal_wildcards(self):
