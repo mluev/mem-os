@@ -1,0 +1,79 @@
+{
+  "mode": "dry-run-only",
+  "generated_at": "2026-08-09T17:11:23Z",
+  "owner_id": "u-1",
+  "active_by_version": {
+    "consolidated:c1": 1,
+    "manual": 11,
+    "v1": 15,
+    "v2": 8,
+    "v4": 56,
+    "v6": 1
+  },
+  "messages": 4302,
+  "estimated_windows": 431,
+  "estimated_cost_usd": 0.549525,
+  "provenance": {
+    "active_by_source_role": {
+      "manual": 10,
+      "user": 82
+    },
+    "with_exact_evidence": 0,
+    "without_exact_evidence": 92
+  },
+  "contexts": {
+    "{}": 37,
+    "{\"source_workspace\": \"frontend-second\"}": 21,
+    "{\"source_workspace\": \"frontend\"}": 10,
+    "{\"source_workspace\": \"portfolio\"}": 8,
+    "{\"source_workspace\": \"core\"}": 4,
+    "{\"source_workspace\": \"design-engineer\"}": 4,
+    "{\"source_workspace\": \"notiky\"}": 4,
+    "{\"source_workspace\": \"frontend-git\"}": 2,
+    "{\"source_workspace\": \"vibe-os\"}": 2
+  },
+  "expiry": {
+    "indefinite": 92,
+    "dated": 0,
+    "expired_but_active": 0
+  },
+  "search_quality": {
+    "status": "not_measured_on_live_data",
+    "reason": "dry-run does not mutate or replay the live index",
+    "required_gate": [
+      "corrections",
+      "contradictions",
+      "silence",
+      "exact-term",
+      "temporal",
+      "10k-distractors"
+    ]
+  },
+  "proposed_changes": [
+    {
+      "action": "archive_untrusted_claims_from_normal_retrieval",
+      "count": 0
+    },
+    {
+      "action": "expire_past_valid_until",
+      "count": 0
+    },
+    {
+      "action": "review_overlong_memories",
+      "count": 18
+    },
+    {
+      "action": "preserve_and_review_legacy_storage_exceptions",
+      "count": 1
+    },
+    {
+      "action": "reextract_with_exact_evidence",
+      "count": 92
+    }
+  ],
+  "rollback": {
+    "before_apply": "retain this report and make no live changes",
+    "future_apply": "create a fresh SQLite backup and Qdrant generation; switch alias only after validation"
+  },
+  "apply_allowed": false
+}

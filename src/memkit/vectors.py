@@ -35,10 +35,14 @@ RAW = "raw"
 # Filterable payload fields. Without an index Qdrant filters by full scan.
 _INDEXES: dict[str, list[str]] = {
     MEMORIES: [
-        "owner_id", "agent_id", "scope", "scope_key", "type", "status",
-        "task_status",
+        "owner_id",
+        "agent_id",
+        "kind",
+        "status",
+        "source_role",
+        "valid_until",
     ],
-    RAW: ["owner_id", "agent_id", "project", "role", "session_id"],
+    RAW: ["owner_id", "agent_id", "role", "session_id"],
 }
 
 
@@ -50,27 +54,22 @@ def ensure_collections(client: QdrantClient) -> None:
     """Create both collections and their payload indexes, idempotently."""
     existing = {c.name for c in client.get_collections().collections}
     for name in (MEMORIES, RAW):
-        if name not in existing:
+        if name not in existing and not _alias_exists(client, live_alias(name)):
             client.create_collection(
                 collection_name=name,
                 vectors_config={
-                    "dense": models.VectorParams(
-                        size=DIM, distance=models.Distance.COSINE
-                    )
+                    "dense": models.VectorParams(size=DIM, distance=models.Distance.COSINE)
                 },
                 sparse_vectors_config={"bm25": models.SparseVectorParams()},
             )
             logger.info("created collection %s", name)
+        target = resolve_collection(client, name)
         for field in _INDEXES[name]:
-            try:
-                client.create_payload_index(
-                    collection_name=name,
-                    field_name=field,
-                    field_schema=models.PayloadSchemaType.KEYWORD,
-                )
-            except Exception:
-                # Already indexed. Qdrant has no create-if-missing for indexes.
-                pass
+            client.create_payload_index(
+                collection_name=target,
+                field_name=field,
+                field_schema=models.PayloadSchemaType.KEYWORD,
+            )
 
 
 def upsert(
@@ -81,7 +80,7 @@ def upsert(
     if not points:
         return
     client.upsert(
-        collection_name=collection,
+        collection_name=resolve_collection(client, collection),
         points=[
             models.PointStruct(id=pid, vector={"dense": vec}, payload=payload)
             for pid, vec, payload in points
@@ -100,20 +99,18 @@ def set_payload(
     if not point_ids or not payload:
         return
     client.set_payload(
-        collection_name=collection,
+        collection_name=resolve_collection(client, collection),
         points=point_ids,
         payload=payload,
         wait=True,
     )
 
 
-def delete_points(
-    client: QdrantClient, collection: str, point_ids: list[str | int]
-) -> None:
+def delete_points(client: QdrantClient, collection: str, point_ids: list[str | int]) -> None:
     if not point_ids:
         return
     client.delete(
-        collection_name=collection,
+        collection_name=resolve_collection(client, collection),
         points_selector=point_ids,
         wait=True,
     )
@@ -142,12 +139,10 @@ def search(
     if must or exclude_ids:
         flt = models.Filter(
             must=must or None,
-            must_not=[models.HasIdCondition(has_id=list(exclude_ids))]
-            if exclude_ids
-            else None,
+            must_not=[models.HasIdCondition(has_id=list(exclude_ids))] if exclude_ids else None,
         )
     return client.query_points(
-        collection_name=collection,
+        collection_name=resolve_collection(client, collection),
         query=vector,
         using="dense",
         limit=limit,
@@ -164,14 +159,96 @@ def keyword(field: str, value: str | list[str]) -> models.FieldCondition:
 
 
 def drop_collection(client: QdrantClient, collection: str) -> None:
-    try:
-        client.delete_collection(collection_name=collection)
-    except Exception:
-        pass
+    client.delete_collection(collection_name=collection)
+
+
+def erase_all_indices(client: QdrantClient) -> None:
+    """Remove every active and retired memkit generation for the sole owner."""
+    names = [item.name for item in client.get_collections().collections]
+    for name in names:
+        if (
+            name in {MEMORIES, RAW}
+            or name.startswith(f"{MEMORIES}__g")
+            or name.startswith(f"{RAW}__g")
+        ):
+            client.delete_collection(collection_name=name)
 
 
 def count(client: QdrantClient, collection: str) -> int:
-    try:
-        return client.count(collection_name=collection, exact=True).count
-    except Exception:
-        return 0
+    return client.count(collection_name=resolve_collection(client, collection), exact=True).count
+
+
+def live_alias(collection: str) -> str:
+    return f"{collection}__live"
+
+
+def _aliases(client: QdrantClient) -> dict[str, str]:
+    getter = getattr(client, "get_aliases", None)
+    if getter is None:
+        return {}
+    result = getter()
+    return {item.alias_name: item.collection_name for item in getattr(result, "aliases", [])}
+
+
+def _alias_exists(client: QdrantClient, alias: str) -> bool:
+    return alias in _aliases(client)
+
+
+def resolve_collection(client: QdrantClient, collection: str) -> str:
+    """Use a live alias when generation-based rebuild has been activated."""
+    if "__g" in collection:
+        return collection
+    alias = live_alias(collection)
+    return alias if _alias_exists(client, alias) else collection
+
+
+def create_empty_collection(client: QdrantClient, collection: str) -> None:
+    client.create_collection(
+        collection_name=collection,
+        vectors_config={"dense": models.VectorParams(size=DIM, distance=models.Distance.COSINE)},
+        sparse_vectors_config={"bm25": models.SparseVectorParams()},
+    )
+    logical = MEMORIES if collection.startswith(f"{MEMORIES}__g") else RAW
+    for field in _INDEXES[logical]:
+        client.create_payload_index(
+            collection_name=collection,
+            field_name=field,
+            field_schema=models.PayloadSchemaType.KEYWORD,
+        )
+
+
+def exact_ids(client: QdrantClient, collection: str) -> set[str]:
+    """Read every point ID for post-build validation."""
+    if hasattr(client, "_store"):
+        return {str(value) for value in client._store.get(collection, {})}
+    ids: set[str] = set()
+    offset = None
+    while True:
+        points, offset = client.scroll(
+            collection_name=collection,
+            limit=256,
+            offset=offset,
+            with_payload=False,
+            with_vectors=False,
+        )
+        ids.update(str(point.id) for point in points)
+        if offset is None:
+            break
+    return ids
+
+
+def swap_aliases(client: QdrantClient, generations: dict[str, str]) -> None:
+    aliases = _aliases(client)
+    operations: list[Any] = []
+    for logical, generation in generations.items():
+        alias = live_alias(logical)
+        if alias in aliases:
+            operations.append(
+                models.DeleteAliasOperation(delete_alias=models.DeleteAlias(alias_name=alias))
+            )
+        operations.append(
+            models.CreateAliasOperation(
+                create_alias=models.CreateAlias(collection_name=generation, alias_name=alias)
+            )
+        )
+    client.update_collection_aliases(change_aliases_operations=operations)

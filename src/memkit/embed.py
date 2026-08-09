@@ -26,9 +26,10 @@ class Embedder:
     threaded.
     """
 
-    def __init__(self, model_name: str, device: str) -> None:
+    def __init__(self, model_name: str, device: str, revision: str | None = None) -> None:
         self._model_name = model_name
         self._requested_device = device
+        self._revision = revision
         self._model = None
         self._device: str | None = None
         self._lock = threading.Lock()
@@ -55,7 +56,9 @@ class Embedder:
 
             self._device = self._resolve_device()
             t0 = time.perf_counter()
-            self._model = SentenceTransformer(self._model_name, device=self._device)
+            self._model = SentenceTransformer(
+                self._model_name, device=self._device, revision=self._revision
+            )
             logger.info(
                 "loaded %s on %s in %.1fs",
                 self._model_name,
@@ -79,7 +82,8 @@ class Embedder:
         if not texts:
             return []
         self.load()
-        assert self._model is not None
+        if self._model is None:
+            raise RuntimeError("embedding model failed to load")
         with self._lock:
             vecs = self._model.encode(
                 texts,
@@ -119,5 +123,5 @@ def get_embedder() -> Embedder:
         from .config import get_settings
 
         s = get_settings()
-        _embedder = Embedder(s.embed_model, s.embed_device)
+        _embedder = Embedder(s.embed_model, s.embed_device, s.embed_revision)
     return _embedder

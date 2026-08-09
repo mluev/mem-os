@@ -52,7 +52,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from typing import Any
 
-from . import prompts, providers
+from . import jobs, prompts, providers, security
 
 logger = logging.getLogger(__name__)
 
@@ -96,9 +96,6 @@ _INTRO_ENDS = date(2026, 8, 31)
 # output through both the Gemini Developer API and Vertex AI.
 DEFAULT_MODEL = "gemini-3.5-flash-lite"
 
-MEMORY_TYPES = providers.MEMORY_TYPES
-SCOPES = providers.SCOPES
-
 # Gate: an explicit request to remember bypasses the message counter entirely.
 # Stems rather than whole words -- "запомни" alone misses "запомнить"/"запомни-ка".
 REMEMBER_RE = re.compile(
@@ -114,7 +111,7 @@ def build_prompt(
     *,
     window: list[Any],
     candidates: list[dict[str, Any]],
-    scope_key: str | None = None,
+    context: dict[str, Any] | None = None,
     session_date: str | None = None,
     agent_id: str | None = None,
     version: str = PROMPT_VERSION,
@@ -136,13 +133,13 @@ def build_prompt(
         today=today or datetime.now(UTC).strftime("%Y-%m-%d"),
         window=render_window(window),
         candidates=render_candidates(candidates),
-        project=scope_key,
+        project=json.dumps(context or {}, ensure_ascii=False, sort_keys=True),
         session_date=session_date,
         agent_id=agent_id,
     )
 
 
-TOOL = providers.anthropic_tool()   # kept for tests and docs
+TOOL = providers.anthropic_tool()  # kept for tests and docs
 
 
 @dataclass
@@ -153,15 +150,13 @@ class Op:
     reason: str
     id: str | None = None
     text: str | None = None
-    type: str | None = None
-    scope: str | None = None
+    kind: str | None = None
+    context: dict[str, str] | None = None
+    tags: list[str] | None = None
     importance: float | None = None
     confidence: float | None = None
     valid_until: str | None = None
-    task_status: str | None = None
-    # The model's own answer to the travel test, kept for the eval and for reading
-    # judge_runs by eye. `scope` above is already corrected from it.
-    holds_in_other_repos: bool | None = None
+    evidence: list[dict[str, int]] | None = None
 
     @classmethod
     def parse(cls, raw: dict[str, Any]) -> Op | None:
@@ -177,49 +172,51 @@ class Op:
             return None
         if op in ("ADD", "UPDATE") and not (raw.get("text") or "").strip():
             return None
-        if op == "ADD" and raw.get("type") not in MEMORY_TYPES:
+        text = (raw.get("text") or "").strip()
+        if op in ("ADD", "UPDATE") and len(text) > 200:
             return None
-        task_status = raw.get("task_status")
-        if task_status not in ("unknown", "todo", "doing", "done"):
-            task_status = None
-        if raw.get("type") not in (None, "task"):
-            task_status = None
-        # An out-of-vocabulary scope is worse than a wrong one: it satisfies no
-        # branch of the read path's should-clause, so the fact is written to
-        # SQLite and Qdrant and can never be retrieved. Fall back to the scope
-        # that is always readable, the same way task_status falls back above.
-        scope = raw.get("scope")
-        if scope not in SCOPES:
-            scope = "user"
-        # The travel test, applied by code rather than trusted to the model.
-        # Measured under v4: 41 of 62 facts came back scope=project and roughly 17
-        # of those were personal preferences bound to a repository only by their
-        # wording, leaving 34% of the store reachable without naming a project.
-        # v6 makes the model answer "would this sentence still be true in another
-        # project?" separately, and the promotion happens here.
-        #
-        # One-directional on purpose: project -> user only. A user-scoped fact is
-        # never demoted, so this cannot regress the direction that was measured.
-        # Versions before v6 do not ask the question and return null, which leaves
-        # them byte-identical on the same eval.
-        if scope == "project" and raw.get("holds_in_other_repos") is True:
-            scope = "user"
+        kind = (raw.get("kind") or "fact").strip()
+        if not kind or len(kind) > 64:
+            return None
+        entries = raw.get("context_entries") or []
+        context: dict[str, str] = {}
+        for entry in entries:
+            if not isinstance(entry, dict):
+                return None
+            key = str(entry.get("key") or "").strip()
+            value = str(entry.get("value") or "").strip()
+            if not key or not value or len(key) > 64 or len(value) > 256:
+                return None
+            context[key] = value
+        tags = [str(tag).strip() for tag in (raw.get("tags") or [])]
+        if any(not tag or len(tag) > 64 for tag in tags) or len(tags) > 20:
+            return None
+        evidence = raw.get("evidence") or []
+        if op in ("ADD", "UPDATE") and not evidence:
+            return None
+        parsed_evidence: list[dict[str, int]] = []
+        for citation in evidence:
+            try:
+                message_id = int(citation["message_id"])
+                start = int(citation["start_char"])
+                end = int(citation["end_char"])
+            except (KeyError, TypeError, ValueError):
+                return None
+            if message_id <= 0 or start < 0 or end <= start:
+                return None
+            parsed_evidence.append({"message_id": message_id, "start_char": start, "end_char": end})
         return cls(
             op=op,
             reason=raw.get("reason") or "",
             id=raw.get("id"),
-            text=(raw.get("text") or "").strip() or None,
-            type=raw.get("type"),
-            scope=scope,
+            text=text or None,
+            kind=kind,
+            context=context,
+            tags=tags,
             importance=_clamp(raw.get("importance"), 0.6),
             confidence=_clamp(raw.get("confidence"), 0.9),
             valid_until=raw.get("valid_until"),
-            task_status=task_status,
-            holds_in_other_repos=(
-                raw["holds_in_other_repos"]
-                if isinstance(raw.get("holds_in_other_repos"), bool)
-                else None
-            ),
+            evidence=parsed_evidence,
         )
 
 
@@ -241,9 +238,7 @@ class JudgeResult:
     error: str | None = None
 
 
-def price_per_mtok(
-    model: str = DEFAULT_MODEL, when: date | None = None
-) -> tuple[float, float]:
+def price_per_mtok(model: str = DEFAULT_MODEL, when: date | None = None) -> tuple[float, float]:
     spec = MODELS.get(model)
     if spec is None:
         # Unknown model: price it as the most expensive one we know, so an
@@ -279,9 +274,7 @@ def month_spend_usd(conn: sqlite3.Connection) -> float:
     return float(row["s"])
 
 
-def estimate_backfill(
-    conn: sqlite3.Connection, *, model: str = DEFAULT_MODEL
-) -> dict[str, Any]:
+def estimate_backfill(conn: sqlite3.Connection, *, model: str = DEFAULT_MODEL) -> dict[str, Any]:
     """Shared backlog/cost estimate for the CLI and admin dashboard."""
     pending = conn.execute(
         """SELECT session_id, COUNT(*) n FROM messages
@@ -307,15 +300,11 @@ def estimate_backfill(
         "input_tokens_per_call": round(per_in),
         "output_tokens_per_call": round(per_out),
         "basis": basis,
-        "estimated_cost_usd": round(
-            windows * cost_of(int(per_in), int(per_out), model=model), 6
-        ),
+        "estimated_cost_usd": round(windows * cost_of(int(per_in), int(per_out), model=model), 6),
     }
 
 
-def should_extract(
-    *, messages_since_last: int, session_closed: bool, text: str = ""
-) -> bool:
+def should_extract(*, messages_since_last: int, session_closed: bool, text: str = "") -> bool:
     """docs/04-judge.md gate.
 
     Grouping messages is about quality before cost: a ten-message window
@@ -351,9 +340,8 @@ def render_candidates(candidates: list[dict[str, Any]]) -> str:
     if not candidates:
         return "(none)"
     return "\n".join(
-        f"- id={c['id']} type={c.get('type')} "
-        f"task_status={c.get('task_status')} importance={c.get('importance')}: "
-        f"{c['text']}"
+        f"- id={c['id']} kind={c.get('kind')} context={c.get('context', {})} "
+        f"importance={c.get('importance')}: {c['text']}"
         for c in candidates
     )
 
@@ -370,10 +358,12 @@ def extract(
     location: str = "",
     model: str = DEFAULT_MODEL,
     effort: str = "low",
-    scope_key: str | None = None,
+    context: dict[str, Any] | None = None,
     session_date: str | None = None,
     agent_id: str | None = None,
     version: str | None = None,
+    owner_id: str | None = None,
+    job_id: str | None = None,
 ) -> JudgeResult:
     """Call the judge and log the run.
 
@@ -387,21 +377,12 @@ def extract(
     week is the most useful thing in the project, and a failed call is often the
     most informative row in the table.
     """
-    spent = month_spend_usd(conn)
-    if spent >= monthly_limit_usd:
-        # A single runaway loop can eat a month of budget in an hour, so this is
-        # enforced in code rather than watched on a dashboard.
-        logger.error(
-            "judge paused: $%.2f spent this month exceeds the $%.2f limit",
-            spent, monthly_limit_usd,
-        )
-        return JudgeResult([], None, 0, 0, 0.0, 0, error="monthly_cost_limit_reached")
-
     active_version = version or PROMPT_VERSION
+    context, _ = security.redact_value(context or {})
     prompt = build_prompt(
         window=window,
         candidates=candidates,
-        scope_key=scope_key,
+        context=context,
         session_date=session_date,
         agent_id=agent_id,
         version=active_version,
@@ -413,12 +394,38 @@ def extract(
         "candidate_ids": [c["id"] for c in candidates],
         "message_ids": [int(m["id"]) for m in window],
         # Recorded so a run can be explained later without re-deriving the
-        # context: which project and which conversation date the prompt saw.
-        "scope_key": scope_key,
+        # Context and date make the model input independently auditable.
+        "context": context or {},
         "session_date": session_date,
         "agent_id": agent_id,
     }
 
+    from .retrieval import _token_count
+
+    # A UTF-8 byte count is a conservative cross-provider upper bound even
+    # when the provider tokenizer differs from our exact local tokenizer.
+    estimated_input = max(_token_count(prompt), len(prompt.encode("utf-8")))
+    maximum_cost = cost_of(estimated_input, 4096, model=model)
+    period = datetime.now(UTC).strftime("%Y-%m")
+    try:
+        reservation_id = jobs.reserve_budget(
+            conn,
+            period=period,
+            amount_usd=maximum_cost,
+            limit_usd=monthly_limit_usd,
+            job_id=job_id,
+        )
+    except jobs.BudgetExceeded:
+        return JudgeResult([], None, 0, 0, 0.0, 0, error="monthly_cost_limit_reached")
+
+    if job_id:
+        try:
+            jobs.consume_call(conn, job_id)
+        except jobs.CallLimitExceeded:
+            jobs.release_budget(conn, reservation_id)
+            return JudgeResult([], None, 0, 0, 0.0, 0, error="job_call_limit_reached")
+
+    prompt = security.redact(prompt).text
     t0 = time.perf_counter()
     error: str | None = None
     ops: list[Op] = []
@@ -440,25 +447,48 @@ def extract(
         # Op.parse is the real gate on both providers: no response schema can
         # express "text is required when op is ADD".
         ops = [op for op in (Op.parse(r) for r in res.operations) if op is not None]
-    except Exception as exc:  # noqa: BLE001 - logged, then surfaced to the caller
+    except Exception as exc:
         error = f"{type(exc).__name__}: {exc}"
         logger.warning("judge call failed: %s", error)
 
     latency_ms = int((time.perf_counter() - t0) * 1000)
     cost = cost_of(in_tok, out_tok, model=model)
+    if error and in_tok == 0 and out_tok == 0:
+        cost = maximum_cost
+        error = f"cost_unknown: {error}"
 
-    cur = conn.execute(
-        """INSERT INTO judge_runs
-           (kind, model, prompt_version, input_json, output_json, error,
-            input_tokens, output_tokens, cost_usd, latency_ms, created_at)
-           VALUES ('extract', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (
-            model, active_version, json.dumps(payload, ensure_ascii=False),
-            json.dumps(raw_output, ensure_ascii=False) if raw_output else None,
-            error, in_tok, out_tok, cost, latency_ms,
-            datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z"),
-        ),
-    )
+    conn.commit()
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        cur = conn.execute(
+            """INSERT INTO judge_runs
+               (owner_id,job_id,kind,model,prompt_version,input_json,output_json,error,
+                input_tokens,output_tokens,cost_usd,latency_ms,created_at)
+               VALUES (?,?,'extract',?,?,?,?,?,?,?,?,?,?)""",
+            (
+                owner_id,
+                job_id,
+                model,
+                active_version,
+                json.dumps(payload, ensure_ascii=False),
+                json.dumps(raw_output, ensure_ascii=False) if raw_output else None,
+                error,
+                in_tok,
+                out_tok,
+                cost,
+                latency_ms,
+                datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z"),
+            ),
+        )
+        conn.execute(
+            """UPDATE budget_reservations
+                  SET actual_usd=?,status='reconciled',updated_at=? WHERE id=?""",
+            (cost, datetime.now(UTC).isoformat(), reservation_id),
+        )
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
     return JudgeResult(
         ops=ops,
         judge_run_id=int(cur.lastrowid),

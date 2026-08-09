@@ -22,8 +22,8 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from memkit import judge, vectors  # noqa: E402
-from memkit.db import connect, ensure_owner, ensure_session, init_db  # noqa: E402
+from memkit import judge, vectors
+from memkit.db import connect, ensure_owner, ensure_session, init_db
 
 OWNER = "u-test"
 DIM = 1024
@@ -77,7 +77,7 @@ class StubQdrant:
     """In-memory stand-in for QdrantClient, one dict per collection.
 
     Deliberately *not* a Qdrant emulator. `query_points` returns nothing: search
-    ranking, scope filtering, dedup and budget fill are covered against fake
+    ranking, context filtering, dedup and budget fill are covered against fake
     hits in `test_retrieval.py`, and reimplementing `Filter` semantics
     (`min_should`, `IsEmptyCondition`, `HasIdCondition`) here would be a second,
     wrong copy of the read path. What this stub is for is asserting which writes
@@ -91,8 +91,7 @@ class StubQdrant:
         }
         self.deleted: list[str] = []
 
-    # `points` is the memories collection: that is what the pre-existing
-    # assertions in test_extract/test_mutate/test_taskboard mean by it.
+    # `points` is the active memories collection used by test assertions.
     @property
     def points(self) -> dict[str, dict]:
         return self._store[vectors.MEMORIES]
@@ -127,9 +126,7 @@ class StubQdrant:
     # --- /v1/admin/reindex raise instead of exercising their route code.
 
     def get_collections(self):
-        return SimpleNamespace(
-            collections=[SimpleNamespace(name=n) for n in self._store]
-        )
+        return SimpleNamespace(collections=[SimpleNamespace(name=n) for n in self._store])
 
     def create_collection(self, collection_name, **kwargs):
         self._store.setdefault(collection_name, {})
@@ -154,6 +151,7 @@ def make_db(owner: str = OWNER):
     conn = connect(tmp)
     ensure_owner(conn, owner, "test")
     ensure_session(conn, "s-1", owner, "chat")
+    conn.commit()
     return conn
 
 
@@ -194,8 +192,11 @@ def apply(conn, q, ops, **kw):
     if run_id is None:
         run_id = make_judge_run(conn)
     return extract.apply_ops(
-        conn, q, kw.get("embedder") or StubEmbedder(), ops=ops, owner_id=OWNER,
-        agent_id=kw.get("agent_id", "chat"), scope_key=kw.get("scope_key"),
+        conn,
+        ops=ops,
+        owner_id=OWNER,
+        agent_id=kw.get("agent_id", "chat"),
+        context=kw.get("context", {}),
         judge_run_id=run_id,
         source_message_ids=kw.get("source_message_ids", []),
     )

@@ -1,6 +1,6 @@
 services:
   qdrant:
-    image: qdrant/qdrant:latest
+    image: qdrant/qdrant:v1.18.2
     container_name: memkit-qdrant
     # Bound to loopback only. The service is single-user and must not be
     # reachable from the network.
@@ -10,6 +10,12 @@ services:
     volumes:
       - qdrant_storage:/qdrant/storage
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/6333'"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 15s
 
 volumes:
   qdrant_storage:

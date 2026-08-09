@@ -12,7 +12,6 @@ providers. Then in `$HERMES_HOME/config.yaml`:
     plugins:
       memkit:
         base_url: http://127.0.0.1:8077
-        owner_id: u-1
         budget_tokens: 800
         send_tool_results: false
 
@@ -60,7 +59,7 @@ _LAST = "__last__"
 MEMKIT_SEARCH = {
     "name": "memkit_search",
     "description": (
-        "Search long-term memory about the user and their projects. Use when you "
+        "Search long-term memory. Use when you "
         "need a preference, a past decision, or a fact about the user that is not "
         "already in the injected context."
     ),
@@ -68,17 +67,13 @@ MEMKIT_SEARCH = {
         "type": "object",
         "properties": {
             "query": {"type": "string", "description": "What to look for."},
-            "scope": {
+            "context_key": {
                 "type": "string",
-                "enum": ["user", "project", "task"],
-                "description": "Optional filter. Omit to search everything.",
+                "description": "Optional neutral context field to match.",
             },
-            "project": {
+            "context_value": {
                 "type": "string",
-                "description": (
-                    "Current project/repository name. Required to see "
-                    "project-scoped facts; without it they are filtered out."
-                ),
+                "description": "Value for context_key.",
             },
         },
         "required": ["query"],
@@ -98,12 +93,9 @@ MEMKIT_REMEMBER = {
                 "type": "string",
                 "description": "The fact, self-contained, under 200 characters.",
             },
-            "type": {
+            "kind": {
                 "type": "string",
-                "enum": [
-                    "preference", "fact", "skill", "relation", "project",
-                    "decision", "task",
-                ],
+                "description": "Free-form memory kind, for example preference or fact.",
             },
         },
         "required": ["text"],
@@ -116,7 +108,7 @@ def _config() -> dict[str, Any]:
         from hermes_cli.config import cfg_get
 
         return cfg_get("plugins.memkit", {}) or {}
-    except Exception:  # noqa: BLE001 - a missing config is not an error
+    except Exception:
         return {}
 
 
@@ -170,14 +162,12 @@ class MemkitProvider(MemoryProvider):
         self._client = Client(
             self._base_url(),
             self._api_key(),
-            owner_id=str(self._config.get("owner_id") or "u-1"),
         )
         # Non-primary contexts must not write: a cron system prompt or a subagent's
         # scratch reasoning is not the user talking, and the ABC says so explicitly.
         self._read_only = kwargs.get("agent_context", "primary") != "primary"
         if self._read_only:
-            logger.info("memkit: %s context, writes disabled",
-                        kwargs.get("agent_context"))
+            logger.info("memkit: %s context, writes disabled", kwargs.get("agent_context"))
         # Pay the ~840ms cold call here, in the background, rather than letting the
         # first turn's prefetch eat its timeout and silently return no memory.
         self._spawn(self._warm, "")
@@ -234,7 +224,7 @@ class MemkitProvider(MemoryProvider):
         except MemkitError:
             with self._lock:
                 memories = self._cache.get(key) or self._cache.get(_LAST) or []
-        except Exception:  # noqa: BLE001 - see the docstring; never propagate
+        except Exception:
             logger.debug("memkit prefetch failed", exc_info=True)
             return ""
         if not memories:
@@ -257,7 +247,7 @@ class MemkitProvider(MemoryProvider):
                 budget_tokens=self._budget,
                 timeout=5.0,
             )
-        except Exception:  # noqa: BLE001 - background, best effort
+        except Exception:
             return
         if not key:
             # Startup warm-up: seed only the last-resort fallback, so a real query
@@ -293,10 +283,13 @@ class MemkitProvider(MemoryProvider):
             # reaches it becomes a permanent fact, so the safe default is structural
             # -- do not send them at all -- rather than trusting scrub.py.
             payloads += [
-                p for p in (
+                p
+                for p in (
                     self._message(m.get("role", ""), m.get("content", ""), sid)
-                    for m in messages if m.get("role") == "tool"
-                ) if p
+                    for m in messages
+                    if m.get("role") == "tool"
+                )
+                if p
             ]
         if payloads:
             self._spawn(self._post_all, payloads)
@@ -309,32 +302,29 @@ class MemkitProvider(MemoryProvider):
         # the same turn (sync_turn, the on_memory_write mirror, and tools), and a
         # network retry re-sends an identical turn. The service has
         # UNIQUE(external_source, external_id), so a repeat is a no-op.
-        external_id = hashlib.sha256(
-            f"{session_id}|{role}|{body}".encode()
-        ).hexdigest()[:32]
+        external_id = hashlib.sha256(f"{session_id}|{role}|{body}".encode()).hexdigest()[:32]
         return {
             "session_id": session_id or "hermes-unknown",
-            "owner_id": self._client.owner_id,
             "agent_id": "hermes",
-            # A tool message is stored as an assistant turn: the service's schema
-            # only knows user and assistant.
-            "role": "user" if role == "user" else "assistant",
+            "role": role,
             "content": body,
             "external_source": "hermes",
             "external_id": external_id,
         }
 
     def _post_all(self, payloads: list[dict[str, Any]]) -> None:
-        for payload in payloads:
-            try:
-                self._client.add_message(payload)
-            except MemkitError as exc:
-                logger.debug("memkit: message not stored (%s)", exc)
-            except Exception:  # noqa: BLE001 - background thread, never crash
-                logger.debug("memkit: message not stored", exc_info=True)
+        try:
+            self._client.add_events(payloads)
+        except MemkitError as exc:
+            logger.debug("memkit: evidence not stored (%s)", exc)
+        except Exception:
+            logger.debug("memkit: evidence not stored", exc_info=True)
 
     def on_memory_write(
-        self, action: str, target: str, content: str,
+        self,
+        action: str,
+        target: str,
+        content: str,
         metadata: dict[str, Any] | None = None,
     ) -> None:
         """Mirror built-in memory writes. Only additions; edits stay Hermes-side."""
@@ -343,14 +333,12 @@ class MemkitProvider(MemoryProvider):
         text = scrub(content).strip()
         if not text:
             return
-        self._spawn(
-            self._mirror, text, "preference" if target == "user" else "fact"
-        )
+        self._spawn(self._mirror, text, "preference" if target == "user" else "fact")
 
-    def _mirror(self, text: str, type_: str) -> None:
+    def _mirror(self, text: str, kind: str) -> None:
         try:
-            self._client.add_memory(text, type=type_, importance=0.8)
-        except Exception:  # noqa: BLE001 - background, best effort
+            self._client.add_memory(text, kind=kind, importance=0.8)
+        except Exception:
             logger.debug("memkit: mirror failed", exc_info=True)
 
     # -- session boundaries ------------------------------------------------
@@ -367,7 +355,7 @@ class MemkitProvider(MemoryProvider):
         try:
             result = self._client.close_session(self._session_id)
             logger.info("memkit: session closed, %s", result)
-        except Exception:  # noqa: BLE001 - end of session, nothing to break
+        except Exception:
             logger.debug("memkit: close failed", exc_info=True)
 
     def on_session_switch(self, new_session_id: str, **kwargs: Any) -> None:
@@ -381,9 +369,7 @@ class MemkitProvider(MemoryProvider):
     def get_tool_schemas(self) -> list[dict[str, Any]]:
         return [MEMKIT_SEARCH, MEMKIT_REMEMBER]
 
-    def handle_tool_call(
-        self, tool_name: str, args: dict[str, Any], **kwargs: Any
-    ) -> str:
+    def handle_tool_call(self, tool_name: str, args: dict[str, Any], **kwargs: Any) -> str:
         from tools.registry import tool_error
 
         if not self._client:
@@ -393,20 +379,17 @@ class MemkitProvider(MemoryProvider):
                 query = str(args.get("query") or "").strip()
                 if not query:
                     return tool_error("query is required")
-                scope = args.get("scope")
+                context_key = str(args.get("context_key") or "").strip()
+                context_value = str(args.get("context_value") or "").strip()
                 memories = self._client.search(
                     query,
                     budget_tokens=self._budget,
-                    scopes=[scope] if scope else None,
-                    scope_key=args.get("project") or None,
+                    context={context_key: context_value} if context_key and context_value else None,
                     timeout=5.0,
                 )
                 if not memories:
                     return "No matching memories."
-                return "\n".join(
-                    f"- ({m.get('type')}, {m.get('scope')}) {m['text']}"
-                    for m in memories
-                )
+                return "\n".join(f"- ({m.get('kind')}) {m['text']}" for m in memories)
             if tool_name == "memkit_remember":
                 text = scrub(str(args.get("text") or "")).strip()
                 if not text:
@@ -416,7 +399,7 @@ class MemkitProvider(MemoryProvider):
                 # Straight to /v1/memories, past the judge, at high importance: the
                 # user said "remember this", so there is nothing to weigh up.
                 result = self._client.add_memory(
-                    text, type=str(args.get("type") or "fact"), importance=0.9
+                    text, kind=str(args.get("kind") or "fact"), importance=0.9
                 )
                 return f"Remembered: {text} (id {result.get('id', '?')})"
             return tool_error(f"unknown tool: {tool_name}")
@@ -439,7 +422,6 @@ class MemkitProvider(MemoryProvider):
                 "required": True,
                 "env_var": "MEMKIT_API_KEY",
             },
-            {"key": "owner_id", "description": "memkit owner id", "default": "u-1"},
             {
                 "key": "budget_tokens",
                 "description": "Token budget for injected memory per turn",
@@ -478,7 +460,7 @@ class MemkitProvider(MemoryProvider):
             existing["plugins"]["memkit"] = values
             with open(config_path, "w", encoding="utf-8") as fh:
                 yaml.dump(existing, fh, default_flow_style=False, allow_unicode=True)
-        except Exception:  # noqa: BLE001 - setup convenience, not correctness
+        except Exception:
             logger.warning("memkit: could not write %s", config_path, exc_info=True)
 
     def backup_paths(self) -> list[str]:

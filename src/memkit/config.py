@@ -9,9 +9,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(
-        env_file=".env", env_prefix="MEMKIT_", extra="ignore"
-    )
+    model_config = SettingsConfigDict(env_file=".env", env_prefix="MEMKIT_", extra="ignore")
 
     api_key: str = "change-me"
     # Read unprefixed: the SDKs and every other tool expect these exact names.
@@ -28,9 +26,7 @@ class Settings(BaseSettings):
     # environment serves both projects.
     gemini_api_key: str = Field(
         default="",
-        validation_alias=AliasChoices(
-            "GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_VERTEX_API_KEY"
-        ),
+        validation_alias=AliasChoices("GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_VERTEX_API_KEY"),
     )
     vertex_project: str = Field(
         default="",
@@ -45,12 +41,15 @@ class Settings(BaseSettings):
 
     embed_model: str = "BAAI/bge-m3"
     embed_device: str = "mps"
+    embed_revision: str = "5617a9f61b028005a4858fdac845db406aefb181"
 
     host: str = "127.0.0.1"
     port: int = 8077
-    ui_dir: Path = Path("./src/memkit/web_dist")
+    ui_dir: Path = Path(__file__).resolve().parent / "web_dist"
     cors_origins: list[str] = []
     expose_docs: bool = True
+    allow_remote: bool = False
+    export_dir: Path = Path("./data/exports")
 
     monthly_cost_limit_usd: float = 15.0
 
