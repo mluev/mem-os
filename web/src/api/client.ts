@@ -1,16 +1,16 @@
 const KEY_NAME = "memkit.api-key";
 
 export function getApiKey(): string {
-  return localStorage.getItem(KEY_NAME) ?? "";
+  return sessionStorage.getItem(KEY_NAME) ?? "";
 }
 
 export function rememberApiKey(key: string): void {
-  localStorage.setItem(KEY_NAME, key.trim());
+  sessionStorage.setItem(KEY_NAME, key.trim());
   window.dispatchEvent(new Event("memkit:key-changed"));
 }
 
 export function forgetApiKey(): void {
-  localStorage.removeItem(KEY_NAME);
+  sessionStorage.removeItem(KEY_NAME);
   window.dispatchEvent(new Event("memkit:unauthorized"));
 }
 
@@ -31,7 +31,15 @@ export async function api<T>(
   const key = getApiKey();
   if (key) headers.set("X-API-Key", key);
   if (init.body) headers.set("Content-Type", "application/json");
-  const response = await fetch(path, { ...init, headers });
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 15_000);
+  init.signal?.addEventListener("abort", () => controller.abort(), { once: true });
+  let response: Response;
+  try {
+    response = await fetch(path, { ...init, headers, signal: controller.signal });
+  } finally {
+    window.clearTimeout(timeout);
+  }
   if (!response.ok) {
     let message = `${response.status} ${response.statusText}`;
     try {
@@ -41,7 +49,7 @@ export async function api<T>(
       // Preserve the HTTP fallback.
     }
     if (response.status === 401) {
-      localStorage.removeItem(KEY_NAME);
+      sessionStorage.removeItem(KEY_NAME);
       window.dispatchEvent(new Event("memkit:unauthorized"));
     }
     throw new ApiError(message, response.status);

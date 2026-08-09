@@ -1,9 +1,9 @@
 # 0050 — BM25 hybrid retrieval is deferred
 
-    Status:        deferred
+    Status:        superseded
     Date:          2026-07-31
     Supersedes:    —
-    Superseded by: —
+    Superseded by: 0051
     Evidence:      ../measurements.md#retrieval-eval
     Code:          src/memkit/vectors.py (sparse slot declared, never written)
     Contract:      ../06-roadmap.md#stage-6

@@ -1,6 +1,6 @@
 [project]
 name = "memkit"
-version = "0.1.0"
+version = "0.2.0"
 description = "Local memory service for agents: SQLite truth, Qdrant index, local embeddings, LLM judge"
 requires-python = ">=3.12,<3.13"
 dependencies = [
@@ -8,12 +8,22 @@ dependencies = [
     "uvicorn[standard]>=0.32",
     "pydantic>=2.9",
     "pydantic-settings>=2.6",
-    "qdrant-client>=1.12",
+    "qdrant-client==1.18.0",
     "sentence-transformers>=3.3",
     "anthropic>=0.40",
     "google-genai>=1.0",
     "pyyaml>=6.0",
     "httpx>=0.28",
+    "jsonschema>=4.25",
+    "tiktoken>=0.11",
+]
+
+[dependency-groups]
+dev = [
+    "build>=1.2",
+    "openapi-python-client>=0.26",
+    "pytest>=8.3",
+    "ruff>=0.12",
 ]
 
 [project.scripts]
@@ -27,6 +37,20 @@ build-backend = "hatchling.build"
 packages = ["src/memkit"]
 artifacts = ["src/memkit/web_dist"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"integrations/hermes/memkit" = "memkit/hermes_provider"
+
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+exclude = ["sdk/python"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "UP", "B", "S", "SIM", "ASYNC", "RUF"]
+ignore = ["B008", "S110", "S608", "RUF001"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S101", "S105", "S106", "S108", "S311", "B017"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/memkit", "integrations/hermes/memkit", "pyproject.toml", "README.md"]

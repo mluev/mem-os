@@ -36,7 +36,7 @@ import sqlite3
 
 # The vocabulary from the original spec, kept verbatim so an archived document
 # and a live column mean the same thing.
-ROLES: tuple[str, ...] = ("user", "assistant", "tool", "manual")
+ROLES: tuple[str, ...] = ("user", "assistant", "agent", "tool", "manual")
 
 # Authority order, highest first. A window containing one user turn is sourced by
 # the user regardless of how much assistant text surrounds it -- the assistant's
@@ -45,7 +45,7 @@ ROLES: tuple[str, ...] = ("user", "assistant", "tool", "manual")
 # 'tool' is unreachable today: MessageIn.role is Literal["user","assistant"] and
 # the transcript importer emits only those two. It stays in the vocabulary so a
 # tool-output ingest path is a code change and not a migration.
-_AUTHORITY: tuple[str, ...] = ("user", "tool", "assistant")
+_AUTHORITY: tuple[str, ...] = ("user", "tool", "assistant", "agent")
 
 DEFAULT_ROLE = "manual"
 
@@ -83,7 +83,7 @@ def source_role_for(roles: set[str]) -> str:
 # _AUTHORITY: 'manual' sits above 'assistant' but below 'user' on purpose.
 # 'manual' means an API-key holder asserted it with no message behind it, which
 # is weaker evidence than a user turn and stronger than a model's own sentence.
-_WEAKEST_FIRST: tuple[str, ...] = ("assistant", "manual", "tool", "user")
+_WEAKEST_FIRST: tuple[str, ...] = ("agent", "assistant", "manual", "tool", "user")
 
 
 def weakest(roles: set[str]) -> str:
@@ -118,7 +118,7 @@ def may_write(*, op: str, roles: set[str]) -> bool:
     """
     if op == "DELETE" or not roles:
         return True
-    return not roles <= {"assistant"}
+    return not roles <= {"assistant", "agent"}
 
 
 def validate(source_role: str) -> str:
@@ -128,7 +128,5 @@ def validate(source_role: str) -> str:
     column that can hold 'assistnat' proves nothing at all.
     """
     if source_role not in ROLES:
-        raise ValueError(
-            f"invalid source_role {source_role!r}; expected one of {', '.join(ROLES)}"
-        )
+        raise ValueError(f"invalid source_role {source_role!r}; expected one of {', '.join(ROLES)}")
     return source_role

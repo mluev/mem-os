@@ -9,7 +9,6 @@ import {
   Menu,
   Moon,
   Search,
-  SquareKanban,
   Sun,
   TerminalSquare,
   UsersRound,
@@ -39,21 +38,12 @@ const NAV = [
   { to: "/", label: "Overview", icon: Gauge },
   { to: "/memories", label: "Memories", icon: Brain },
   { to: "/search", label: "Search", icon: Search },
-  { to: "/tasks", label: "Tasks", icon: SquareKanban },
   { to: "/judge-runs", label: "Judge runs", icon: BookOpen },
   { to: "/sessions", label: "Sessions", icon: UsersRound },
   { to: "/ops", label: "Operations", icon: TerminalSquare },
 ] as const;
 
-interface Health {
-  ok: boolean;
-  qdrant: boolean;
-  embedder: boolean;
-  embedder_device: string;
-  memories: number;
-  raw: number;
-  index_dirty?: boolean;
-}
+interface Health { qdrant: { memories: number; raw: number }; outbox: { pending: number } }
 
 export function KeyGate({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(import.meta.env.DEV || Boolean(getApiKey()));
@@ -92,7 +82,7 @@ function KeyDialog({ onReady }: { onReady: () => void }) {
         <div>
           <span className="eyebrow">LOCAL ADMIN</span>
           <h1>Unlock memkit</h1>
-          <p>The key stays in this browser and is sent only to your loopback service.</p>
+          <p>The key stays in this browser tab and is sent only to Mem OS.</p>
         </div>
         <label>
           API key
@@ -123,7 +113,7 @@ export function AppShell() {
   );
   const health = useQuery({
     queryKey: ["health"],
-    queryFn: () => api<Health>("/healthz"),
+    queryFn: () => api<Health>("/v1/admin/health"),
     refetchInterval: 15_000,
   });
   useEffect(() => {
@@ -149,6 +139,7 @@ export function AppShell() {
   const nextTheme = theme === "dark" ? "light" : "dark";
   return (
     <div className="app-shell">
+      <a className="skip-link" href="#main-content">Skip to content</a>
       <aside className={sidebar ? "sidebar sidebar-open" : "sidebar"}>
         <div className="brand">
           <span className="brand-mark"><Database size={17} /></span>
@@ -170,10 +161,10 @@ export function AppShell() {
         </nav>
         <div className="sidebar-foot">
           <div className="service-status">
-            <span className={health.data?.ok ? "health-dot ok" : "health-dot bad"} />
+            <span className={health.data ? "health-dot ok" : "health-dot bad"} />
             <div>
-              <strong>{health.data?.ok ? "Service healthy" : "Needs attention"}</strong>
-              <small>{health.data ? `${health.data.memories} facts · ${health.data.raw} raw` : "Checking…"}</small>
+              <strong>{health.data ? "Service healthy" : "Needs attention"}</strong>
+              <small>{health.data ? `${health.data.qdrant.memories} memories · ${health.data.outbox.pending} queued` : "Checking…"}</small>
             </div>
           </div>
           <Button variant="ghost" size="sm" className="key-forget" onClick={forgetApiKey}><KeyRound size={13} /> API key</Button>
@@ -202,19 +193,19 @@ export function AppShell() {
             </Button>
             <TooltipProvider delayDuration={250}>
               <Tooltip>
-                <TooltipTrigger asChild><Button variant="secondary" size="icon" className="icon-button" onClick={() => setTheme(nextTheme)}>{theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}</Button></TooltipTrigger>
+                <TooltipTrigger asChild><Button variant="secondary" size="icon" className="icon-button" aria-label={`Use ${nextTheme} theme`} onClick={() => setTheme(nextTheme)}>{theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}</Button></TooltipTrigger>
                 <TooltipContent>Use {nextTheme} theme</TooltipContent>
               </Tooltip>
             </TooltipProvider>
           </div>
         </header>
-        {health.data?.index_dirty ? (
+        {(health.data?.outbox.pending ?? 0) > 0 ? (
           <div className="health-banner">
-            <span><strong>Vector index may be stale.</strong> SQLite is safe; rebuild the index from Operations.</span>
+            <span><strong>Index updates are queued.</strong> SQLite is safe; inspect delivery in Operations.</span>
             <Link to="/ops">Open maintenance →</Link>
           </div>
         ) : null}
-        <main className="page"><Outlet /></main>
+        <main className="page" id="main-content"><Outlet /></main>
       </div>
       {palette ? <CommandPalette close={() => setPalette(false)} /> : null}
     </div>

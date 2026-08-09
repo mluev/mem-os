@@ -1,148 +1,65 @@
-# memkit
+# Mem OS
 
-A local memory service for AI agents. SQLite is the source of truth, Qdrant is a
-derived index, embeddings run on Apple Silicon, and an LLM extracts durable facts
-from conversation windows. One instance serves every agent you run.
+Single-owner memory infrastructure for agents. It stores source evidence, durable observations, profiles, and schema-defined records. It deliberately does not manage tasks, status, schedules, or workflows.
 
-Everything on the read path is local, so reading is free and fast enough to do on
-every turn. The extractor is the only component that leaves the machine, and there is
-a hard monthly spend ceiling enforced in code.
+SQLite is authoritative. Qdrant is a rebuildable dense index; BM25 is computed locally and fused by a versioned retrieval policy. Secrets are removed before persistence and before any model call.
 
-## Status
+## Start
 
-Stages 0–6 are done; four items are deliberately not started, and there is open work
-that is not code. Per-item state is in
-[docs/06-roadmap.md](docs/06-roadmap.md); current numbers are in
-[docs/measurements.md](docs/measurements.md).
-
-This file covers installing and running it. Everything else lives in
-[`docs/`](docs/) — start with [docs/README.md](docs/README.md).
-
-## Quick start
-
-Requires Docker and [uv](https://docs.astral.sh/uv/). Python 3.12 is pinned
-deliberately: torch and sentence-transformers have no reliable wheels for 3.14.
+Requires Python 3.12, `uv`, Docker, Node 22.12+ and pnpm.
 
 ```bash
-cp .env.example .env          # then set MEMKIT_API_KEY
-docker compose up -d          # Qdrant on 127.0.0.1:6333
-uv sync
-uv run memkit bench           # stage-0 gate: must be under 100 ms on MPS
+cp .env.example .env
+# Set a strong MEMKIT_API_KEY. "change-me" is refused.
+docker compose up -d --wait
+uv sync --all-groups
+pnpm --dir web install --frozen-lockfile
+uv run memkit serve
 ```
 
-`memkit bench` exits non-zero if the embedding dimension is not 1024. That check
-exists because a silent model swap would make every stored vector incomparable and
-nothing else would notice.
+The API is at `http://127.0.0.1:8077`; the bundled dashboard is at `/ui/`. `/healthz` is public and minimal. `/readyz` checks dependencies. Detailed health and metrics require the API key.
 
-Import your Claude Code history and check retrieval:
+## Operations
 
 ```bash
-uv run memkit import-claude-code --dry-run   # classification report, writes nothing
+uv run memkit import-claude-code --dry-run
 uv run memkit import-claude-code
-uv run memkit eval --compare
-uv run memkit serve                          # 127.0.0.1:8077
+uv run memkit drain-index
+uv run memkit reindex
+uv run memkit consolidate             # dry-run
+uv run memkit consolidate --apply
+uv run memkit export
+uv run memkit replay-report            # analyzes a temporary DB copy
+uv run memkit erase --confirm ERASE
+uv run memkit install-hermes
 ```
 
-The dashboard is at `http://127.0.0.1:8077/ui/`.
+Long API operations return a durable `job_id`; inspect or cancel them through `/v1/jobs/{id}`. Reindex builds validated generation collections and switches aliases only after the exact SQLite ID set is present.
 
-Extraction needs a judge credential. Set `GEMINI_API_KEY` (the default model) or
-`ANTHROPIC_API_KEY`, then:
+## Backup, restore, upgrade
+
+Before every v3→v4 upgrade, Mem OS automatically creates `memkit.db.v3.bak` and `exports/task-board-v3.json`. For routine backup:
 
 ```bash
-uv run memkit backfill --dry-run             # prices it before spending anything
+sqlite3 data/memkit.db "PRAGMA wal_checkpoint(TRUNCATE); VACUUM INTO 'data/memkit.backup.db';"
 ```
 
-Without one, `POST /v1/messages` returns `extraction_queued: false` and manual
-memories and retrieval still work — a supported mode, not a degraded one.
+Restore with the service stopped: retain the damaged file, copy the backup to the configured database path, start Qdrant, then run `uv run memkit reindex`. Qdrant itself need not be backed up.
 
-## Running it
+The tested pair is Qdrant server `1.18.2` with `qdrant-client==1.18.0`; the BGE-M3 repository commit is pinned in configuration. For upgrades: back up SQLite, read the release notes, update the tested pair explicitly, run `uv sync --all-groups`, rebuild the frontend, start the service (migrations run once), verify `/readyz`, then reindex if the embedding revision changed. Upgrade Qdrant one minor version at a time when its release notes require it.
 
-| command | does |
-|---|---|
-| `memkit serve` | run the API and the dashboard |
-| `memkit bench` | embedder latency gate |
-| `memkit import-claude-code` | import transcripts; `--dry-run` writes nothing |
-| `memkit backfill` | extract from unprocessed history; `--dry-run` prices it |
-| `memkit eval --compare` | retrieval eval, both targets over the shared case set |
-| `memkit consolidate --dry-run` | preview the nightly merge pass |
-| `memkit reindex` | rebuild Qdrant from SQLite |
-| `memkit judge-runs` | recent extractions with operations and stated reasons |
-| `memkit install-hermes` | install the plugin into `$HERMES_HOME/plugins/` |
-
-Every command that spends money prints an estimate first and refuses without the
-right credential.
-
-Reading `memkit judge-runs` by eye daily for the first week is the highest-value
-work in the project. It is the only way to see what the extractor thinks it is
-doing.
-
-### Frontend development
+## Verify and package
 
 ```bash
-pnpm --dir web install
-pnpm --dir web dev            # 127.0.0.1:5173/ui/
+uv run pytest -q
+uv run ruff check src tests tools integrations/hermes
+uv run ruff format --check src tests tools integrations/hermes
+pnpm --dir web lint
+pnpm --dir web typecheck
+pnpm --dir web test
+pnpm --dir web build
+uv run python tools/export_openapi.py
+uv build
 ```
 
-The Vite proxy injects the API key from the root `.env`. The production build asks
-once and keeps the key in browser local storage.
-
-### Scheduled jobs
-
-`deploy/` holds two launchd agents: nightly consolidation at 04:00, and the service
-itself. Both hardcode absolute paths and pick up `.env` from their working directory;
-install them by copying into `~/Library/LaunchAgents/` and editing the paths.
-
-Neither loads automatically. The consolidation agent has `RunAtLoad=false` on purpose
-— loading an agent should not spend money.
-
-## Tests
-
-```bash
-.venv/bin/python -m unittest discover -s tests -t .
-```
-
-Stdlib `unittest`, no pytest, entirely offline. The frontend uses vitest
-(`pnpm --dir web test`).
-
-Documentation is partly checked too — the schema, route table, vocabularies,
-retrieval constants and configuration defaults in `docs/` are generated from the code
-and compared on every run:
-
-```bash
-python -m tools.docblocks --check
-```
-
-What that can and cannot cover is spelled out in
-[docs/08-testing.md](docs/08-testing.md), along with the layers, the known gaps, and
-why some of them are gaps rather than oversights.
-
-## Backups
-
-The SQLite file is the only thing that must survive; Qdrant rebuilds from it with
-`memkit reindex`.
-
-```bash
-sqlite3 data/memkit.db "PRAGMA wal_checkpoint(TRUNCATE)"
-sqlite3 data/memkit.db ".backup 'data/memkit.db.bak-$(date +%F)'"
-gzip -9 data/memkit.db.bak-$(date +%F)
-```
-
-Checkpoint first or the copy loses whatever is still in the write-ahead log. **Gzip
-the result**: `init_db` migrates whatever database it is pointed at, including a
-backup, which would destroy the rollback path — and compression makes a backup
-un-openable by any tool that might try.
-
-## What's where
-
-| | |
-|---|---|
-| [docs/README.md](docs/README.md) | the design, the five invariants, reading order |
-| [docs/measurements.md](docs/measurements.md) | every measured number, dated, with its command |
-| [docs/decisions/](docs/decisions/) | why things are as they are, including what was declined |
-| [docs/experiments/](docs/experiments/) | dated lab notebooks; frozen results |
-| [docs/archive/](docs/archive/) | the original pre-implementation spec, non-normative |
-
-This file makes no claims about the system's behaviour beyond how to start it. That
-is deliberate: it used to carry its own status table, endpoint list and measurement
-set, all of which drifted from `docs/` and from the code. One home per fact —
-[docs/decisions/0002](docs/decisions/0002-four-genre-documentation.md).
+The OpenAPI-generated SDKs live in `sdk/python` and `sdk/typescript`. See [docs/README.md](docs/README.md) for the architecture and contracts.

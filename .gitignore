@@ -11,4 +11,8 @@ __pycache__/
 .DS_Store
 web/node_modules/
 web/dist/
-src/memkit/web_dist/
+src/memkit/web_dist/*
+!src/memkit/web_dist/.gitkeep
+!src/memkit/web_dist/assets/
+!src/memkit/web_dist/assets/**
+!src/memkit/web_dist/index.html

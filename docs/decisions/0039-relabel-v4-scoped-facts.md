@@ -1,9 +1,9 @@
 # 0039 — Legacy over-scoped facts are relabelled by a human
 
-    Status:        accepted, open
+    Status:        superseded
     Date:          2026-07-31
     Supersedes:    —
-    Superseded by: —
+    Superseded by: 0051
     Evidence:      ../measurements.md#snapshot-corpus-and-store
     Code:          eval/scope_review.py
     Contract:      ../06-roadmap.md#open-work

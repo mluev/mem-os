@@ -1,0 +1,232 @@
+from http import HTTPStatus
+from typing import Any
+
+import httpx
+
+from ... import errors
+from ...client import AuthenticatedClient, Client
+from ...models.http_validation_error import HTTPValidationError
+from ...models.list_memories_v1_memories_get_response_list_memories_v1_memories_get import (
+    ListMemoriesV1MemoriesGetResponseListMemoriesV1MemoriesGet,
+)
+from ...models.list_memories_v1_memories_get_status import ListMemoriesV1MemoriesGetStatus
+from ...types import UNSET, Response, Unset
+
+
+def _get_kwargs(
+    *,
+    kind: None | str | Unset = UNSET,
+    status: ListMemoriesV1MemoriesGetStatus | Unset = ListMemoriesV1MemoriesGetStatus.ACTIVE,
+    limit: int | Unset = 100,
+    cursor: None | str | Unset = UNSET,
+) -> dict[str, Any]:
+
+    params: dict[str, Any] = {}
+
+    json_kind: None | str | Unset
+    if isinstance(kind, Unset):
+        json_kind = UNSET
+    else:
+        json_kind = kind
+    params["kind"] = json_kind
+
+    json_status: str | Unset = UNSET
+    if not isinstance(status, Unset):
+        json_status = status.value
+
+    params["status"] = json_status
+
+    params["limit"] = limit
+
+    json_cursor: None | str | Unset
+    if isinstance(cursor, Unset):
+        json_cursor = UNSET
+    else:
+        json_cursor = cursor
+    params["cursor"] = json_cursor
+
+    params = {k: v for k, v in params.items() if v is not UNSET and v is not None}
+
+    _kwargs: dict[str, Any] = {
+        "method": "get",
+        "url": "/v1/memories",
+        "params": params,
+    }
+
+    return _kwargs
+
+
+def _parse_response(
+    *, client: AuthenticatedClient | Client, response: httpx.Response
+) -> HTTPValidationError | ListMemoriesV1MemoriesGetResponseListMemoriesV1MemoriesGet | None:
+    if response.status_code == 200:
+        response_200 = ListMemoriesV1MemoriesGetResponseListMemoriesV1MemoriesGet.from_dict(response.json())
+
+        return response_200
+
+    if response.status_code == 422:
+        response_422 = HTTPValidationError.from_dict(response.json())
+
+        return response_422
+
+    if client.raise_on_unexpected_status:
+        raise errors.UnexpectedStatus(response.status_code, response.content)
+    else:
+        return None
+
+
+def _build_response(
+    *, client: AuthenticatedClient | Client, response: httpx.Response
+) -> Response[HTTPValidationError | ListMemoriesV1MemoriesGetResponseListMemoriesV1MemoriesGet]:
+    return Response(
+        status_code=HTTPStatus(response.status_code),
+        content=response.content,
+        headers=response.headers,
+        parsed=_parse_response(client=client, response=response),
+    )
+
+
+def sync_detailed(
+    *,
+    client: AuthenticatedClient,
+    kind: None | str | Unset = UNSET,
+    status: ListMemoriesV1MemoriesGetStatus | Unset = ListMemoriesV1MemoriesGetStatus.ACTIVE,
+    limit: int | Unset = 100,
+    cursor: None | str | Unset = UNSET,
+) -> Response[HTTPValidationError | ListMemoriesV1MemoriesGetResponseListMemoriesV1MemoriesGet]:
+    """List Memories
+
+    Args:
+        kind (None | str | Unset):
+        status (ListMemoriesV1MemoriesGetStatus | Unset):  Default:
+            ListMemoriesV1MemoriesGetStatus.ACTIVE.
+        limit (int | Unset):  Default: 100.
+        cursor (None | str | Unset):
+
+    Raises:
+        errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
+        httpx.TimeoutException: If the request takes longer than Client.timeout.
+
+    Returns:
+        Response[HTTPValidationError | ListMemoriesV1MemoriesGetResponseListMemoriesV1MemoriesGet]
+    """
+
+    kwargs = _get_kwargs(
+        kind=kind,
+        status=status,
+        limit=limit,
+        cursor=cursor,
+    )
+
+    response = client.get_httpx_client().request(
+        **kwargs,
+    )
+
+    return _build_response(client=client, response=response)
+
+
+def sync(
+    *,
+    client: AuthenticatedClient,
+    kind: None | str | Unset = UNSET,
+    status: ListMemoriesV1MemoriesGetStatus | Unset = ListMemoriesV1MemoriesGetStatus.ACTIVE,
+    limit: int | Unset = 100,
+    cursor: None | str | Unset = UNSET,
+) -> HTTPValidationError | ListMemoriesV1MemoriesGetResponseListMemoriesV1MemoriesGet | None:
+    """List Memories
+
+    Args:
+        kind (None | str | Unset):
+        status (ListMemoriesV1MemoriesGetStatus | Unset):  Default:
+            ListMemoriesV1MemoriesGetStatus.ACTIVE.
+        limit (int | Unset):  Default: 100.
+        cursor (None | str | Unset):
+
+    Raises:
+        errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
+        httpx.TimeoutException: If the request takes longer than Client.timeout.
+
+    Returns:
+        HTTPValidationError | ListMemoriesV1MemoriesGetResponseListMemoriesV1MemoriesGet
+    """
+
+    return sync_detailed(
+        client=client,
+        kind=kind,
+        status=status,
+        limit=limit,
+        cursor=cursor,
+    ).parsed
+
+
+async def asyncio_detailed(
+    *,
+    client: AuthenticatedClient,
+    kind: None | str | Unset = UNSET,
+    status: ListMemoriesV1MemoriesGetStatus | Unset = ListMemoriesV1MemoriesGetStatus.ACTIVE,
+    limit: int | Unset = 100,
+    cursor: None | str | Unset = UNSET,
+) -> Response[HTTPValidationError | ListMemoriesV1MemoriesGetResponseListMemoriesV1MemoriesGet]:
+    """List Memories
+
+    Args:
+        kind (None | str | Unset):
+        status (ListMemoriesV1MemoriesGetStatus | Unset):  Default:
+            ListMemoriesV1MemoriesGetStatus.ACTIVE.
+        limit (int | Unset):  Default: 100.
+        cursor (None | str | Unset):
+
+    Raises:
+        errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
+        httpx.TimeoutException: If the request takes longer than Client.timeout.
+
+    Returns:
+        Response[HTTPValidationError | ListMemoriesV1MemoriesGetResponseListMemoriesV1MemoriesGet]
+    """
+
+    kwargs = _get_kwargs(
+        kind=kind,
+        status=status,
+        limit=limit,
+        cursor=cursor,
+    )
+
+    response = await client.get_async_httpx_client().request(**kwargs)
+
+    return _build_response(client=client, response=response)
+
+
+async def asyncio(
+    *,
+    client: AuthenticatedClient,
+    kind: None | str | Unset = UNSET,
+    status: ListMemoriesV1MemoriesGetStatus | Unset = ListMemoriesV1MemoriesGetStatus.ACTIVE,
+    limit: int | Unset = 100,
+    cursor: None | str | Unset = UNSET,
+) -> HTTPValidationError | ListMemoriesV1MemoriesGetResponseListMemoriesV1MemoriesGet | None:
+    """List Memories
+
+    Args:
+        kind (None | str | Unset):
+        status (ListMemoriesV1MemoriesGetStatus | Unset):  Default:
+            ListMemoriesV1MemoriesGetStatus.ACTIVE.
+        limit (int | Unset):  Default: 100.
+        cursor (None | str | Unset):
+
+    Raises:
+        errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
+        httpx.TimeoutException: If the request takes longer than Client.timeout.
+
+    Returns:
+        HTTPValidationError | ListMemoriesV1MemoriesGetResponseListMemoriesV1MemoriesGet
+    """
+
+    return (
+        await asyncio_detailed(
+            client=client,
+            kind=kind,
+            status=status,
+            limit=limit,
+            cursor=cursor,
+        )
+    ).parsed

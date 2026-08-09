@@ -1,9 +1,9 @@
 # 0018 — Extraction runs as a background task; there is no queue
 
-    Status:        accepted
+    Status:        superseded
     Date:          2026-07-31
     Supersedes:    ../archive/2026-07-original-spec/01-architecture.md, `asyncio.Queue`
-    Superseded by: —
+    Superseded by: 0052
     Evidence:      —
     Code:          src/memkit/api.py (`_extract_now`)
     Contract:      ../01-architecture.md#the-write-path

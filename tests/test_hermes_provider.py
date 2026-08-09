@@ -42,16 +42,15 @@ def _load_plugin():
     if "tools.registry" not in sys.modules:
         tools = types.ModuleType("tools")
         registry = types.ModuleType("tools.registry")
-        registry.tool_error = lambda message, **extra: json.dumps(
-            {"error": str(message), **extra}
-        )
+        registry.tool_error = lambda message, **extra: json.dumps({"error": str(message), **extra})
         tools.registry = registry
         sys.modules["tools"] = tools
         sys.modules["tools.registry"] = registry
 
     package = "memkit_hermes_plugin"
     spec = importlib.util.spec_from_file_location(
-        package, str(PLUGIN / "__init__.py"),
+        package,
+        str(PLUGIN / "__init__.py"),
         submodule_search_locations=[str(PLUGIN)],
     )
     module = importlib.util.module_from_spec(spec)
@@ -67,7 +66,6 @@ class FakeClient:
     """Stands in for the HTTP client. Records what the provider tried to do."""
 
     def __init__(self, *, fail=False, memories=None):
-        self.owner_id = "u-1"
         self.fail = fail
         self.memories = memories or []
         self.messages: list[dict] = []
@@ -86,11 +84,11 @@ class FakeClient:
             self._boom()
         return self.memories
 
-    def add_message(self, payload):
+    def add_events(self, payloads):
         if self.fail:
             self._boom()
-        self.messages.append(payload)
-        return {"message_id": len(self.messages)}
+        self.messages.extend(payloads)
+        return {"count": len(payloads)}
 
     def add_memory(self, text, **kwargs):
         if self.fail:
@@ -106,7 +104,7 @@ class FakeClient:
 
 
 def make_provider(*, client=None, config=None):
-    provider = plugin.MemkitProvider(config or {"owner_id": "u-1"})
+    provider = plugin.MemkitProvider(config or {})
     provider.initialize("s-1", hermes_home="/tmp", platform="cli")
     if client is not None:
         provider._client = client
@@ -274,7 +272,8 @@ class TestSecrets(unittest.TestCase):
         client = FakeClient()
         provider = make_provider(client=client)
         provider.sync_turn(
-            "run the seeder", "done",
+            "run the seeder",
+            "done",
             session_id="s-1",
             messages=[{"role": "tool", "content": "DATABASE_URL=postgres://u:p@h/db"}],
         )
@@ -284,11 +283,11 @@ class TestSecrets(unittest.TestCase):
 
     def test_enabling_tool_results_still_scrubs(self):
         client = FakeClient()
-        provider = make_provider(
-            client=client, config={"owner_id": "u-1", "send_tool_results": True}
-        )
+        provider = make_provider(client=client, config={"send_tool_results": True})
         provider.sync_turn(
-            "go", "ok", session_id="s-1",
+            "go",
+            "ok",
+            session_id="s-1",
             messages=[{"role": "tool", "content": "API_KEY=sk-" + "z" * 30}],
         )
         provider.shutdown()
@@ -300,9 +299,8 @@ class TestWriteGuards(unittest.TestCase):
     def test_non_primary_contexts_do_not_write(self):
         # The ABC warns that cron and subagent traffic would corrupt the user's
         # representation: a cron system prompt is not the user talking.
-        provider = plugin.MemkitProvider({"owner_id": "u-1"})
-        provider.initialize("s-1", hermes_home="/tmp", platform="cron",
-                            agent_context="cron")
+        provider = plugin.MemkitProvider({})
+        provider.initialize("s-1", hermes_home="/tmp", platform="cron", agent_context="cron")
         client = FakeClient()
         provider._client = client
         provider.sync_turn("hi", "hello", session_id="s-1")
@@ -315,7 +313,7 @@ class TestWriteGuards(unittest.TestCase):
         client = FakeClient()
         provider = make_provider(client=client)
         result = provider.handle_tool_call(
-            "memkit_remember", {"text": "Lives in Tashkent", "type": "fact"}
+            "memkit_remember", {"text": "Lives in Tashkent", "kind": "fact"}
         )
         self.assertIn("Remembered", result)
         self.assertEqual(client.memories_added[0]["importance"], 0.9)

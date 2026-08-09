@@ -31,30 +31,69 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
-MEMORY_TYPES = [
-    "preference", "fact", "skill", "relation", "project", "decision", "task",
-]
-SCOPES = ["user", "project", "task"]
+ProviderCallable = Callable[..., "ProviderResult"]
+_CUSTOM_PROVIDERS: dict[str, tuple[str, ProviderCallable]] = {}
+
+
+def register_provider(family: str, *, model_prefix: str, call: ProviderCallable) -> None:
+    """Register a replaceable judge implementation for a model prefix."""
+    if not family or not model_prefix:
+        raise ValueError("provider family and model prefix are required")
+    _CUSTOM_PROVIDERS[family] = (model_prefix, call)
+
 
 _OP_FIELDS = [
-    "op", "id", "text", "type", "scope",
-    "importance", "confidence", "valid_until", "task_status",
-    "holds_in_other_repos", "reason",
+    "op",
+    "id",
+    "text",
+    "kind",
+    "context_entries",
+    "tags",
+    "importance",
+    "confidence",
+    "valid_until",
+    "evidence",
+    "reason",
 ]
 
-# The question `holds_in_other_repos` asks, worded as V5 rule 5's own scope test.
-# Kept here rather than in the prompt text so both provider schemas and every
-# prompt version state it identically.
-_HOLDS_ELSEWHERE_DESC = (
-    "Would this exact sentence still be true if the user switched to a different "
-    "project? true for facts about the person (preferences, taste, identity, "
-    "working style); false for facts about one codebase. Null if not assessed."
-)
+
+def _operation_properties(*, anthropic: bool) -> dict[str, Any]:
+    nullable_string: dict[str, Any] = {"type": ["string", "null"]}
+    evidence_item = {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "message_id": {"type": "integer"},
+            "start_char": {"type": "integer"},
+            "end_char": {"type": "integer"},
+        },
+        "required": ["message_id", "start_char", "end_char"],
+    }
+    context_item = {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {"key": {"type": "string"}, "value": {"type": "string"}},
+        "required": ["key", "value"],
+    }
+    return {
+        "op": {"type": "string", "enum": ["ADD", "UPDATE", "DELETE"]},
+        "id": nullable_string,
+        "text": nullable_string,
+        "kind": nullable_string,
+        "context_entries": {"type": "array", "items": context_item},
+        "tags": {"type": "array", "items": {"type": "string"}},
+        "importance": {"type": ["number", "null"]},
+        "confidence": {"type": ["number", "null"]},
+        "valid_until": nullable_string,
+        "evidence": {"type": "array", "items": evidence_item},
+        "reason": {"type": "string"},
+    }
 
 
 @dataclass
@@ -69,6 +108,9 @@ class ProviderResult:
 
 
 def provider_of(model: str) -> str:
+    for family, (prefix, _) in _CUSTOM_PROVIDERS.items():
+        if model.startswith(prefix):
+            return family
     if model.startswith("gemini"):
         return "gemini"
     if model.startswith("claude"):
@@ -79,6 +121,7 @@ def provider_of(model: str) -> str:
 # --------------------------------------------------------------------------
 # Schemas
 # --------------------------------------------------------------------------
+
 
 def anthropic_tool() -> dict[str, Any]:
     """Tool definition with strict mode.
@@ -101,30 +144,7 @@ def anthropic_tool() -> dict[str, Any]:
                     "items": {
                         "type": "object",
                         "additionalProperties": False,
-                        "properties": {
-                            "op": {"enum": ["ADD", "UPDATE", "DELETE"]},
-                            "id": {"type": ["string", "null"]},
-                            "text": {"type": ["string", "null"]},
-                            "type": {"enum": [*MEMORY_TYPES, None]},
-                            "scope": {"enum": [*SCOPES, None]},
-                            "importance": {"type": ["number", "null"]},
-                            "confidence": {"type": ["number", "null"]},
-                            "valid_until": {"type": ["string", "null"]},
-                            "task_status": {
-                                "enum": ["unknown", "todo", "doing", "done", None]
-                            },
-                            # Nullable on purpose. Strict mode requires every
-                            # property in `required`, so it cannot be omitted --
-                            # but only the v6 prompt asks for it, and a version
-                            # that does not returns null. That keeps older
-                            # versions comparable on the same eval after the
-                            # schema grew.
-                            "holds_in_other_repos": {
-                                "type": ["boolean", "null"],
-                                "description": _HOLDS_ELSEWHERE_DESC,
-                            },
-                            "reason": {"type": "string"},
-                        },
+                        "properties": _operation_properties(anthropic=True),
                         "required": _OP_FIELDS,
                     },
                 }
@@ -156,40 +176,7 @@ def gemini_schema() -> dict[str, Any]:
                 "items": {
                     "type": "object",
                     "additionalProperties": False,
-                    "properties": {
-                        "op": {"type": "string", "enum": ["ADD", "UPDATE", "DELETE"]},
-                        "id": {
-                            "type": ["string", "null"],
-                            "description": "Existing memory id; required for UPDATE and DELETE.",
-                        },
-                        "text": {
-                            "type": ["string", "null"],
-                            "description": "The fact, under 200 characters. Required for ADD and UPDATE.",
-                        },
-                        "type": {
-                            "type": ["string", "null"],
-                            "enum": [*MEMORY_TYPES, None],
-                            "description": "One of: " + ", ".join(MEMORY_TYPES),
-                        },
-                        "scope": {
-                            "type": ["string", "null"],
-                            "enum": [*SCOPES, None],
-                            "description": "One of: " + ", ".join(SCOPES),
-                        },
-                        "importance": {"type": ["number", "null"]},
-                        "confidence": {"type": ["number", "null"]},
-                        "valid_until": {"type": ["string", "null"]},
-                        "task_status": {
-                            "type": ["string", "null"],
-                            "enum": ["unknown", "todo", "doing", "done", None],
-                            "description": "For task memories only: unknown, todo, doing, or done.",
-                        },
-                        "holds_in_other_repos": {
-                            "type": ["boolean", "null"],
-                            "description": _HOLDS_ELSEWHERE_DESC,
-                        },
-                        "reason": {"type": "string"},
-                    },
+                    "properties": _operation_properties(anthropic=False),
                     "required": _OP_FIELDS,
                 },
             }
@@ -202,9 +189,8 @@ def gemini_schema() -> dict[str, Any]:
 # Calls
 # --------------------------------------------------------------------------
 
-def call_anthropic(
-    *, model: str, prompt: str, api_key: str, effort: str = "low"
-) -> ProviderResult:
+
+def call_anthropic(*, model: str, prompt: str, api_key: str, effort: str = "low") -> ProviderResult:
     from anthropic import Anthropic
 
     # Sonnet 5 and Opus take output_config.effort and reject budget_tokens,
@@ -234,6 +220,9 @@ def call_anthropic(
         if block.type == "tool_use" and block.name == tool["name"]:
             result.raw = block.input
             result.operations = list(block.input.get("operations") or [])
+            break
+    if result.raw is None and result.error is None:
+        result.error = "structured_output_missing"
     return result
 
 
@@ -372,8 +361,12 @@ def call_merge(
         from google.genai import types
 
         client = (
-            genai.Client(vertexai=True, project=project, location=location or "global",
-                         api_key=gemini_api_key or None)
+            genai.Client(
+                vertexai=True,
+                project=project,
+                location=location or "global",
+                api_key=gemini_api_key or None,
+            )
             if project
             else genai.Client(api_key=gemini_api_key)
         )
@@ -446,18 +439,30 @@ def call(
 ) -> ProviderResult:
     """Dispatch to the right provider, converting missing config into an error."""
     which = provider_of(model)
+    custom = _CUSTOM_PROVIDERS.get(which)
+    if custom:
+        return custom[1](
+            model=model,
+            prompt=prompt,
+            anthropic_api_key=anthropic_api_key,
+            gemini_api_key=gemini_api_key,
+            project=project,
+            location=location,
+            effort=effort,
+        )
     if which == "gemini":
         if not (gemini_api_key or project):
             return ProviderResult(
                 error="no GEMINI_API_KEY set (Gemini Developer API) and no "
-                      "VERTEX_PROJECT for standard Vertex"
+                "VERTEX_PROJECT for standard Vertex"
             )
         return call_vertex(
-            model=model, prompt=prompt, api_key=gemini_api_key,
-            project=project, location=location,
+            model=model,
+            prompt=prompt,
+            api_key=gemini_api_key,
+            project=project,
+            location=location,
         )
     if not anthropic_api_key:
         return ProviderResult(error="no ANTHROPIC_API_KEY configured")
-    return call_anthropic(
-        model=model, prompt=prompt, api_key=anthropic_api_key, effort=effort
-    )
+    return call_anthropic(model=model, prompt=prompt, api_key=anthropic_api_key, effort=effort)

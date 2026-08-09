@@ -41,7 +41,7 @@ os.environ["MEMKIT_DB_PATH"] = str(_HARNESS_TMP / "import-time-guard.db")
 from fastapi.testclient import TestClient  # noqa: E402
 
 from memkit import api, config  # noqa: E402
-from memkit.db import ConnectionPool, init_db  # noqa: E402
+from memkit.db import ConnectionPool, ensure_owner, init_db, transaction  # noqa: E402
 from tests.fixtures import OWNER, StubEmbedder, StubQdrant  # noqa: E402
 
 TEST_KEY = "test-key"
@@ -107,6 +107,8 @@ async def stub_lifespan(app):
     s = config.get_settings()
     init_db(s.db_path)
     app.state.db = ConnectionPool(s.db_path)
+    with transaction(app.state.db()):
+        ensure_owner(app.state.db(), s.owner_id, s.owner_name)
     app.state.qdrant = StubQdrant()
     app.state.embedder = StubEmbedder()
     app.state.reindex_lock = threading.Lock()
@@ -133,9 +135,7 @@ class ApiTestCase(unittest.TestCase):
         settings = test_settings(self.db_path)
         assert_offline(settings)
         self.enterContext(patch.object(config, "_settings", settings))
-        self.enterContext(
-            patch.object(api.app.router, "lifespan_context", stub_lifespan)
-        )
+        self.enterContext(patch.object(api.app.router, "lifespan_context", stub_lifespan))
         self.client = self.enterContext(TestClient(api.app))
         self.auth = {"X-API-Key": TEST_KEY}
 
@@ -166,9 +166,7 @@ class ApiTestCase(unittest.TestCase):
         **kw,
     ) -> int:
         """Create a message through the real endpoint, so the session exists."""
-        body = {
-            "session_id": session_id, "role": role, "content": content, **kw
-        }
+        body = {"session_id": session_id, "role": role, "content": content, **kw}
         r = self.client.post("/v1/messages", json=body, headers=self.auth)
         self.assertEqual(r.status_code, 201, r.text)
         return r.json()["message_id"]
@@ -177,11 +175,11 @@ class ApiTestCase(unittest.TestCase):
         self,
         *,
         text: str = "Prefers pnpm over npm on every project",
-        type: str = "preference",
+        kind: str = "preference",
         **kw,
     ) -> str:
         """Create a memory through the real endpoint and return its id."""
-        body = {"text": text, "type": type, **kw}
+        body = {"text": text, "kind": kind, "source_role": "manual", **kw}
         r = self.client.post("/v1/memories", json=body, headers=self.auth)
         self.assertEqual(r.status_code, 201, r.text)
         return r.json()["id"]
@@ -202,7 +200,7 @@ def guarded_operations() -> list[tuple[str, str]]:
 
     Read from `app.openapi()` rather than `app.routes`: FastAPI wraps included
     routers, so walking `app.routes` yields only the handful defined directly on
-    `app` and silently misses every admin and taskboard route.
+    `app` and silently misses routes behind included prefixes.
     """
     spec = api.app.openapi()
     out = []

@@ -17,7 +17,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from memkit.importers.claude_code import (  # noqa: E402
+from memkit.importers.claude_code import (
     MAX_TURN_CHARS,
     MIN_INDEX_CHARS,
     classify,
@@ -92,8 +92,7 @@ class TestRejections(unittest.TestCase):
 
     def test_local_command_output(self):
         self.assertRejected(
-            text_line("<local-command-stdout>Set model</local-command-stdout>",
-                      promptSource=None),
+            text_line("<local-command-stdout>Set model</local-command-stdout>", promptSource=None),
             "command-output",
         )
 
@@ -111,8 +110,9 @@ class TestRejections(unittest.TestCase):
 
     def test_compaction_summary(self):
         self.assertRejected(
-            text_line("This session is being continued from a previous conversation",
-                      promptSource=None),
+            text_line(
+                "This session is being continued from a previous conversation", promptSource=None
+            ),
             "compaction-summary",
         )
 
@@ -123,8 +123,7 @@ class TestRejections(unittest.TestCase):
         )
 
     def test_system_prompt_source(self):
-        self.assertRejected(text_line("injected text", promptSource="system"),
-                            "source:system")
+        self.assertRejected(text_line("injected text", promptSource="system"), "source:system")
 
     def test_tool_result_content(self):
         self.assertRejected(
@@ -174,16 +173,20 @@ class TestAcceptances(unittest.TestCase):
         # 419 of the corpus's user turns arrive this way: entrypoint
         # claude-desktop, userType external. Real humans, despite the name.
         turn, reason = classify(
-            text_line("where do i see the list of conversations?",
-                      promptSource="sdk", entrypoint="claude-desktop")
+            text_line(
+                "where do i see the list of conversations?",
+                promptSource="sdk",
+                entrypoint="claude-desktop",
+            )
         )
         self.assertIsNotNone(turn)
         self.assertEqual(reason, "user:sdk")
 
     def test_unlabelled_but_conversational_accepted(self):
         turn, reason = classify(
-            text_line("Analytics page is very bad looking, you gotta work on this",
-                      promptSource=None)
+            text_line(
+                "Analytics page is very bad looking, you gotta work on this", promptSource=None
+            )
         )
         self.assertIsNotNone(turn)
         self.assertEqual(reason, "user:n/a")
@@ -198,8 +201,7 @@ class TestAcceptances(unittest.TestCase):
 
     def test_assistant_text_kept_but_never_indexable(self):
         turn, reason = classify(
-            line(type="assistant",
-                 message={"content": [{"type": "text", "text": "x" * 200}]})
+            line(type="assistant", message={"content": [{"type": "text", "text": "x" * 200}]})
         )
         self.assertIsNotNone(turn)
         self.assertEqual(reason, "assistant")

@@ -11,6 +11,7 @@ import json
 import logging
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from typing import Any
 
@@ -58,32 +59,37 @@ class Client:
         base_url: str,
         api_key: str,
         *,
-        owner_id: str = "u-1",
         timeout: float = 2.0,
         breaker: Breaker | None = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
+        parsed = urllib.parse.urlsplit(self.base_url)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError("base_url must be an http(s) URL")
         self.api_key = api_key
-        self.owner_id = owner_id
         self.timeout = timeout
         self.breaker = breaker or Breaker()
 
     # -- transport ---------------------------------------------------------
 
     def _request(
-        self, method: str, path: str, body: dict[str, Any] | None = None,
-        *, timeout: float | None = None,
+        self,
+        method: str,
+        path: str,
+        body: dict[str, Any] | None = None,
+        *,
+        timeout: float | None = None,
     ) -> Any:
         if not self.breaker.allow():
             raise MemkitError("circuit open")
         url = f"{self.base_url}{path}"
         data = json.dumps(body).encode() if body is not None else None
-        req = urllib.request.Request(url, data=data, method=method)
+        req = urllib.request.Request(url, data=data, method=method)  # noqa: S310 -- scheme validated in __init__
         req.add_header("X-API-Key", self.api_key)
         if data is not None:
             req.add_header("Content-Type", "application/json")
         try:
-            with urllib.request.urlopen(req, timeout=timeout or self.timeout) as resp:
+            with urllib.request.urlopen(req, timeout=timeout or self.timeout) as resp:  # noqa: S310 -- validated URL
                 payload = resp.read()
             self.breaker.ok()
             return json.loads(payload) if payload else None
@@ -108,30 +114,35 @@ class Client:
         *,
         budget_tokens: int = 800,
         limit: int = 30,
-        scopes: list[str] | None = None,
-        scope_key: str | None = None,
+        context: dict[str, str] | None = None,
         timeout: float | None = None,
     ) -> list[dict[str, Any]]:
         body: dict[str, Any] = {
             "query": query,
-            "owner_id": self.owner_id,
-            "agent_id": "hermes",
             "budget_tokens": budget_tokens,
             "limit": limit,
         }
-        if scopes:
-            body["scopes"] = scopes
-        if scope_key:
-            body["scope_key"] = scope_key
-        result = self._request("POST", "/v1/search", body, timeout=timeout) or {}
+        if context:
+            body["filter"] = {
+                "all": [
+                    {"field": f"context.{key}", "op": "eq", "value": value}
+                    for key, value in context.items()
+                ]
+            }
+        result = self._request("POST", "/v1/memories/search", body, timeout=timeout) or {}
         return list(result.get("memories") or [])
 
-    def add_message(self, payload: dict[str, Any]) -> dict[str, Any]:
-        return self._request("POST", "/v1/messages", payload) or {}
+    def add_events(self, payloads: list[dict[str, Any]]) -> dict[str, Any]:
+        return self._request("POST", "/v1/evidence/events:batch", {"events": payloads}) or {}
 
     def add_memory(
-        self, text: str, *, type: str = "fact", importance: float = 0.9,
-        scope: str = "user", source_role: str = "assistant",
+        self,
+        text: str,
+        *,
+        kind: str = "fact",
+        importance: float = 0.9,
+        context: dict[str, Any] | None = None,
+        source_role: str = "assistant",
     ) -> dict[str, Any]:
         """Write a fact directly, bypassing the judge.
 
@@ -146,21 +157,23 @@ class Client:
         this path at importance 0.8-0.95, including the same claim stored four
         times in slightly different words.
         """
-        return self._request(
-            "POST",
-            "/v1/memories",
-            {
-                "owner_id": self.owner_id,
-                "text": text,
-                "type": type,
-                "scope": scope,
-                "importance": importance,
-                "agent_id": "hermes",
-                "source_role": source_role,
-            },
-        ) or {}
+        return (
+            self._request(
+                "POST",
+                "/v1/memories",
+                {
+                    "text": text,
+                    "kind": kind,
+                    "context": context or {},
+                    "tags": [],
+                    "importance": importance,
+                    "confidence": 0.9,
+                    "agent_id": "hermes",
+                    "source_role": source_role,
+                },
+            )
+            or {}
+        )
 
     def close_session(self, session_id: str, *, timeout: float = 30.0) -> dict[str, Any]:
-        return self._request(
-            "POST", f"/v1/sessions/{session_id}/close", {}, timeout=timeout
-        ) or {}
+        return self._request("POST", f"/v1/sessions/{session_id}/close", {}, timeout=timeout) or {}

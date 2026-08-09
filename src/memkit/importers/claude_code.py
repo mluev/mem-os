@@ -34,6 +34,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from ..limits import MIN_INDEX_CHARS
+
 # Structural noise. Each of these is machine-authored text that arrives on a
 # line whose role is "user". Anchored where the marker only ever appears at the
 # start, substring-matched where it can be embedded.
@@ -62,12 +64,6 @@ EXCLUDED_SOURCES = {"system"}
 # "go on", "hello"). They are still stored in SQLite so that extraction windows
 # read faithfully, but they are not worth indexing on their own.
 #
-# Defined here rather than in store.py because this is where "is this turn worth
-# indexing" is decided, and because this module has no heavy imports -- store
-# re-exports it so the importer, the raw indexer and reindex cannot drift apart.
-# They were separate copies of 25 until one of them would eventually have moved.
-MIN_INDEX_CHARS = 25
-
 # A turn this long is a pasted or injected document, not something anybody
 # typed. Measured on this corpus: 386 labelled human turns run p50=130,
 # p99=10242, max=17989 characters, with none above 20k. The only lines above
@@ -120,9 +116,7 @@ def extract_text(content: Any) -> str:
         return content.strip()
     if isinstance(content, list):
         parts = [
-            b.get("text", "")
-            for b in content
-            if isinstance(b, dict) and b.get("type") == "text"
+            b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text"
         ]
         return "\n".join(p for p in parts if p).strip()
     return ""

@@ -18,7 +18,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from memkit.db import ConnectionPool, connect, init_db, transaction  # noqa: E402
+from memkit.db import ConnectionPool, connect, init_db, transaction
 
 
 def make_pool() -> ConnectionPool:
@@ -57,16 +57,11 @@ class TestConnectionPool(unittest.TestCase):
         """
         pool = make_pool()
         with transaction(pool()) as conn:
-            conn.execute(
-                "INSERT INTO owners (id, name, created_at) VALUES ('keep','k','t')"
-            )
+            conn.execute("INSERT INTO owners (id, name, created_at) VALUES ('keep','k','t')")
 
         def failing_write() -> None:
             with self.assertRaises(RuntimeError), transaction(pool()) as conn:
-                conn.execute(
-                    "INSERT INTO owners (id, name, created_at)"
-                    " VALUES ('drop','d','t')"
-                )
+                conn.execute("INSERT INTO owners (id, name, created_at) VALUES ('drop','d','t')")
                 raise RuntimeError("boom")
 
         thread = threading.Thread(target=failing_write)

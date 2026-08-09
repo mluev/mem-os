@@ -1,0 +1,75 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with: { enable-cache: true }
+      - run: uv python install 3.12
+      - run: uv sync --all-groups --locked
+      - run: uv run ruff check src tests tools integrations/hermes
+      - run: uv run ruff format --check src tests tools integrations/hermes
+      - run: uv run pytest -q
+      - run: uv run python tools/export_openapi.py && git diff --exit-code -- openapi.json
+      - run: uv run python -m tools.docblocks --check
+      - run: uvx pip-audit
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - uses: pnpm/action-setup@v4
+        with: { version: 9.12.3 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22.12, cache: pnpm, cache-dependency-path: web/pnpm-lock.yaml }
+      - run: uv python install 3.12
+      - run: uv sync --all-groups --locked
+      - run: pnpm --dir web install --frozen-lockfile
+      - run: pnpm --dir web gen:api && git diff --exit-code -- web/src/api/schema.d.ts openapi.json
+      - run: pnpm --dir web lint
+      - run: pnpm --dir web typecheck
+      - run: pnpm --dir web test
+      - run: pnpm --dir web build
+      - run: pnpm --dir web audit --audit-level high
+
+  qdrant:
+    runs-on: ubuntu-latest
+    services:
+      qdrant:
+        image: qdrant/qdrant:v1.18.2
+        ports: ["6333:6333"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv python install 3.12
+      - run: uv sync --all-groups --locked
+      - run: MEMKIT_QDRANT_INTEGRATION=1 uv run pytest -q tests/test_qdrant_integration.py
+
+  wheel:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - uses: pnpm/action-setup@v4
+        with: { version: 9.12.3 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22.12 }
+      - run: uv python install 3.12
+      - run: uv sync --all-groups --locked
+      - run: pnpm --dir web install --frozen-lockfile && pnpm --dir web build
+      - run: uv build
+      - run: |
+          python -m venv /tmp/memkit-clean
+          /tmp/memkit-clean/bin/pip install dist/*.whl
+          /tmp/memkit-clean/bin/python -c 'from memkit.api import app; assert any(getattr(r,"path","")=="/ui" for r in app.routes)'
+          mkdir -p /tmp/hermes
+          /tmp/memkit-clean/bin/memkit install-hermes --hermes-home /tmp/hermes
+          test -f /tmp/hermes/plugins/memkit/plugin.yaml

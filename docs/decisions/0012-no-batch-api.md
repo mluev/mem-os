@@ -1,9 +1,9 @@
 # 0012 — Batch API is used nowhere
 
-    Status:        declined
+    Status:        superseded
     Date:          2026-07-31
     Supersedes:    ../archive/2026-07-original-spec/03-api.md, `use_batch`
-    Superseded by: —
+    Superseded by: 0052
     Evidence:      ../measurements.md#cost
     Code:          src/memkit/admin.py (`reextract`)
     Contract:      ../03-api.md#post-v1adminreextract

@@ -1,9 +1,9 @@
 # 0028 — No similarity floor on the read path
 
-    Status:        declined
+    Status:        superseded
     Date:          2026-07-31
     Supersedes:    ../archive/2026-07-original-spec/05-retrieval.md §"Порог релевантности"
-    Superseded by: —
+    Superseded by: 0051
     Evidence:      ../measurements.md#frozen-results
     Code:          src/memkit/retrieval.py
     Contract:      ../05-retrieval.md#what-is-not-filtered
