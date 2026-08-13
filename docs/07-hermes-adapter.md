@@ -6,4 +6,4 @@ User/assistant turns are uploaded as one idempotent evidence batch. Tool results
 
 Prefetch uses normal trust-aware memory search with a short timeout, circuit breaker, and last-good cache. Tools expose neutral query context and free-form memory kind, not product workflow fields. Direct model-authored memories are labelled `assistant` and therefore excluded from normal retrieval.
 
-The provider exposes Hermes lifecycle/config/tool methods and backup paths. Configuration needs `base_url`, `MEMKIT_API_KEY`, budgets/timeouts, and optional SQLite/Qdrant paths for Hermes backup discovery.
+The provider exposes Hermes lifecycle/config/tool methods and backup paths. `memkit setup` and `memkit install-hermes` activate the provider and configure the restricted `api_key_file`, so Hermes works outside a repository shell without copying a secret into YAML. `MEMKIT_API_KEY` remains an explicit environment override.

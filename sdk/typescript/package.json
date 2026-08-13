@@ -5,7 +5,7 @@
   "exports": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "files": ["dist"],
-  "scripts": { "build": "tsc -p tsconfig.json" },
+  "scripts": { "build": "tsc -p tsconfig.json && cp src/schema.d.ts dist/schema.d.ts" },
   "dependencies": { "openapi-fetch": "^0.17.0" },
   "devDependencies": { "typescript": "~5.9.2" }
 }

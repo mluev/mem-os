@@ -6,10 +6,8 @@ import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
-from ...models.cancel_job_v1_jobs_job_id_cancel_post_response_cancel_job_v1_jobs_job_id_cancel_post import (
-    CancelJobV1JobsJobIdCancelPostResponseCancelJobV1JobsJobIdCancelPost,
-)
 from ...models.http_validation_error import HTTPValidationError
+from ...models.job_queued_out import JobQueuedOut
 from ...types import Response
 
 
@@ -29,9 +27,9 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> CancelJobV1JobsJobIdCancelPostResponseCancelJobV1JobsJobIdCancelPost | HTTPValidationError | None:
+) -> HTTPValidationError | JobQueuedOut | None:
     if response.status_code == 202:
-        response_202 = CancelJobV1JobsJobIdCancelPostResponseCancelJobV1JobsJobIdCancelPost.from_dict(response.json())
+        response_202 = JobQueuedOut.from_dict(response.json())
 
         return response_202
 
@@ -48,7 +46,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[CancelJobV1JobsJobIdCancelPostResponseCancelJobV1JobsJobIdCancelPost | HTTPValidationError]:
+) -> Response[HTTPValidationError | JobQueuedOut]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -61,7 +59,7 @@ def sync_detailed(
     job_id: str,
     *,
     client: AuthenticatedClient,
-) -> Response[CancelJobV1JobsJobIdCancelPostResponseCancelJobV1JobsJobIdCancelPost | HTTPValidationError]:
+) -> Response[HTTPValidationError | JobQueuedOut]:
     """Cancel Job
 
     Args:
@@ -72,7 +70,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[CancelJobV1JobsJobIdCancelPostResponseCancelJobV1JobsJobIdCancelPost | HTTPValidationError]
+        Response[HTTPValidationError | JobQueuedOut]
     """
 
     kwargs = _get_kwargs(
@@ -90,7 +88,7 @@ def sync(
     job_id: str,
     *,
     client: AuthenticatedClient,
-) -> CancelJobV1JobsJobIdCancelPostResponseCancelJobV1JobsJobIdCancelPost | HTTPValidationError | None:
+) -> HTTPValidationError | JobQueuedOut | None:
     """Cancel Job
 
     Args:
@@ -101,7 +99,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        CancelJobV1JobsJobIdCancelPostResponseCancelJobV1JobsJobIdCancelPost | HTTPValidationError
+        HTTPValidationError | JobQueuedOut
     """
 
     return sync_detailed(
@@ -114,7 +112,7 @@ async def asyncio_detailed(
     job_id: str,
     *,
     client: AuthenticatedClient,
-) -> Response[CancelJobV1JobsJobIdCancelPostResponseCancelJobV1JobsJobIdCancelPost | HTTPValidationError]:
+) -> Response[HTTPValidationError | JobQueuedOut]:
     """Cancel Job
 
     Args:
@@ -125,7 +123,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[CancelJobV1JobsJobIdCancelPostResponseCancelJobV1JobsJobIdCancelPost | HTTPValidationError]
+        Response[HTTPValidationError | JobQueuedOut]
     """
 
     kwargs = _get_kwargs(
@@ -141,7 +139,7 @@ async def asyncio(
     job_id: str,
     *,
     client: AuthenticatedClient,
-) -> CancelJobV1JobsJobIdCancelPostResponseCancelJobV1JobsJobIdCancelPost | HTTPValidationError | None:
+) -> HTTPValidationError | JobQueuedOut | None:
     """Cancel Job
 
     Args:
@@ -152,7 +150,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        CancelJobV1JobsJobIdCancelPostResponseCancelJobV1JobsJobIdCancelPost | HTTPValidationError
+        HTTPValidationError | JobQueuedOut
     """
 
     return (

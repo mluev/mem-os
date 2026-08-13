@@ -6,11 +6,12 @@ import json
 import sqlite3
 import time
 from collections.abc import Callable
+from contextlib import ExitStack
 from typing import Any
 
 from qdrant_client import QdrantClient
 
-from . import store, vectors
+from . import outbox, store, vectors
 from .embed import Embedder
 
 
@@ -81,6 +82,23 @@ def rebuild(
     embedder: Embedder,
     *,
     cancelled: Callable[[], bool] | None = None,
+    activate: bool = True,
+) -> dict[str, Any]:
+    """Serialize a full generation swap against owner erasure."""
+    owners = [str(row[0]) for row in conn.execute("SELECT id FROM owners ORDER BY id")]
+    with ExitStack() as stack:
+        for owner_id in owners:
+            stack.enter_context(outbox.owner_barrier(conn, owner_id))
+        return _rebuild(conn, client, embedder, cancelled=cancelled, activate=activate)
+
+
+def _rebuild(
+    conn: sqlite3.Connection,
+    client: QdrantClient,
+    embedder: Embedder,
+    *,
+    cancelled: Callable[[], bool] | None = None,
+    activate: bool = True,
 ) -> dict[str, Any]:
     """Build from one SQLite snapshot and atomically activate validated aliases."""
     # Reindex owns its snapshot boundary; never inherit an incidental caller
@@ -140,6 +158,15 @@ def rebuild(
     highwater, _ = _replay(conn, client, embedder, generations, after_id=snapshot)
     if cancelled and cancelled():
         raise ReindexCancelled("reindex cancelled before activation")
+    if not activate:
+        return {
+            "generation": generations,
+            "snapshot_outbox_id": snapshot,
+            "replayed_through": highwater,
+            "memories": len(vectors.exact_ids(client, generations[vectors.MEMORIES])),
+            "raw": len(vectors.exact_ids(client, generations[vectors.RAW])),
+            "activated": False,
+        }
     vectors.swap_aliases(client, generations)
     # Close the final race: operations completed against the old alias between
     # the last replay and the atomic swap are now applied to the active generation.
@@ -150,4 +177,5 @@ def rebuild(
         "replayed_through": highwater,
         "memories": len(vectors.exact_ids(client, generations[vectors.MEMORIES])),
         "raw": len(vectors.exact_ids(client, generations[vectors.RAW])),
+        "activated": True,
     }

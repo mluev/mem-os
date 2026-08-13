@@ -249,6 +249,7 @@ def add_memory(
     judge_run_id: int | None = None,
     valid_until: str | None = None,
     source_role: str = provenance.DEFAULT_ROLE,
+    memory_id: str | None = None,
 ) -> str:
     """Insert one authoritative memory and enqueue its index operation."""
     text = text.strip()
@@ -264,7 +265,7 @@ def add_memory(
     context, context_redactions = security.redact_value(context or {})
     tags, tag_redactions = security.redact_value(tags or [])
     ensure_owner(conn, owner_id, owner_id)
-    memory_id = str(uuid.uuid4())
+    memory_id = memory_id or str(uuid.uuid4())
     now = utcnow()
     conn.execute(
         """INSERT INTO memories
@@ -293,6 +294,7 @@ def add_memory(
         ),
     )
     row = conn.execute("SELECT * FROM memories WHERE id=?", (memory_id,)).fetchone()
+    append_memory_revision(conn, row)
     outbox.enqueue(
         conn,
         collection=vectors.MEMORIES,
@@ -301,6 +303,149 @@ def add_memory(
         payload=mem_payload(row),
     )
     return memory_id
+
+
+def append_memory_revision(conn: sqlite3.Connection, row: sqlite3.Row) -> None:
+    conn.execute(
+        """INSERT INTO memory_revisions
+           (memory_id,revision,kind,text,importance,confidence,status,superseded_by,
+            valid_until,extraction_version,judge_run_id,source_role,context_json,
+            tags_json,redacted,created_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (
+            row["id"],
+            row["revision"],
+            row["kind"],
+            row["text"],
+            row["importance"],
+            row["confidence"],
+            row["status"],
+            row["superseded_by"],
+            row["valid_until"],
+            row["extraction_version"],
+            row["judge_run_id"],
+            row["source_role"],
+            row["context_json"],
+            row["tags_json"],
+            row["redacted"],
+            row["updated_at"],
+        ),
+    )
+
+
+def update_memory(
+    conn: sqlite3.Connection,
+    *,
+    memory_id: str,
+    owner_id: str,
+    expected_revision: int,
+    text: str,
+    kind: str,
+    context: dict[str, Any],
+    tags: list[str],
+    importance: float,
+    confidence: float,
+    valid_until: str | None,
+    extraction_version: str | None = None,
+    judge_run_id: int | None = None,
+    source_role: str | None = None,
+) -> sqlite3.Row:
+    """Atomically replace mutable memory fields and append one immutable revision."""
+    text = text.strip()
+    kind = kind.strip()
+    if not text or len(text) > MAX_MEMORY_CHARS:
+        raise ValueError("memory text must contain 1–2000 characters")
+    if not kind or len(kind) > 64:
+        raise ValueError("memory kind must contain 1–64 characters")
+    cleaned = security.redact(text)
+    context, context_redactions = security.redact_value(context)
+    tags, tag_redactions = security.redact_value(tags)
+    now = utcnow()
+    current = conn.execute(
+        "SELECT * FROM memories WHERE id=? AND owner_id=?",
+        (memory_id, owner_id),
+    ).fetchone()
+    if current is None:
+        raise KeyError(memory_id)
+    next_source_role = source_role or current["source_role"]
+    provenance.validate(next_source_role)
+    changed = conn.execute(
+        """UPDATE memories
+              SET text=?,kind=?,importance=?,confidence=?,context_json=?,tags_json=?,
+                  valid_until=?,updated_at=?,revision=revision+1,extraction_version=?,
+                  judge_run_id=?,source_role=?,redacted=?
+            WHERE id=? AND owner_id=? AND revision=?""",
+        (
+            cleaned.text,
+            kind,
+            importance,
+            confidence,
+            _object(context),
+            _array(tags),
+            valid_until,
+            now,
+            extraction_version or current["extraction_version"],
+            judge_run_id if judge_run_id is not None else current["judge_run_id"],
+            next_source_role,
+            int(
+                cleaned.redacted
+                or context_redactions > 0
+                or tag_redactions > 0
+                or (bool(current["redacted"]) and cleaned.text == current["text"])
+            ),
+            memory_id,
+            owner_id,
+            expected_revision,
+        ),
+    ).rowcount
+    if not changed:
+        raise RuntimeError("memory revision conflict")
+    saved = conn.execute("SELECT * FROM memories WHERE id=?", (memory_id,)).fetchone()
+    append_memory_revision(conn, saved)
+    outbox.enqueue(
+        conn,
+        collection=vectors.MEMORIES,
+        entity_id=memory_id,
+        operation="upsert",
+        payload=mem_payload(saved),
+    )
+    return saved
+
+
+def set_memory_status(
+    conn: sqlite3.Connection,
+    *,
+    memory_id: str,
+    owner_id: str,
+    status: str,
+    expected_revision: int | None = None,
+    superseded_by: str | None = None,
+) -> sqlite3.Row:
+    current = conn.execute(
+        "SELECT * FROM memories WHERE id=? AND owner_id=?", (memory_id, owner_id)
+    ).fetchone()
+    if current is None:
+        raise KeyError(memory_id)
+    revision = int(current["revision"])
+    if expected_revision is not None and revision != expected_revision:
+        raise RuntimeError("memory revision conflict")
+    changed = conn.execute(
+        """UPDATE memories SET status=?,superseded_by=?,updated_at=?,revision=revision+1
+             WHERE id=? AND owner_id=? AND revision=?""",
+        (status, superseded_by, utcnow(), memory_id, owner_id, revision),
+    ).rowcount
+    if not changed:
+        raise RuntimeError("memory revision conflict")
+    saved = conn.execute("SELECT * FROM memories WHERE id=?", (memory_id,)).fetchone()
+    append_memory_revision(conn, saved)
+    outbox.enqueue(
+        conn,
+        collection=vectors.MEMORIES,
+        entity_id=memory_id,
+        operation="delete" if status != "active" else "upsert",
+        payload={"owner_id": owner_id} if status != "active" else mem_payload(saved),
+    )
+    return saved
 
 
 def mem_payload(row: sqlite3.Row | dict[str, Any]) -> dict[str, Any]:
@@ -319,6 +464,7 @@ def mem_payload(row: sqlite3.Row | dict[str, Any]) -> dict[str, Any]:
         "valid_until": row["valid_until"],
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
+        "revision": int(row["revision"]) if "revision" in keys else 1,
         "redacted": bool(row["redacted"]) if "redacted" in keys else False,
     }
 

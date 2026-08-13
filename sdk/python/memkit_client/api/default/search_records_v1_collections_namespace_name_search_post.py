@@ -6,11 +6,9 @@ import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
+from ...models.cursor_page_out import CursorPageOut
 from ...models.http_validation_error import HTTPValidationError
 from ...models.record_search_in import RecordSearchIn
-from ...models.search_records_v1_collections_namespace_name_search_post_response_search_records_v1_collections_namespace_name_search_post import (
-    SearchRecordsV1CollectionsNamespaceNameSearchPostResponseSearchRecordsV1CollectionsNamespaceNameSearchPost,
-)
 from ...types import Response
 
 
@@ -40,15 +38,9 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> (
-    HTTPValidationError
-    | SearchRecordsV1CollectionsNamespaceNameSearchPostResponseSearchRecordsV1CollectionsNamespaceNameSearchPost
-    | None
-):
+) -> CursorPageOut | HTTPValidationError | None:
     if response.status_code == 200:
-        response_200 = SearchRecordsV1CollectionsNamespaceNameSearchPostResponseSearchRecordsV1CollectionsNamespaceNameSearchPost.from_dict(
-            response.json()
-        )
+        response_200 = CursorPageOut.from_dict(response.json())
 
         return response_200
 
@@ -65,10 +57,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[
-    HTTPValidationError
-    | SearchRecordsV1CollectionsNamespaceNameSearchPostResponseSearchRecordsV1CollectionsNamespaceNameSearchPost
-]:
+) -> Response[CursorPageOut | HTTPValidationError]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -83,10 +72,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
     body: RecordSearchIn,
-) -> Response[
-    HTTPValidationError
-    | SearchRecordsV1CollectionsNamespaceNameSearchPostResponseSearchRecordsV1CollectionsNamespaceNameSearchPost
-]:
+) -> Response[CursorPageOut | HTTPValidationError]:
     """Search Records
 
     Args:
@@ -99,7 +85,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | SearchRecordsV1CollectionsNamespaceNameSearchPostResponseSearchRecordsV1CollectionsNamespaceNameSearchPost]
+        Response[CursorPageOut | HTTPValidationError]
     """
 
     kwargs = _get_kwargs(
@@ -121,11 +107,7 @@ def sync(
     *,
     client: AuthenticatedClient,
     body: RecordSearchIn,
-) -> (
-    HTTPValidationError
-    | SearchRecordsV1CollectionsNamespaceNameSearchPostResponseSearchRecordsV1CollectionsNamespaceNameSearchPost
-    | None
-):
+) -> CursorPageOut | HTTPValidationError | None:
     """Search Records
 
     Args:
@@ -138,7 +120,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | SearchRecordsV1CollectionsNamespaceNameSearchPostResponseSearchRecordsV1CollectionsNamespaceNameSearchPost
+        CursorPageOut | HTTPValidationError
     """
 
     return sync_detailed(
@@ -155,10 +137,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
     body: RecordSearchIn,
-) -> Response[
-    HTTPValidationError
-    | SearchRecordsV1CollectionsNamespaceNameSearchPostResponseSearchRecordsV1CollectionsNamespaceNameSearchPost
-]:
+) -> Response[CursorPageOut | HTTPValidationError]:
     """Search Records
 
     Args:
@@ -171,7 +150,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | SearchRecordsV1CollectionsNamespaceNameSearchPostResponseSearchRecordsV1CollectionsNamespaceNameSearchPost]
+        Response[CursorPageOut | HTTPValidationError]
     """
 
     kwargs = _get_kwargs(
@@ -191,11 +170,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
     body: RecordSearchIn,
-) -> (
-    HTTPValidationError
-    | SearchRecordsV1CollectionsNamespaceNameSearchPostResponseSearchRecordsV1CollectionsNamespaceNameSearchPost
-    | None
-):
+) -> CursorPageOut | HTTPValidationError | None:
     """Search Records
 
     Args:
@@ -208,7 +183,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | SearchRecordsV1CollectionsNamespaceNameSearchPostResponseSearchRecordsV1CollectionsNamespaceNameSearchPost
+        CursorPageOut | HTTPValidationError
     """
 
     return (

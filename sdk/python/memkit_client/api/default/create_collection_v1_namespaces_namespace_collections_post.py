@@ -7,9 +7,7 @@ import httpx
 from ... import errors
 from ...client import AuthenticatedClient, Client
 from ...models.collection_in import CollectionIn
-from ...models.create_collection_v1_namespaces_namespace_collections_post_response_create_collection_v1_namespaces_namespace_collections_post import (
-    CreateCollectionV1NamespacesNamespaceCollectionsPostResponseCreateCollectionV1NamespacesNamespaceCollectionsPost,
-)
+from ...models.entity_out import EntityOut
 from ...models.http_validation_error import HTTPValidationError
 from ...types import Response
 
@@ -38,15 +36,9 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> (
-    CreateCollectionV1NamespacesNamespaceCollectionsPostResponseCreateCollectionV1NamespacesNamespaceCollectionsPost
-    | HTTPValidationError
-    | None
-):
+) -> EntityOut | HTTPValidationError | None:
     if response.status_code == 201:
-        response_201 = CreateCollectionV1NamespacesNamespaceCollectionsPostResponseCreateCollectionV1NamespacesNamespaceCollectionsPost.from_dict(
-            response.json()
-        )
+        response_201 = EntityOut.from_dict(response.json())
 
         return response_201
 
@@ -63,10 +55,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[
-    CreateCollectionV1NamespacesNamespaceCollectionsPostResponseCreateCollectionV1NamespacesNamespaceCollectionsPost
-    | HTTPValidationError
-]:
+) -> Response[EntityOut | HTTPValidationError]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -80,10 +69,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
     body: CollectionIn,
-) -> Response[
-    CreateCollectionV1NamespacesNamespaceCollectionsPostResponseCreateCollectionV1NamespacesNamespaceCollectionsPost
-    | HTTPValidationError
-]:
+) -> Response[EntityOut | HTTPValidationError]:
     """Create Collection
 
     Args:
@@ -95,7 +81,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[CreateCollectionV1NamespacesNamespaceCollectionsPostResponseCreateCollectionV1NamespacesNamespaceCollectionsPost | HTTPValidationError]
+        Response[EntityOut | HTTPValidationError]
     """
 
     kwargs = _get_kwargs(
@@ -115,11 +101,7 @@ def sync(
     *,
     client: AuthenticatedClient,
     body: CollectionIn,
-) -> (
-    CreateCollectionV1NamespacesNamespaceCollectionsPostResponseCreateCollectionV1NamespacesNamespaceCollectionsPost
-    | HTTPValidationError
-    | None
-):
+) -> EntityOut | HTTPValidationError | None:
     """Create Collection
 
     Args:
@@ -131,7 +113,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        CreateCollectionV1NamespacesNamespaceCollectionsPostResponseCreateCollectionV1NamespacesNamespaceCollectionsPost | HTTPValidationError
+        EntityOut | HTTPValidationError
     """
 
     return sync_detailed(
@@ -146,10 +128,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
     body: CollectionIn,
-) -> Response[
-    CreateCollectionV1NamespacesNamespaceCollectionsPostResponseCreateCollectionV1NamespacesNamespaceCollectionsPost
-    | HTTPValidationError
-]:
+) -> Response[EntityOut | HTTPValidationError]:
     """Create Collection
 
     Args:
@@ -161,7 +140,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[CreateCollectionV1NamespacesNamespaceCollectionsPostResponseCreateCollectionV1NamespacesNamespaceCollectionsPost | HTTPValidationError]
+        Response[EntityOut | HTTPValidationError]
     """
 
     kwargs = _get_kwargs(
@@ -179,11 +158,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
     body: CollectionIn,
-) -> (
-    CreateCollectionV1NamespacesNamespaceCollectionsPostResponseCreateCollectionV1NamespacesNamespaceCollectionsPost
-    | HTTPValidationError
-    | None
-):
+) -> EntityOut | HTTPValidationError | None:
     """Create Collection
 
     Args:
@@ -195,7 +170,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        CreateCollectionV1NamespacesNamespaceCollectionsPostResponseCreateCollectionV1NamespacesNamespaceCollectionsPost | HTTPValidationError
+        EntityOut | HTTPValidationError
     """
 
     return (

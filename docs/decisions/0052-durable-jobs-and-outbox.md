@@ -10,4 +10,4 @@
 
 ## Decision
 
-Every authoritative change commits to SQLite before derived indexing. An idempotent outbox repairs post-commit failure. Long operations are durable jobs with event history, leases, call limits, cooperative cancellation, and atomic budget reservation. Reindex activates a validated generation by alias instead of destroying the live index.
+Every authoritative change commits to SQLite before derived indexing. Immutable per-entity outbox operations use leased claims and claim-token completion; erasure, delivery, and reindex share owner-scoped barriers. Long operations are claimed by a polling worker with event history, renewable leases, startup recovery, call limits, cooperative cancellation, atomic message-window claims, and budget reservation. Reindex activates a validated generation by alias instead of destroying the live index.

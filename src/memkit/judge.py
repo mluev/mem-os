@@ -133,7 +133,7 @@ def build_prompt(
         today=today or datetime.now(UTC).strftime("%Y-%m-%d"),
         window=render_window(window),
         candidates=render_candidates(candidates),
-        project=json.dumps(context or {}, ensure_ascii=False, sort_keys=True),
+        context=json.dumps(context or {}, ensure_ascii=False, sort_keys=True),
         session_date=session_date,
         agent_id=agent_id,
     )
@@ -156,7 +156,7 @@ class Op:
     importance: float | None = None
     confidence: float | None = None
     valid_until: str | None = None
-    evidence: list[dict[str, int]] | None = None
+    evidence: list[dict[str, Any]] | None = None
 
     @classmethod
     def parse(cls, raw: dict[str, Any]) -> Op | None:
@@ -194,7 +194,7 @@ class Op:
         evidence = raw.get("evidence") or []
         if op in ("ADD", "UPDATE") and not evidence:
             return None
-        parsed_evidence: list[dict[str, int]] = []
+        parsed_evidence: list[dict[str, Any]] = []
         for citation in evidence:
             try:
                 message_id = int(citation["message_id"])
@@ -202,9 +202,17 @@ class Op:
                 end = int(citation["end_char"])
             except (KeyError, TypeError, ValueError):
                 return None
-            if message_id <= 0 or start < 0 or end <= start:
+            quote = str(citation.get("quote") or "")
+            if message_id <= 0 or ((start < 0 or end <= start) and not quote):
                 return None
-            parsed_evidence.append({"message_id": message_id, "start_char": start, "end_char": end})
+            parsed_evidence.append(
+                {
+                    "message_id": message_id,
+                    "start_char": start,
+                    "end_char": end,
+                    **({"quote": quote} if quote else {}),
+                }
+            )
         return cls(
             op=op,
             reason=raw.get("reason") or "",

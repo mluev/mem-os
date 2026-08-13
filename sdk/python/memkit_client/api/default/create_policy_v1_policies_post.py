@@ -5,9 +5,7 @@ import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
-from ...models.create_policy_v1_policies_post_response_create_policy_v1_policies_post import (
-    CreatePolicyV1PoliciesPostResponseCreatePolicyV1PoliciesPost,
-)
+from ...models.entity_out import EntityOut
 from ...models.http_validation_error import HTTPValidationError
 from ...models.policy_in import PolicyIn
 from ...types import Response
@@ -34,9 +32,9 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> CreatePolicyV1PoliciesPostResponseCreatePolicyV1PoliciesPost | HTTPValidationError | None:
+) -> EntityOut | HTTPValidationError | None:
     if response.status_code == 201:
-        response_201 = CreatePolicyV1PoliciesPostResponseCreatePolicyV1PoliciesPost.from_dict(response.json())
+        response_201 = EntityOut.from_dict(response.json())
 
         return response_201
 
@@ -53,7 +51,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[CreatePolicyV1PoliciesPostResponseCreatePolicyV1PoliciesPost | HTTPValidationError]:
+) -> Response[EntityOut | HTTPValidationError]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -66,7 +64,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
     body: PolicyIn,
-) -> Response[CreatePolicyV1PoliciesPostResponseCreatePolicyV1PoliciesPost | HTTPValidationError]:
+) -> Response[EntityOut | HTTPValidationError]:
     """Create Policy
 
     Args:
@@ -77,7 +75,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[CreatePolicyV1PoliciesPostResponseCreatePolicyV1PoliciesPost | HTTPValidationError]
+        Response[EntityOut | HTTPValidationError]
     """
 
     kwargs = _get_kwargs(
@@ -95,7 +93,7 @@ def sync(
     *,
     client: AuthenticatedClient,
     body: PolicyIn,
-) -> CreatePolicyV1PoliciesPostResponseCreatePolicyV1PoliciesPost | HTTPValidationError | None:
+) -> EntityOut | HTTPValidationError | None:
     """Create Policy
 
     Args:
@@ -106,7 +104,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        CreatePolicyV1PoliciesPostResponseCreatePolicyV1PoliciesPost | HTTPValidationError
+        EntityOut | HTTPValidationError
     """
 
     return sync_detailed(
@@ -119,7 +117,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
     body: PolicyIn,
-) -> Response[CreatePolicyV1PoliciesPostResponseCreatePolicyV1PoliciesPost | HTTPValidationError]:
+) -> Response[EntityOut | HTTPValidationError]:
     """Create Policy
 
     Args:
@@ -130,7 +128,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[CreatePolicyV1PoliciesPostResponseCreatePolicyV1PoliciesPost | HTTPValidationError]
+        Response[EntityOut | HTTPValidationError]
     """
 
     kwargs = _get_kwargs(
@@ -146,7 +144,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
     body: PolicyIn,
-) -> CreatePolicyV1PoliciesPostResponseCreatePolicyV1PoliciesPost | HTTPValidationError | None:
+) -> EntityOut | HTTPValidationError | None:
     """Create Policy
 
     Args:
@@ -157,7 +155,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        CreatePolicyV1PoliciesPostResponseCreatePolicyV1PoliciesPost | HTTPValidationError
+        EntityOut | HTTPValidationError
     """
 
     return (

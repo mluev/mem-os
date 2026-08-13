@@ -44,12 +44,12 @@ class TestOutbox(unittest.TestCase):
 
     def test_commit_leaves_retryable_work_after_index_failure(self) -> None:
         with transaction(self.conn):
-            outbox.enqueue(
+            memory_id = store.add_memory(
                 self.conn,
-                collection=vectors.MEMORIES,
-                entity_id="m-1",
-                operation="upsert",
-                payload={"text": "durable fact", "owner_id": "u-test"},
+                owner_id=OWNER,
+                text="durable fact",
+                kind="fact",
+                source_role="manual",
             )
 
         class BrokenQdrant(StubQdrant):
@@ -59,7 +59,8 @@ class TestOutbox(unittest.TestCase):
         outcome = outbox.drain(self.conn, BrokenQdrant(), self.embedder)
         self.assertEqual(outcome.failed, 1)
         row = self.conn.execute(
-            "SELECT status,attempts,last_error FROM index_outbox WHERE entity_id='m-1'"
+            "SELECT status,attempts,last_error FROM index_outbox WHERE entity_id=?",
+            (memory_id,),
         ).fetchone()
         self.assertEqual(row["status"], "pending")
         self.assertEqual(row["attempts"], 1)
@@ -67,7 +68,7 @@ class TestOutbox(unittest.TestCase):
 
         outcome = outbox.drain(self.conn, self.qdrant, self.embedder, ignore_schedule=True)
         self.assertEqual(outcome.applied, 1)
-        self.assertIn("m-1", self.qdrant.points)
+        self.assertIn(memory_id, self.qdrant.points)
 
 
 class TestJobsAndBudgets(unittest.TestCase):

@@ -5,9 +5,7 @@ import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
-from ...models.export_data_v1_export_post_response_export_data_v1_export_post import (
-    ExportDataV1ExportPostResponseExportDataV1ExportPost,
-)
+from ...models.job_queued_out import JobQueuedOut
 from ...types import Response
 
 
@@ -21,11 +19,9 @@ def _get_kwargs() -> dict[str, Any]:
     return _kwargs
 
 
-def _parse_response(
-    *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> ExportDataV1ExportPostResponseExportDataV1ExportPost | None:
+def _parse_response(*, client: AuthenticatedClient | Client, response: httpx.Response) -> JobQueuedOut | None:
     if response.status_code == 202:
-        response_202 = ExportDataV1ExportPostResponseExportDataV1ExportPost.from_dict(response.json())
+        response_202 = JobQueuedOut.from_dict(response.json())
 
         return response_202
 
@@ -35,9 +31,7 @@ def _parse_response(
         return None
 
 
-def _build_response(
-    *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[ExportDataV1ExportPostResponseExportDataV1ExportPost]:
+def _build_response(*, client: AuthenticatedClient | Client, response: httpx.Response) -> Response[JobQueuedOut]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -49,7 +43,7 @@ def _build_response(
 def sync_detailed(
     *,
     client: AuthenticatedClient,
-) -> Response[ExportDataV1ExportPostResponseExportDataV1ExportPost]:
+) -> Response[JobQueuedOut]:
     """Export Data
 
     Raises:
@@ -57,7 +51,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[ExportDataV1ExportPostResponseExportDataV1ExportPost]
+        Response[JobQueuedOut]
     """
 
     kwargs = _get_kwargs()
@@ -72,7 +66,7 @@ def sync_detailed(
 def sync(
     *,
     client: AuthenticatedClient,
-) -> ExportDataV1ExportPostResponseExportDataV1ExportPost | None:
+) -> JobQueuedOut | None:
     """Export Data
 
     Raises:
@@ -80,7 +74,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        ExportDataV1ExportPostResponseExportDataV1ExportPost
+        JobQueuedOut
     """
 
     return sync_detailed(
@@ -91,7 +85,7 @@ def sync(
 async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
-) -> Response[ExportDataV1ExportPostResponseExportDataV1ExportPost]:
+) -> Response[JobQueuedOut]:
     """Export Data
 
     Raises:
@@ -99,7 +93,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[ExportDataV1ExportPostResponseExportDataV1ExportPost]
+        Response[JobQueuedOut]
     """
 
     kwargs = _get_kwargs()
@@ -112,7 +106,7 @@ async def asyncio_detailed(
 async def asyncio(
     *,
     client: AuthenticatedClient,
-) -> ExportDataV1ExportPostResponseExportDataV1ExportPost | None:
+) -> JobQueuedOut | None:
     """Export Data
 
     Raises:
@@ -120,7 +114,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        ExportDataV1ExportPostResponseExportDataV1ExportPost
+        JobQueuedOut
     """
 
     return (

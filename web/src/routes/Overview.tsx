@@ -15,8 +15,8 @@ export function Overview() {
   return <>
     <div className="page-header"><div><span className="eyebrow">MEMORY, NOT WORKFLOW</span><h1>Memory overview</h1><p>Authoritative storage, derived indexes, model spend, and recent neutral observations.</p></div><Link to="/search" className="button button-secondary"><Search size={14} /> Search</Link></div>
     <div className="metric-grid">
-      <Metric icon={<Brain size={18} />} label="Indexed memories" value={health.data.qdrant.memories.toLocaleString()} />
-      <Metric icon={<Database size={18} />} label="Raw evidence" value={health.data.qdrant.raw.toLocaleString()} />
+      <Metric icon={<Brain size={18} />} label="Indexed memories" value={health.data.qdrant.memories?.toLocaleString() ?? "Unavailable"} />
+      <Metric icon={<Database size={18} />} label="Raw evidence" value={health.data.qdrant.raw?.toLocaleString() ?? "Unavailable"} />
       <Metric icon={<Activity size={18} />} label="Queued index writes" value={health.data.outbox.pending.toLocaleString()} />
       <Metric icon={<Gauge size={18} />} label="Month spend + reserve" value={money(metrics.data.month_spend_usd + metrics.data.month_reserved_usd)} />
     </div>

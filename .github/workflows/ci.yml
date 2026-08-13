@@ -3,7 +3,7 @@ name: ci
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [master]
 
 jobs:
   backend:
@@ -14,12 +14,14 @@ jobs:
         with: { enable-cache: true }
       - run: uv python install 3.12
       - run: uv sync --all-groups --locked
-      - run: uv run ruff check src tests tools integrations/hermes
-      - run: uv run ruff format --check src tests tools integrations/hermes
-      - run: uv run pytest -q
+      - run: uv run ruff check src tests tools integrations/hermes eval
+      - run: uv run ruff format --check src tests tools integrations/hermes eval
+      - run: uv run pytest -q --cov=memkit --cov-report=term-missing --cov-fail-under=75
+      - run: uv run python -m eval.golden --schema-only
       - run: uv run python tools/export_openapi.py && git diff --exit-code -- openapi.json
       - run: uv run python -m tools.docblocks --check
-      - run: uvx pip-audit
+      - run: uv export --locked --no-dev --no-emit-project -o /tmp/memkit-requirements.txt
+      - run: uv run pip-audit -r /tmp/memkit-requirements.txt
 
   frontend:
     runs-on: ubuntu-latest
@@ -37,6 +39,8 @@ jobs:
       - run: pnpm --dir web lint
       - run: pnpm --dir web typecheck
       - run: pnpm --dir web test
+      - run: pnpm --dir web exec playwright install --with-deps chromium
+      - run: pnpm --dir web test:e2e
       - run: pnpm --dir web build
       - run: pnpm --dir web audit --audit-level high
 
@@ -65,6 +69,16 @@ jobs:
       - run: uv python install 3.12
       - run: uv sync --all-groups --locked
       - run: pnpm --dir web install --frozen-lockfile && pnpm --dir web build
+      - run: pnpm --dir sdk/typescript install --frozen-lockfile
+      - run: pnpm --dir web gen:api && cp web/src/api/schema.d.ts sdk/typescript/src/schema.d.ts
+      - run: uv run openapi-python-client generate --path openapi.json --meta uv --output-path sdk/python --overwrite --fail-on-warning
+      - run: uv run python tools/normalize_python_sdk.py
+      - run: git diff --exit-code -- openapi.json web/src/api/schema.d.ts sdk/typescript/src/schema.d.ts sdk/python
+      - run: pnpm --dir sdk/typescript build
+      - run: pnpm --dir sdk/typescript pack --pack-destination /tmp
+      - run: test -f sdk/typescript/dist/schema.d.ts
+      - run: uv run python tools/smoke_typescript_sdk.py /tmp/memkit-sdk-0.2.0.tgz
+      - run: uv build --project sdk/python
       - run: uv build
       - run: |
           python -m venv /tmp/memkit-clean
@@ -73,3 +87,6 @@ jobs:
           mkdir -p /tmp/hermes
           /tmp/memkit-clean/bin/memkit install-hermes --hermes-home /tmp/hermes
           test -f /tmp/hermes/plugins/memkit/plugin.yaml
+          python -m venv /tmp/memkit-python-sdk
+          /tmp/memkit-python-sdk/bin/pip install sdk/python/dist/*.whl
+          /tmp/memkit-python-sdk/bin/python -c 'from memkit_client import AuthenticatedClient; c=AuthenticatedClient(base_url="http://localhost",token="k"); r=c.get_httpx_client().build_request("GET","/"); assert r.headers["X-API-Key"]=="k" and "Authorization" not in r.headers'

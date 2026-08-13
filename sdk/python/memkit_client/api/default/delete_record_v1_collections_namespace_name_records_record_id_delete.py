@@ -6,18 +6,24 @@ import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
-from ...models.delete_record_v1_collections_namespace_name_records_record_id_delete_response_delete_record_v1_collections_namespace_name_records_record_id_delete import (
-    DeleteRecordV1CollectionsNamespaceNameRecordsRecordIdDeleteResponseDeleteRecordV1CollectionsNamespaceNameRecordsRecordIdDelete,
-)
+from ...models.entity_out import EntityOut
 from ...models.http_validation_error import HTTPValidationError
-from ...types import Response
+from ...types import UNSET, Response
 
 
 def _get_kwargs(
     namespace: str,
     name: str,
     record_id: str,
+    *,
+    expected_revision: int,
 ) -> dict[str, Any]:
+
+    params: dict[str, Any] = {}
+
+    params["expected_revision"] = expected_revision
+
+    params = {k: v for k, v in params.items() if v is not UNSET and v is not None}
 
     _kwargs: dict[str, Any] = {
         "method": "delete",
@@ -26,6 +32,7 @@ def _get_kwargs(
             name=quote(str(name), safe=""),
             record_id=quote(str(record_id), safe=""),
         ),
+        "params": params,
     }
 
     return _kwargs
@@ -33,15 +40,9 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> (
-    DeleteRecordV1CollectionsNamespaceNameRecordsRecordIdDeleteResponseDeleteRecordV1CollectionsNamespaceNameRecordsRecordIdDelete
-    | HTTPValidationError
-    | None
-):
+) -> EntityOut | HTTPValidationError | None:
     if response.status_code == 200:
-        response_200 = DeleteRecordV1CollectionsNamespaceNameRecordsRecordIdDeleteResponseDeleteRecordV1CollectionsNamespaceNameRecordsRecordIdDelete.from_dict(
-            response.json()
-        )
+        response_200 = EntityOut.from_dict(response.json())
 
         return response_200
 
@@ -58,10 +59,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[
-    DeleteRecordV1CollectionsNamespaceNameRecordsRecordIdDeleteResponseDeleteRecordV1CollectionsNamespaceNameRecordsRecordIdDelete
-    | HTTPValidationError
-]:
+) -> Response[EntityOut | HTTPValidationError]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -76,29 +74,29 @@ def sync_detailed(
     record_id: str,
     *,
     client: AuthenticatedClient,
-) -> Response[
-    DeleteRecordV1CollectionsNamespaceNameRecordsRecordIdDeleteResponseDeleteRecordV1CollectionsNamespaceNameRecordsRecordIdDelete
-    | HTTPValidationError
-]:
+    expected_revision: int,
+) -> Response[EntityOut | HTTPValidationError]:
     """Delete Record
 
     Args:
         namespace (str):
         name (str):
         record_id (str):
+        expected_revision (int):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[DeleteRecordV1CollectionsNamespaceNameRecordsRecordIdDeleteResponseDeleteRecordV1CollectionsNamespaceNameRecordsRecordIdDelete | HTTPValidationError]
+        Response[EntityOut | HTTPValidationError]
     """
 
     kwargs = _get_kwargs(
         namespace=namespace,
         name=name,
         record_id=record_id,
+        expected_revision=expected_revision,
     )
 
     response = client.get_httpx_client().request(
@@ -114,24 +112,22 @@ def sync(
     record_id: str,
     *,
     client: AuthenticatedClient,
-) -> (
-    DeleteRecordV1CollectionsNamespaceNameRecordsRecordIdDeleteResponseDeleteRecordV1CollectionsNamespaceNameRecordsRecordIdDelete
-    | HTTPValidationError
-    | None
-):
+    expected_revision: int,
+) -> EntityOut | HTTPValidationError | None:
     """Delete Record
 
     Args:
         namespace (str):
         name (str):
         record_id (str):
+        expected_revision (int):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        DeleteRecordV1CollectionsNamespaceNameRecordsRecordIdDeleteResponseDeleteRecordV1CollectionsNamespaceNameRecordsRecordIdDelete | HTTPValidationError
+        EntityOut | HTTPValidationError
     """
 
     return sync_detailed(
@@ -139,6 +135,7 @@ def sync(
         name=name,
         record_id=record_id,
         client=client,
+        expected_revision=expected_revision,
     ).parsed
 
 
@@ -148,29 +145,29 @@ async def asyncio_detailed(
     record_id: str,
     *,
     client: AuthenticatedClient,
-) -> Response[
-    DeleteRecordV1CollectionsNamespaceNameRecordsRecordIdDeleteResponseDeleteRecordV1CollectionsNamespaceNameRecordsRecordIdDelete
-    | HTTPValidationError
-]:
+    expected_revision: int,
+) -> Response[EntityOut | HTTPValidationError]:
     """Delete Record
 
     Args:
         namespace (str):
         name (str):
         record_id (str):
+        expected_revision (int):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[DeleteRecordV1CollectionsNamespaceNameRecordsRecordIdDeleteResponseDeleteRecordV1CollectionsNamespaceNameRecordsRecordIdDelete | HTTPValidationError]
+        Response[EntityOut | HTTPValidationError]
     """
 
     kwargs = _get_kwargs(
         namespace=namespace,
         name=name,
         record_id=record_id,
+        expected_revision=expected_revision,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -184,24 +181,22 @@ async def asyncio(
     record_id: str,
     *,
     client: AuthenticatedClient,
-) -> (
-    DeleteRecordV1CollectionsNamespaceNameRecordsRecordIdDeleteResponseDeleteRecordV1CollectionsNamespaceNameRecordsRecordIdDelete
-    | HTTPValidationError
-    | None
-):
+    expected_revision: int,
+) -> EntityOut | HTTPValidationError | None:
     """Delete Record
 
     Args:
         namespace (str):
         name (str):
         record_id (str):
+        expected_revision (int):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        DeleteRecordV1CollectionsNamespaceNameRecordsRecordIdDeleteResponseDeleteRecordV1CollectionsNamespaceNameRecordsRecordIdDelete | HTTPValidationError
+        EntityOut | HTTPValidationError
     """
 
     return (
@@ -210,5 +205,6 @@ async def asyncio(
             name=name,
             record_id=record_id,
             client=client,
+            expected_revision=expected_revision,
         )
     ).parsed

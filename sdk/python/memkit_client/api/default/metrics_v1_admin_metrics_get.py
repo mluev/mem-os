@@ -5,9 +5,7 @@ import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
-from ...models.metrics_v1_admin_metrics_get_response_metrics_v1_admin_metrics_get import (
-    MetricsV1AdminMetricsGetResponseMetricsV1AdminMetricsGet,
-)
+from ...models.metrics_out import MetricsOut
 from ...types import Response
 
 
@@ -21,11 +19,9 @@ def _get_kwargs() -> dict[str, Any]:
     return _kwargs
 
 
-def _parse_response(
-    *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> MetricsV1AdminMetricsGetResponseMetricsV1AdminMetricsGet | None:
+def _parse_response(*, client: AuthenticatedClient | Client, response: httpx.Response) -> MetricsOut | None:
     if response.status_code == 200:
-        response_200 = MetricsV1AdminMetricsGetResponseMetricsV1AdminMetricsGet.from_dict(response.json())
+        response_200 = MetricsOut.from_dict(response.json())
 
         return response_200
 
@@ -35,9 +31,7 @@ def _parse_response(
         return None
 
 
-def _build_response(
-    *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[MetricsV1AdminMetricsGetResponseMetricsV1AdminMetricsGet]:
+def _build_response(*, client: AuthenticatedClient | Client, response: httpx.Response) -> Response[MetricsOut]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -49,7 +43,7 @@ def _build_response(
 def sync_detailed(
     *,
     client: AuthenticatedClient,
-) -> Response[MetricsV1AdminMetricsGetResponseMetricsV1AdminMetricsGet]:
+) -> Response[MetricsOut]:
     """Metrics
 
     Raises:
@@ -57,7 +51,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[MetricsV1AdminMetricsGetResponseMetricsV1AdminMetricsGet]
+        Response[MetricsOut]
     """
 
     kwargs = _get_kwargs()
@@ -72,7 +66,7 @@ def sync_detailed(
 def sync(
     *,
     client: AuthenticatedClient,
-) -> MetricsV1AdminMetricsGetResponseMetricsV1AdminMetricsGet | None:
+) -> MetricsOut | None:
     """Metrics
 
     Raises:
@@ -80,7 +74,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        MetricsV1AdminMetricsGetResponseMetricsV1AdminMetricsGet
+        MetricsOut
     """
 
     return sync_detailed(
@@ -91,7 +85,7 @@ def sync(
 async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
-) -> Response[MetricsV1AdminMetricsGetResponseMetricsV1AdminMetricsGet]:
+) -> Response[MetricsOut]:
     """Metrics
 
     Raises:
@@ -99,7 +93,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[MetricsV1AdminMetricsGetResponseMetricsV1AdminMetricsGet]
+        Response[MetricsOut]
     """
 
     kwargs = _get_kwargs()
@@ -112,7 +106,7 @@ async def asyncio_detailed(
 async def asyncio(
     *,
     client: AuthenticatedClient,
-) -> MetricsV1AdminMetricsGetResponseMetricsV1AdminMetricsGet | None:
+) -> MetricsOut | None:
     """Metrics
 
     Raises:
@@ -120,7 +114,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        MetricsV1AdminMetricsGetResponseMetricsV1AdminMetricsGet
+        MetricsOut
     """
 
     return (

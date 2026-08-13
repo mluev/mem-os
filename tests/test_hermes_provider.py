@@ -121,6 +121,21 @@ class TestContract(unittest.TestCase):
         self.assertTrue(callable(provider.initialize))
         self.assertTrue(callable(provider.get_tool_schemas))
 
+    def test_default_provider_loads_nested_hermes_config(self):
+        config = {"plugins": {"memkit": {"base_url": "http://configured"}}}
+        config_module = types.ModuleType("hermes_cli.config")
+        config_module.load_config = lambda: config
+        config_module.cfg_get = lambda value, *keys, default=None: value.get(keys[0], {}).get(
+            keys[1], default
+        )
+        hermes_cli = types.ModuleType("hermes_cli")
+        hermes_cli.config = config_module
+        with patch.dict(
+            sys.modules,
+            {"hermes_cli": hermes_cli, "hermes_cli.config": config_module},
+        ):
+            self.assertEqual(plugin.MemkitProvider()._base_url(), "http://configured")
+
     def test_tool_schemas_use_the_parameters_key(self):
         # docs/07 specifies `input_schema`. All four shipped providers use
         # `parameters`, and a wrong key means the tools silently never work.
@@ -141,6 +156,39 @@ class TestContract(unittest.TestCase):
         with patch.dict("os.environ", {}, clear=True):
             self.assertFalse(provider.is_available())
 
+    def test_restricted_key_file_supports_fresh_processes(self):
+        from tempfile import TemporaryDirectory
+
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "api-key"
+            path.write_text("x" * 48)
+            path.chmod(0o600)
+            provider = plugin.MemkitProvider({"base_url": "http://x", "api_key_file": str(path)})
+            with patch.dict("os.environ", {}, clear=True):
+                self.assertTrue(provider.is_available())
+
+    def test_configured_key_file_overrides_a_stale_environment_key(self):
+        from tempfile import TemporaryDirectory
+
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "api-key"
+            path.write_text("f" * 48)
+            path.chmod(0o600)
+            provider = plugin.MemkitProvider({"api_key_file": str(path)})
+            with patch.dict("os.environ", {"MEMKIT_API_KEY": "stale"}, clear=True):
+                self.assertEqual(provider._api_key(), "f" * 48)
+
+    def test_key_file_fails_closed_when_permissions_are_broad(self):
+        from tempfile import TemporaryDirectory
+
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "api-key"
+            path.write_text("x" * 48)
+            path.chmod(0o644)
+            provider = plugin.MemkitProvider({"base_url": "http://x", "api_key_file": str(path)})
+            with patch.dict("os.environ", {}, clear=True):
+                self.assertFalse(provider.is_available())
+
     def test_backup_paths_needs_no_initialize_and_no_network(self):
         # hermes backup only walks HERMES_HOME; memkit's SQLite lives outside it, so
         # an undeclared path means a backup/restore cycle loses every memory.
@@ -149,6 +197,13 @@ class TestContract(unittest.TestCase):
         self.assertEqual(len(paths), 1)
         self.assertTrue(paths[0].endswith("data/memkit.db"))
         self.assertNotIn("~", paths[0])
+
+    def test_backup_paths_has_a_sqlite_default(self):
+        provider = plugin.MemkitProvider({})
+        with patch.dict("os.environ", {}, clear=True):
+            paths = provider.backup_paths()
+        self.assertEqual(len(paths), 1)
+        self.assertTrue(paths[0].endswith("data/memkit.db"))
 
 
 class TestServiceDown(unittest.TestCase):
@@ -317,6 +372,7 @@ class TestWriteGuards(unittest.TestCase):
         )
         self.assertIn("Remembered", result)
         self.assertEqual(client.memories_added[0]["importance"], 0.9)
+        self.assertEqual(client.memories_added[0]["source_role"], "manual")
 
     def test_unknown_tool_is_an_error(self):
         provider = make_provider(client=FakeClient())

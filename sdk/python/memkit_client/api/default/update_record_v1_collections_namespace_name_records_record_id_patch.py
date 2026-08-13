@@ -6,11 +6,9 @@ import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
+from ...models.entity_out import EntityOut
 from ...models.http_validation_error import HTTPValidationError
 from ...models.record_patch import RecordPatch
-from ...models.update_record_v1_collections_namespace_name_records_record_id_patch_response_update_record_v1_collections_namespace_name_records_record_id_patch import (
-    UpdateRecordV1CollectionsNamespaceNameRecordsRecordIdPatchResponseUpdateRecordV1CollectionsNamespaceNameRecordsRecordIdPatch,
-)
 from ...types import Response
 
 
@@ -42,15 +40,9 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> (
-    HTTPValidationError
-    | UpdateRecordV1CollectionsNamespaceNameRecordsRecordIdPatchResponseUpdateRecordV1CollectionsNamespaceNameRecordsRecordIdPatch
-    | None
-):
+) -> EntityOut | HTTPValidationError | None:
     if response.status_code == 200:
-        response_200 = UpdateRecordV1CollectionsNamespaceNameRecordsRecordIdPatchResponseUpdateRecordV1CollectionsNamespaceNameRecordsRecordIdPatch.from_dict(
-            response.json()
-        )
+        response_200 = EntityOut.from_dict(response.json())
 
         return response_200
 
@@ -67,10 +59,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[
-    HTTPValidationError
-    | UpdateRecordV1CollectionsNamespaceNameRecordsRecordIdPatchResponseUpdateRecordV1CollectionsNamespaceNameRecordsRecordIdPatch
-]:
+) -> Response[EntityOut | HTTPValidationError]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -86,10 +75,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
     body: RecordPatch,
-) -> Response[
-    HTTPValidationError
-    | UpdateRecordV1CollectionsNamespaceNameRecordsRecordIdPatchResponseUpdateRecordV1CollectionsNamespaceNameRecordsRecordIdPatch
-]:
+) -> Response[EntityOut | HTTPValidationError]:
     """Update Record
 
     Args:
@@ -103,7 +89,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | UpdateRecordV1CollectionsNamespaceNameRecordsRecordIdPatchResponseUpdateRecordV1CollectionsNamespaceNameRecordsRecordIdPatch]
+        Response[EntityOut | HTTPValidationError]
     """
 
     kwargs = _get_kwargs(
@@ -127,11 +113,7 @@ def sync(
     *,
     client: AuthenticatedClient,
     body: RecordPatch,
-) -> (
-    HTTPValidationError
-    | UpdateRecordV1CollectionsNamespaceNameRecordsRecordIdPatchResponseUpdateRecordV1CollectionsNamespaceNameRecordsRecordIdPatch
-    | None
-):
+) -> EntityOut | HTTPValidationError | None:
     """Update Record
 
     Args:
@@ -145,7 +127,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | UpdateRecordV1CollectionsNamespaceNameRecordsRecordIdPatchResponseUpdateRecordV1CollectionsNamespaceNameRecordsRecordIdPatch
+        EntityOut | HTTPValidationError
     """
 
     return sync_detailed(
@@ -164,10 +146,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
     body: RecordPatch,
-) -> Response[
-    HTTPValidationError
-    | UpdateRecordV1CollectionsNamespaceNameRecordsRecordIdPatchResponseUpdateRecordV1CollectionsNamespaceNameRecordsRecordIdPatch
-]:
+) -> Response[EntityOut | HTTPValidationError]:
     """Update Record
 
     Args:
@@ -181,7 +160,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | UpdateRecordV1CollectionsNamespaceNameRecordsRecordIdPatchResponseUpdateRecordV1CollectionsNamespaceNameRecordsRecordIdPatch]
+        Response[EntityOut | HTTPValidationError]
     """
 
     kwargs = _get_kwargs(
@@ -203,11 +182,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
     body: RecordPatch,
-) -> (
-    HTTPValidationError
-    | UpdateRecordV1CollectionsNamespaceNameRecordsRecordIdPatchResponseUpdateRecordV1CollectionsNamespaceNameRecordsRecordIdPatch
-    | None
-):
+) -> EntityOut | HTTPValidationError | None:
     """Update Record
 
     Args:
@@ -221,7 +196,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | UpdateRecordV1CollectionsNamespaceNameRecordsRecordIdPatchResponseUpdateRecordV1CollectionsNamespaceNameRecordsRecordIdPatch
+        EntityOut | HTTPValidationError
     """
 
     return (

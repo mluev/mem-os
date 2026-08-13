@@ -26,6 +26,8 @@ export interface SearchResult {
   raw: Array<Record<string, unknown>>;
   used_tokens: number;
   policy_id: string;
+  retrieval_id: string | null;
+  timings: Record<string, number>;
   took_ms: number;
 }
 
@@ -50,7 +52,7 @@ export interface Job {
 }
 export interface Health {
   database: { path: string; schema_version: number };
-  qdrant: { memories: number; raw: number };
+  qdrant: { available: boolean; memories: number | null; raw: number | null; error?: string | null };
   embedder: { ready: boolean; device: string | null; revision: string };
   outbox: { pending: number };
   jobs: Record<string, number>;
@@ -58,4 +60,30 @@ export interface Health {
 export interface Metrics {
   outbox_pending: number; oldest_unprocessed_message: string | null;
   provider_errors: number; month_spend_usd: number; month_reserved_usd: number;
+  search_latency_ms?: { p50: number | null; p95: number | null; p99: number | null };
+  abstention_rate?: number | null; feedback_labels?: number;
+  outbox_oldest_age_seconds?: number | null; outbox_retries?: number;
+  index_parity?: { sqlite_active: number; qdrant_active: number | null; matches: boolean | null };
+  backup_freshness_seconds?: number | null;
+}
+
+export interface RetrievalRun {
+  id: string; policy_id: string; created_at: string; used_tokens: number; abstained: boolean;
+  timings: Record<string, number>;
+  results: Array<{ memory_id: string; text?: string; kind?: string; source_role?: string; rank: number; feedback: { useful: number | null; correct: number | null } | null }>;
+}
+
+export interface ReplayBatch {
+  id: string; status: string; model: string; prompt_version: string; approval_checksum: string | null;
+  stats: Record<string, unknown>; created_at: string; decisions?: Record<string, number>;
+}
+export interface ReplayItem {
+  id: string; sequence: number; action: "ADD" | "UPDATE" | "DELETE"; decision: "pending" | "accepted" | "rejected" | "edited";
+  source_role: string; before: Memory | null; proposed: Memory | null; reviewed: Memory | null;
+  evidence: Array<{ message_id: number; excerpt: string; start_char: number; end_char: number }>;
+}
+export interface EvaluationCase {
+  id: string; case_key: string; prompt: string; arms: Record<"A" | "B" | "C" | "D", string>;
+  review: { ranking: Array<"A" | "B" | "C" | "D">; harmful: string[]; notes: string; current_vs_v7: "v7_win" | "current_win" | "tie" } | null;
+  mapping?: Record<string, string>;
 }

@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import uuid
 import zipfile
 from pathlib import Path
 from typing import Any
 
 from qdrant_client import QdrantClient
 
-from . import vectors
+from . import outbox, vectors
 from .db import transaction, utcnow
 from .embed import Embedder
 
@@ -27,7 +28,9 @@ def export_owner(
 ) -> Path:
     export_dir.mkdir(parents=True, exist_ok=True)
     timestamp = utcnow().replace(":", "").replace("-", "")
-    path = export_dir / f"memkit-export-{timestamp}.zip"
+    path = export_dir / f"memkit-export-{timestamp}-{uuid.uuid4().hex[:8]}.zip"
+    conn.commit()
+    conn.execute("BEGIN")
     sessions = _rows(conn, "SELECT * FROM sessions WHERE owner_id=?", (owner_id,))
     session_ids = [row["id"] for row in sessions]
     messages: list[dict[str, Any]] = []
@@ -42,6 +45,7 @@ def export_owner(
         conn, "SELECT * FROM memories WHERE owner_id=? ORDER BY created_at", (owner_id,)
     )
     memory_ids = [row["id"] for row in memories]
+    memory_revisions: list[dict[str, Any]] = []
     sources: list[dict[str, Any]] = []
     evidence: list[dict[str, Any]] = []
     if memory_ids:
@@ -54,6 +58,11 @@ def export_owner(
         evidence = _rows(
             conn,
             f"SELECT * FROM memory_evidence WHERE memory_id IN ({placeholders})",
+            tuple(memory_ids),
+        )
+        memory_revisions = _rows(
+            conn,
+            f"SELECT * FROM memory_revisions WHERE memory_id IN ({placeholders}) ORDER BY memory_id,revision",
             tuple(memory_ids),
         )
     namespaces = _rows(conn, "SELECT * FROM namespaces WHERE owner_id=?", (owner_id,))
@@ -106,6 +115,7 @@ def export_owner(
             f"SELECT * FROM retrieval_feedback WHERE memory_id IN ({placeholders})",
             tuple(memory_ids),
         )
+    judge_runs = _rows(conn, "SELECT * FROM judge_runs WHERE owner_id=? ORDER BY id", (owner_id,))
     payload = {
         "format": "memkit-owner-export-v1",
         "exported_at": utcnow(),
@@ -113,6 +123,7 @@ def export_owner(
         "sessions": sessions,
         "messages": messages,
         "memories": memories,
+        "memory_revisions": memory_revisions,
         "memory_sources": sources,
         "memory_evidence": evidence,
         "namespaces": namespaces,
@@ -122,7 +133,9 @@ def export_owner(
         "links": links,
         "policies": policies,
         "retrieval_feedback": feedback,
+        "judge_runs": judge_runs,
     }
+    conn.execute("COMMIT")
     temporary = path.with_suffix(".zip.tmp")
     with zipfile.ZipFile(temporary, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.writestr(
@@ -139,6 +152,7 @@ def erase_owner(
     embedder: Embedder,
     *,
     owner_id: str,
+    export_dir: Path | None = None,
 ) -> dict[str, int]:
     memory_ids = [
         row["id"] for row in conn.execute("SELECT id FROM memories WHERE owner_id=?", (owner_id,))
@@ -151,50 +165,75 @@ def erase_owner(
             (owner_id,),
         )
     ]
-    # This service has exactly one owner, so old generations also belong to the
-    # target. Removing only the live alias would leave recoverable personal data.
-    vectors.erase_all_indices(client)
-
-    with transaction(conn):
-        conn.execute(
-            "DELETE FROM retrieval_feedback WHERE memory_id IN (SELECT id FROM memories WHERE owner_id=?)",
-            (owner_id,),
-        )
-        conn.execute(
-            "DELETE FROM memory_evidence WHERE memory_id IN (SELECT id FROM memories WHERE owner_id=?)",
-            (owner_id,),
-        )
-        conn.execute(
-            "DELETE FROM memory_sources WHERE memory_id IN (SELECT id FROM memories WHERE owner_id=?)",
-            (owner_id,),
-        )
-        conn.execute("UPDATE memories SET superseded_by=NULL WHERE owner_id=?", (owner_id,))
-        conn.execute("DELETE FROM memories WHERE owner_id=?", (owner_id,))
-        conn.execute(
-            "DELETE FROM record_revisions WHERE record_id IN (SELECT r.id FROM records r JOIN collections c ON c.id=r.collection_id JOIN namespaces n ON n.id=c.namespace_id WHERE n.owner_id=?)",
-            (owner_id,),
-        )
-        conn.execute("DELETE FROM namespaces WHERE owner_id=?", (owner_id,))
-        conn.execute(
-            "DELETE FROM messages WHERE session_id IN (SELECT id FROM sessions WHERE owner_id=?)",
-            (owner_id,),
-        )
-        conn.execute("DELETE FROM sessions WHERE owner_id=?", (owner_id,))
-        conn.execute("DELETE FROM judge_runs WHERE owner_id=?", (owner_id,))
-        if memory_ids:
-            placeholders = ",".join("?" for _ in memory_ids)
+    with outbox.owner_barrier(conn, owner_id):
+        # This service has exactly one owner, so old generations also belong to the
+        # target. Removing only the live alias would leave recoverable personal data.
+        vectors.erase_all_indices(client)
+        with transaction(conn):
             conn.execute(
-                f"DELETE FROM index_outbox WHERE collection=? AND entity_id IN ({placeholders})",
-                (vectors.MEMORIES, *memory_ids),
+                "DELETE FROM retrieval_feedback WHERE memory_id IN (SELECT id FROM memories WHERE owner_id=?)",
+                (owner_id,),
             )
-        if message_ids:
-            placeholders = ",".join("?" for _ in message_ids)
             conn.execute(
-                f"DELETE FROM index_outbox WHERE collection=? AND entity_id IN ({placeholders})",
-                (vectors.RAW, *(str(value) for value in message_ids)),
+                "DELETE FROM memory_evidence WHERE memory_id IN (SELECT id FROM memories WHERE owner_id=?)",
+                (owner_id,),
             )
-        conn.execute("DELETE FROM owners WHERE id=?", (owner_id,))
+            conn.execute(
+                "DELETE FROM memory_sources WHERE memory_id IN (SELECT id FROM memories WHERE owner_id=?)",
+                (owner_id,),
+            )
+            conn.execute("UPDATE memories SET superseded_by=NULL WHERE owner_id=?", (owner_id,))
+            conn.execute("DELETE FROM memories WHERE owner_id=?", (owner_id,))
+            conn.execute(
+                "DELETE FROM record_revisions WHERE record_id IN (SELECT r.id FROM records r JOIN collections c ON c.id=r.collection_id JOIN namespaces n ON n.id=c.namespace_id WHERE n.owner_id=?)",
+                (owner_id,),
+            )
+            conn.execute("DELETE FROM namespaces WHERE owner_id=?", (owner_id,))
+            conn.execute(
+                "DELETE FROM messages WHERE session_id IN (SELECT id FROM sessions WHERE owner_id=?)",
+                (owner_id,),
+            )
+            conn.execute("DELETE FROM sessions WHERE owner_id=?", (owner_id,))
+            conn.execute("DELETE FROM judge_runs WHERE owner_id=?", (owner_id,))
+            conn.execute(
+                "DELETE FROM index_outbox WHERE json_extract(payload_json,'$.owner_id')=?",
+                (owner_id,),
+            )
+            if memory_ids:
+                placeholders = ",".join("?" for _ in memory_ids)
+                conn.execute(
+                    f"DELETE FROM index_outbox WHERE collection=? AND entity_id IN ({placeholders})",
+                    (vectors.MEMORIES, *memory_ids),
+                )
+            if message_ids:
+                placeholders = ",".join("?" for _ in message_ids)
+                conn.execute(
+                    f"DELETE FROM index_outbox WHERE collection=? AND entity_id IN ({placeholders})",
+                    (vectors.RAW, *(str(value) for value in message_ids)),
+                )
+            conn.execute("DELETE FROM owners WHERE id=?", (owner_id,))
     conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
     conn.execute("VACUUM")
+    artifacts = _purge_managed_artifacts(conn, export_dir=export_dir)
     vectors.ensure_collections(client)
-    return {"memories": len(memory_ids), "messages": len(message_ids)}
+    return {"memories": len(memory_ids), "messages": len(message_ids), "artifacts": artifacts}
+
+
+def _purge_managed_artifacts(conn: sqlite3.Connection, *, export_dir: Path | None) -> int:
+    database = Path(str(conn.execute("PRAGMA database_list").fetchone()[2]))
+    roots = {database.parent / "exports"}
+    if export_dir is not None:
+        roots.add(export_dir)
+    candidates: set[Path] = set()
+    for root in roots:
+        if root.exists():
+            candidates.update(root.glob("memkit-export-*.zip"))
+            candidates.update(root.glob("task-board-v3*.json"))
+    candidates.update(database.parent.glob(f"{database.name}.v3-*.bak"))
+    candidates.update(database.parent.glob(f"{database.name}.v3.bak"))
+    removed = 0
+    for path in candidates:
+        if path.is_file():
+            path.unlink()
+            removed += 1
+    return removed

@@ -48,7 +48,7 @@ class Case:
     expect_any: list[str]
     expect_all: list[str]
     reject: list[str]
-    project: str | None
+    context: dict[str, str]
     answerable_by: tuple[str, ...]
 
     @classmethod
@@ -60,16 +60,14 @@ class Case:
             answerable = tuple(str(t) for t in declared)
             unknown = set(answerable) - set(TARGETS)
             if unknown:
-                raise ValueError(
-                    f"{raw.get('id')}: unknown answerable_by {sorted(unknown)}"
-                )
+                raise ValueError(f"{raw.get('id')}: unknown answerable_by {sorted(unknown)}")
         return cls(
             id=str(raw.get("id") or f"q{index}"),
             query=raw["query"],
             expect_any=[str(p) for p in raw.get("expect_any", [])],
             expect_all=[str(p) for p in raw.get("expect_all", [])],
             reject=[str(p) for p in raw.get("reject", [])],
-            project=raw.get("project"),
+            context={str(k): str(v) for k, v in (raw.get("context") or {}).items()},
             answerable_by=answerable,
         )
 
@@ -96,12 +94,11 @@ def _first_rank(patterns: list[str], texts: list[str]) -> int | None:
 
 def load_cases(queries_path: Path) -> list[Case]:
     return [
-        Case.parse(raw, i)
-        for i, raw in enumerate(yaml.safe_load(queries_path.read_text()) or [])
+        Case.parse(raw, i) for i, raw in enumerate(yaml.safe_load(queries_path.read_text()) or [])
     ]
 
 
-def score(client, embedder, settings, cases: list[Case], *, target: str, limit: int):
+def score(conn, client, embedder, settings, cases: list[Case], *, target: str, limit: int):
     """Score one target over exactly the cases handed in.
 
     Case *selection* is the caller's job on purpose. Filtering inside the scorer
@@ -119,16 +116,41 @@ def score(client, embedder, settings, cases: list[Case], *, target: str, limit: 
     for case in cases:
         if target == "memories":
             scored, used = retrieval.search(
-                client, embedder, query=case.query, owner_id=settings.owner_id,
-                project=case.project, limit=limit, budget_tokens=0,
+                conn,
+                client,
+                embedder,
+                query=case.query,
+                owner_id=settings.owner_id,
+                expression={
+                    "all": [
+                        {"field": f"context.{key}", "op": "eq", "value": value}
+                        for key, value in case.context.items()
+                    ]
+                }
+                if case.context
+                else None,
+                limit=limit,
+                budget_tokens=20_000,
             )
             texts = [x.text for x in scored]
             tokens.append(used)
         else:
             results = store.search_raw(
-                client, embedder, query=case.query, owner_id=settings.owner_id,
-                limit=limit, project=case.project,
+                client,
+                embedder,
+                query=case.query,
+                owner_id=settings.owner_id,
+                limit=max(limit, 50),
             )
+            if case.context:
+                results = [
+                    result
+                    for result in results
+                    if all(
+                        result["context"].get(key) == value for key, value in case.context.items()
+                    )
+                ]
+            results = results[:limit]
             texts = [r["text"] for r in results]
             tokens.append(sum(len(t) // 3 for t in texts))
 
@@ -138,9 +160,7 @@ def score(client, embedder, settings, cases: list[Case], *, target: str, limit: 
             if rank is None:
                 ok = False
                 reciprocal.append(0.0)
-                failures.append(
-                    f"  {case.id}: none of expect_any matched -> {case.expect_any}"
-                )
+                failures.append(f"  {case.id}: none of expect_any matched -> {case.expect_any}")
             else:
                 reciprocal.append(1.0 / rank)
                 if rank == 1:
@@ -176,6 +196,7 @@ def _setup(queries_path: Path):
     """Shared preamble: parse the file, open Qdrant, load the embedder."""
     from memkit import vectors
     from memkit.config import get_settings
+    from memkit.db import connect
     from memkit.embed import get_embedder
 
     if not queries_path.exists():
@@ -185,7 +206,11 @@ def _setup(queries_path: Path):
         raise ValueError("eval file is empty")
     settings = get_settings()
     return (
-        cases, settings, vectors.get_client(settings.qdrant_url), get_embedder()
+        cases,
+        settings,
+        connect(settings.db_path),
+        vectors.get_client(settings.qdrant_url),
+        get_embedder(),
     )
 
 
@@ -204,7 +229,7 @@ def run_eval(queries_path: Path, limit: int = 10, target: str = "raw") -> int:
     from memkit import vectors
 
     try:
-        all_cases, settings, client, embedder = _setup(queries_path)
+        all_cases, settings, conn, client, embedder = _setup(queries_path)
     except (FileNotFoundError, ValueError) as exc:
         print(exc, file=sys.stderr)
         return 1
@@ -234,14 +259,16 @@ def run_eval(queries_path: Path, limit: int = 10, target: str = "raw") -> int:
     else:
         print(f"target            raw ({vectors.count(client, vectors.RAW)} turns)")
 
-    m = score(client, embedder, settings, cases, target=target, limit=limit)
+    m = score(conn, client, embedder, settings, cases, target=target, limit=limit)
     print(f"cases             {m['cases']}")
     if skipped:
         # Named, never silent: a suppressed case is a coverage claim not being
         # made, and that has to be visible in the output that gets compared.
-        print(f"skipped           {len(skipped)} not answerable by {target} "
-              f"({', '.join(c.id for c in skipped[:6])}"
-              f"{', ...' if len(skipped) > 6 else ''})")
+        print(
+            f"skipped           {len(skipped)} not answerable by {target} "
+            f"({', '.join(c.id for c in skipped[:6])}"
+            f"{', ...' if len(skipped) > 6 else ''})"
+        )
     print(f"recall@{limit:<11} {m['recall']:.2f}  ({m['hits']}/{m['cases']})")
     print(f"MRR               {m['mrr']:.3f}")
     print(f"top-1 hits        {m['top1']}/{m['ranked']}")
@@ -266,7 +293,7 @@ def run_compare(queries_path: Path, limit: int = 10) -> int:
     point of printing both is that the call is made in the open.
     """
     try:
-        all_cases, settings, client, embedder = _setup(queries_path)
+        all_cases, settings, conn, client, embedder = _setup(queries_path)
     except (FileNotFoundError, ValueError) as exc:
         print(exc, file=sys.stderr)
         return 1
@@ -278,15 +305,16 @@ def run_compare(queries_path: Path, limit: int = 10) -> int:
     excluded = [c for c in all_cases if c not in shared]
 
     results = {
-        t: score(client, embedder, settings, shared, target=t, limit=limit)
-        for t in TARGETS
+        t: score(conn, client, embedder, settings, shared, target=t, limit=limit) for t in TARGETS
     }
 
     print(f"shared cases      {len(shared)} of {len(all_cases)}")
     if excluded:
-        print(f"excluded          {len(excluded)} answerable by one target only "
-              f"({', '.join(c.id for c in excluded[:6])}"
-              f"{', ...' if len(excluded) > 6 else ''})")
+        print(
+            f"excluded          {len(excluded)} answerable by one target only "
+            f"({', '.join(c.id for c in excluded[:6])}"
+            f"{', ...' if len(excluded) > 6 else ''})"
+        )
     print()
     print(f"{'metric':<18}{'raw':>12}{'memories':>12}")
     print("-" * 42)
@@ -301,9 +329,7 @@ def run_compare(queries_path: Path, limit: int = 10) -> int:
     for label, key, fmt in rows:
         cells = "".join(fmt.format(results[t][key]).rjust(12) for t in TARGETS)
         print(f"{label:<18}{cells}")
-    density = {
-        t: 1000 * results[t]["mrr"] / (results[t]["mean_tokens"] or 1) for t in TARGETS
-    }
+    density = {t: 1000 * results[t]["mrr"] / (results[t]["mean_tokens"] or 1) for t in TARGETS}
     cells = "".join(f"{density[t]:.3f}".rjust(12) for t in TARGETS)
     print(f"{'MRR per 1k tok':<18}{cells}")
     print()

@@ -52,8 +52,6 @@ def create_collection(
     namespace: str,
     name: str,
     schema: dict[str, Any],
-    indexed_fields: list[str] | None = None,
-    embedding_fields: list[str] | None = None,
     policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     ns = conn.execute(
@@ -81,8 +79,8 @@ def create_collection(
                 ns["id"],
                 name,
                 _json(schema),
-                _json(indexed_fields or []),
-                _json(embedding_fields or []),
+                "[]",
+                "[]",
                 _json(policy or {}),
                 now,
                 now,
@@ -117,8 +115,6 @@ def collection_definition(
         "name": row["name"],
         "schema_version": row["schema_version"],
         "schema": json.loads(row["schema_json"]),
-        "indexed_fields": json.loads(row["indexed_fields_json"]),
-        "embedding_fields": json.loads(row["embedding_fields_json"]),
         "policy": json.loads(row["policy_json"]),
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
@@ -199,8 +195,8 @@ def create_record(
     )
     conn.execute(
         """INSERT INTO record_revisions
-           (record_id,revision,value_json,metadata_json,context_json,created_at)
-           VALUES (?,1,?,?,?,?)""",
+           (record_id,revision,value_json,metadata_json,context_json,status,created_at)
+           VALUES (?,1,?,?,?,'active',?)""",
         (record_id, _json(value), _json(metadata), _json(context), now),
     )
     return record_dict(
@@ -257,8 +253,8 @@ def update_record(
         raise PlatformError("record revision conflict")
     conn.execute(
         """INSERT INTO record_revisions
-           (record_id,revision,value_json,metadata_json,context_json,created_at)
-           VALUES (?,?,?,?,?,?)""",
+           (record_id,revision,value_json,metadata_json,context_json,status,created_at)
+           VALUES (?,?,?,?,?,'active',?)""",
         (
             record_id,
             revision,
@@ -278,14 +274,37 @@ def delete_record(
     namespace: str,
     collection_name: str,
     record_id: str,
+    expected_revision: int,
 ) -> None:
     collection = _collection(conn, owner_id=owner_id, namespace=namespace, name=collection_name)
+    current = conn.execute(
+        "SELECT * FROM records WHERE id=? AND collection_id=?",
+        (record_id, collection["id"]),
+    ).fetchone()
+    if current is None:
+        raise PlatformError("unknown record")
+    revision = expected_revision + 1
+    now = utcnow()
     changed = conn.execute(
-        "UPDATE records SET status='deleted',updated_at=? WHERE id=? AND collection_id=?",
-        (utcnow(), record_id, collection["id"]),
+        """UPDATE records SET status='deleted',revision=?,updated_at=?
+             WHERE id=? AND collection_id=? AND revision=? AND status='active'""",
+        (revision, now, record_id, collection["id"], expected_revision),
     ).rowcount
     if not changed:
-        raise PlatformError("unknown record")
+        raise PlatformError("record revision conflict")
+    conn.execute(
+        """INSERT INTO record_revisions
+           (record_id,revision,value_json,metadata_json,context_json,status,created_at)
+           VALUES (?,?,?,?,?,'deleted',?)""",
+        (
+            record_id,
+            revision,
+            current["value_json"],
+            current["metadata_json"],
+            current["context_json"],
+            now,
+        ),
+    )
 
 
 def search_records(
@@ -320,32 +339,76 @@ def search_record_page(
     cursor: str | None = None,
 ) -> tuple[list[dict[str, Any]], str | None]:
     collection = _collection(conn, owner_id=owner_id, namespace=namespace, name=collection_name)
-    results: list[dict[str, Any]] = []
-    after = cursor
-    exhausted = False
-    while len(results) < limit and not exhausted:
-        rows = conn.execute(
-            """SELECT * FROM records
-                WHERE collection_id=? AND status='active' AND (? IS NULL OR id>?)
-                ORDER BY id LIMIT 500""",
-            (collection["id"], after, after),
-        ).fetchall()
-        exhausted = len(rows) < 500
-        for row in rows:
-            after = row["id"]
-            record = record_dict(row)
-            if filters.matches(record, expression):
-                results.append(record)
-            if len(results) >= limit:
-                break
-    if not results:
-        return [], None if exhausted else after
-    remaining = conn.execute(
-        """SELECT 1 FROM records
-            WHERE collection_id=? AND status='active' AND id>? LIMIT 1""",
-        (collection["id"], after),
-    ).fetchone()
-    return results, after if remaining else None
+    filter_sql, filter_params = _record_filter_sql(expression)
+    rows = conn.execute(
+        f"""SELECT * FROM records
+              WHERE collection_id=? AND status='active' AND (? IS NULL OR id>?)
+                AND ({filter_sql})
+              ORDER BY id LIMIT ?""",
+        (collection["id"], cursor, cursor, *filter_params, limit + 1),
+    ).fetchall()
+    has_more = len(rows) > limit
+    items = [record_dict(row) for row in rows[:limit]]
+    return items, items[-1]["id"] if has_more and items else None
+
+
+def _record_filter_sql(expression: dict[str, Any] | None) -> tuple[str, list[Any]]:
+    if not expression:
+        return "1", []
+    if set(expression) == {"all"}:
+        children = expression["all"]
+        if not isinstance(children, list):
+            raise filters.InvalidFilter("all must be a list")
+        clauses: list[str] = []
+        params: list[Any] = []
+        for child in children:
+            clause, child_params = _record_filter_sql(child)
+            clauses.append(f"({clause})")
+            params.extend(child_params)
+        return " AND ".join(clauses) if clauses else "1", params
+    allowed = {"field", "op", "value"}
+    if not set(expression) <= allowed or "field" not in expression or "op" not in expression:
+        raise filters.InvalidFilter("filter must contain field and op")
+    field = expression["field"]
+    op = expression["op"]
+    if not isinstance(field, str) or not field:
+        raise filters.InvalidFilter("filter field must be a non-empty string")
+    parts = field.split(".")
+    columns = {"value": "value_json", "metadata": "metadata_json", "context": "context_json"}
+    if parts[0] in {"id", "revision", "status"} and len(parts) == 1:
+        target = parts[0]
+        path_params: list[Any] = []
+        is_json = False
+    elif parts[0] in columns and len(parts) > 1:
+        target = columns[parts[0]]
+        path = "$" + "".join(f'."{part.replace(chr(34), chr(34) * 2)}"' for part in parts[1:])
+        path_params = [path]
+        is_json = True
+    else:
+        raise filters.InvalidFilter(
+            "record filter fields must start with value, metadata, or context"
+        )
+    value_expr = f"json_extract({target}, ?)" if is_json else target
+    type_expr = f"json_type({target}, ?)" if is_json else None
+    expected = expression.get("value")
+    if op == "exists":
+        return (f"{type_expr} IS NOT NULL", path_params) if is_json else ("1", [])
+    if op == "absent":
+        return (f"{type_expr} IS NULL", path_params) if is_json else ("0", [])
+    if op == "eq":
+        if isinstance(expected, (dict, list)):
+            raise filters.InvalidFilter("eq supports scalar values only")
+        return f"{value_expr} IS ?", [*path_params, expected]
+    if op == "in":
+        if not isinstance(expected, list):
+            raise filters.InvalidFilter("in value must be a list")
+        if not expected:
+            return "0", []
+        if any(isinstance(item, (dict, list)) for item in expected):
+            raise filters.InvalidFilter("in supports scalar values only")
+        placeholders = ",".join("?" for _ in expected)
+        return f"{value_expr} IN ({placeholders})", [*path_params, *expected]
+    raise filters.InvalidFilter(f"unsupported filter operator: {op}")
 
 
 def record_dict(row: sqlite3.Row) -> dict[str, Any]:
@@ -382,6 +445,7 @@ def record_history(
             "value": json.loads(row["value_json"]),
             "metadata": json.loads(row["metadata_json"]),
             "context": json.loads(row["context_json"]),
+            "status": row["status"],
             "created_at": row["created_at"],
         }
         for row in conn.execute(

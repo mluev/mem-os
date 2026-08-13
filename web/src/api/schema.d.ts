@@ -38,6 +38,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/backups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Backup Status */
+        get: operations["backup_status_v1_admin_backups_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/consolidate": {
         parameters: {
             query?: never;
@@ -117,6 +134,40 @@ export interface paths {
         get: operations["metrics_v1_admin_metrics_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/policy-sweep": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Run Policy Sweep */
+        post: operations["run_policy_sweep_v1_admin_policy_sweep_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/policy-sweep/{checksum}/activate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Activate Policy Sweep */
+        post: operations["activate_policy_sweep_v1_admin_policy_sweep__checksum__activate_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -288,6 +339,109 @@ export interface paths {
         put?: never;
         /** Erase Data */
         post: operations["erase_data_v1_erase_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/evaluations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Evaluations */
+        get: operations["list_evaluations_v1_evaluations_get"];
+        put?: never;
+        /** Create Evaluation */
+        post: operations["create_evaluation_v1_evaluations_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/evaluations/{evaluation_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Evaluation */
+        get: operations["get_evaluation_v1_evaluations__evaluation_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/evaluations/{evaluation_id}/cases": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Evaluation Cases */
+        get: operations["list_evaluation_cases_v1_evaluations__evaluation_id__cases_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/evaluations/{evaluation_id}/cases/{case_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Evaluation Case */
+        get: operations["get_evaluation_case_v1_evaluations__evaluation_id__cases__case_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/evaluations/{evaluation_id}/cases/{case_id}/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Review Evaluation Case */
+        post: operations["review_evaluation_case_v1_evaluations__evaluation_id__cases__case_id__review_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/evaluations/{evaluation_id}/finalize": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Finalize Evaluation */
+        post: operations["finalize_evaluation_v1_evaluations__evaluation_id__finalize_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -572,6 +726,159 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/replay-batches": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Replay Batches */
+        get: operations["list_replay_batches_v1_replay_batches_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/replay-batches/{batch_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Replay Batch */
+        get: operations["replay_batch_v1_replay_batches__batch_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/replay-batches/{batch_id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approve Replay Batch */
+        post: operations["approve_replay_batch_v1_replay_batches__batch_id__approve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/replay-batches/{batch_id}/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Export Replay Batch */
+        post: operations["export_replay_batch_v1_replay_batches__batch_id__export_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/replay-batches/{batch_id}/items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Replay Batch Items */
+        get: operations["replay_batch_items_v1_replay_batches__batch_id__items_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/replay-batches/{batch_id}/items/{item_id}/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Review Replay Item */
+        patch: operations["review_replay_item_v1_replay_batches__batch_id__items__item_id__review_patch"];
+        trace?: never;
+    };
+    "/v1/replay-batches/{batch_id}/promote": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Promote Replay Batch */
+        post: operations["promote_replay_batch_v1_replay_batches__batch_id__promote_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/replay-batches/{batch_id}/promotion-gates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Replay Promotion Gates */
+        post: operations["replay_promotion_gates_v1_replay_batches__batch_id__promotion_gates_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/replay-batches/{batch_id}/validate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Validate Replay Batch */
+        post: operations["validate_replay_batch_v1_replay_batches__batch_id__validate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/retrieval-feedback": {
         parameters: {
             query?: never;
@@ -583,6 +890,40 @@ export interface paths {
         put?: never;
         /** Retrieval Feedback */
         post: operations["retrieval_feedback_v1_retrieval_feedback_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/retrieval-runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Recent Retrieval Runs */
+        get: operations["recent_retrieval_runs_v1_retrieval_runs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/retrieval-runs/{retrieval_id}/feedback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Retrieval Run Feedback */
+        post: operations["retrieval_run_feedback_v1_retrieval_runs__retrieval_id__feedback_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -610,12 +951,43 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AdminHealthOut */
+        AdminHealthOut: {
+            /** Database */
+            database: {
+                [key: string]: unknown;
+            };
+            /** Embedder */
+            embedder: {
+                [key: string]: unknown;
+            };
+            /** Jobs */
+            jobs: {
+                [key: string]: number;
+            };
+            /** Outbox */
+            outbox: {
+                [key: string]: unknown;
+            };
+            /** Qdrant */
+            qdrant: {
+                [key: string]: unknown;
+            };
+        };
+        /** BatchOut */
+        BatchOut: {
+            /** Count */
+            count: number;
+            /** Items */
+            items: components["schemas"]["MessageOut"][];
+        };
+        /** ChecksumIn */
+        ChecksumIn: {
+            /** Checksum */
+            checksum: string;
+        };
         /** CollectionIn */
         CollectionIn: {
-            /** Embedding Fields */
-            embedding_fields?: string[];
-            /** Indexed Fields */
-            indexed_fields?: string[];
             /** Name */
             name: string;
             /** Policy */
@@ -635,6 +1007,26 @@ export interface components {
              */
             dry_run: boolean;
         };
+        /** CursorPageOut */
+        CursorPageOut: {
+            /** Items */
+            items: {
+                [key: string]: unknown;
+            }[];
+            /** Next Cursor */
+            next_cursor: string | null;
+        };
+        /** EntityOut */
+        EntityOut: {
+            /** Id */
+            id: string;
+            /** Revision */
+            revision?: number | null;
+            /** Status */
+            status?: string | null;
+        } & {
+            [key: string]: unknown;
+        };
         /** EraseIn */
         EraseIn: {
             /**
@@ -642,6 +1034,57 @@ export interface components {
              * @constant
              */
             confirm: "ERASE ALL DATA";
+        };
+        /** EvaluationArmsIn */
+        EvaluationArmsIn: {
+            /** Current Memory */
+            current_memory: string;
+            /** No Memory */
+            no_memory: string;
+            /** Oracle Memory */
+            oracle_memory: string;
+            /** Reviewed V7 */
+            reviewed_v7: string;
+        };
+        /** EvaluationCaseIn */
+        EvaluationCaseIn: {
+            arms: components["schemas"]["EvaluationArmsIn"];
+            /** Case Key */
+            case_key: string;
+            /** Prompt */
+            prompt: string;
+        };
+        /** EvaluationCreateIn */
+        EvaluationCreateIn: {
+            /** Cases */
+            cases: components["schemas"]["EvaluationCaseIn"][];
+            /**
+             * Model
+             * @default gpt-5.6-sol
+             * @constant
+             */
+            model: "gpt-5.6-sol";
+            /** Rubric */
+            rubric?: {
+                [key: string]: unknown;
+            } | null;
+        };
+        /** EvaluationReviewIn */
+        EvaluationReviewIn: {
+            /**
+             * Current Vs V7
+             * @enum {string}
+             */
+            current_vs_v7: "v7_win" | "current_win" | "tie";
+            /** Harmful */
+            harmful?: ("A" | "B" | "C" | "D")[];
+            /**
+             * Notes
+             * @default
+             */
+            notes: string;
+            /** Ranking */
+            ranking: ("A" | "B" | "C" | "D")[];
         };
         /** EvidenceBatchIn */
         EvidenceBatchIn: {
@@ -659,10 +1102,65 @@ export interface components {
             /** Useful */
             useful?: boolean | null;
         };
+        /** FeedbackOut */
+        FeedbackOut: {
+            /** Recorded */
+            recorded: boolean;
+        };
+        /**
+         * FlexibleOut
+         * @description Typed public fields while allowing additive response evolution.
+         */
+        FlexibleOut: {
+            [key: string]: unknown;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /** HealthOut */
+        HealthOut: {
+            /** Ok */
+            ok: boolean;
+        };
+        /** ItemsOut */
+        ItemsOut: {
+            /** Items */
+            items: {
+                [key: string]: unknown;
+            }[];
+        };
+        /** JobOut */
+        JobOut: {
+            /** History */
+            history: {
+                [key: string]: unknown;
+            }[];
+            /** Id */
+            id: string;
+            /** Kind */
+            kind: string;
+            /** Status */
+            status: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** JobQueuedOut */
+        JobQueuedOut: {
+            /** Job Id */
+            job_id: string | null;
+            /** Reason */
+            reason?: string | null;
+            /** Status */
+            status: string;
+        };
+        /** JudgeRunOut */
+        JudgeRunOut: {
+            /** Id */
+            id: number;
+        } & {
+            [key: string]: unknown;
         };
         /** LinkIn */
         LinkIn: {
@@ -676,6 +1174,36 @@ export interface components {
             relation: string;
             /** To Ref */
             to_ref: string;
+        };
+        /** MemoryCreatedOut */
+        MemoryCreatedOut: {
+            /** Id */
+            id: string;
+            /** Index Job Id */
+            index_job_id?: string | null;
+            /** Indexed */
+            indexed: boolean;
+            /** Stored */
+            stored: boolean;
+        };
+        /** MemoryHistoryOut */
+        MemoryHistoryOut: {
+            /** Memory */
+            memory: {
+                [key: string]: unknown;
+            };
+            /** Predecessors */
+            predecessors: {
+                [key: string]: unknown;
+            }[];
+            /** Revisions */
+            revisions: {
+                [key: string]: unknown;
+            }[];
+            /** Successor */
+            successor: {
+                [key: string]: unknown;
+            } | null;
         };
         /** MemoryIn */
         MemoryIn: {
@@ -722,11 +1250,8 @@ export interface components {
             context?: {
                 [key: string]: unknown;
             } | null;
-            /**
-             * Expected Updated At
-             * Format: date-time
-             */
-            expected_updated_at: string;
+            /** Expected Revision */
+            expected_revision: number;
             /** Importance */
             importance?: number | null;
             /** Kind */
@@ -742,6 +1267,52 @@ export interface components {
             text?: string | null;
             /** Valid Until */
             valid_until?: string | null;
+        };
+        /** MemorySearchOut */
+        MemorySearchOut: {
+            /** Dropped Filter */
+            dropped_filter: string[];
+            /** Dropped Relevance */
+            dropped_relevance: string[];
+            /** Dropped Trust */
+            dropped_trust: string[];
+            /** Dropped Validity */
+            dropped_validity: string[];
+            /** Embed Ms */
+            embed_ms: number;
+            /** Memories */
+            memories: {
+                [key: string]: unknown;
+            }[];
+            /** Policy Id */
+            policy_id: string;
+            /** Raw */
+            raw: {
+                [key: string]: unknown;
+            }[];
+            /** Retrieval Id */
+            retrieval_id?: string | null;
+            /** Timings */
+            timings?: {
+                [key: string]: number;
+            };
+            /** Took Ms */
+            took_ms: number;
+            /** Used Tokens */
+            used_tokens: number;
+        };
+        /** MemorySourcesOut */
+        MemorySourcesOut: {
+            /** Evidence */
+            evidence: {
+                [key: string]: unknown;
+            }[];
+            /** Memory */
+            memory: {
+                [key: string]: unknown;
+            };
+            /** Source Role */
+            source_role: string;
         };
         /** MessageIn */
         MessageIn: {
@@ -802,6 +1373,45 @@ export interface components {
              */
             stored: true;
         };
+        /** MetricsOut */
+        MetricsOut: {
+            /** Abstention Rate */
+            abstention_rate?: number | null;
+            /** Backup Freshness Seconds */
+            backup_freshness_seconds?: number | null;
+            /** Correct Rate */
+            correct_rate?: number | null;
+            /** Feedback Labels */
+            feedback_labels?: number | null;
+            /** Feedback Runs */
+            feedback_runs?: number | null;
+            /** Index Parity */
+            index_parity?: {
+                [key: string]: number | boolean | null;
+            } | null;
+            /** Month Reserved Usd */
+            month_reserved_usd: number;
+            /** Month Spend Usd */
+            month_spend_usd: number;
+            /** Oldest Unprocessed Message */
+            oldest_unprocessed_message: string | null;
+            /** Outbox Oldest Age Seconds */
+            outbox_oldest_age_seconds?: number | null;
+            /** Outbox Pending */
+            outbox_pending: number;
+            /** Outbox Retries */
+            outbox_retries?: number | null;
+            /** Provider Errors */
+            provider_errors: number;
+            /** Retrieval Runs */
+            retrieval_runs?: number | null;
+            /** Search Latency Ms */
+            search_latency_ms?: {
+                [key: string]: number | null;
+            } | null;
+            /** Useful Rate */
+            useful_rate?: number | null;
+        };
         /** NamespaceIn */
         NamespaceIn: {
             /**
@@ -811,6 +1421,29 @@ export interface components {
             description: string;
             /** Name */
             name: string;
+        };
+        /** OffsetPageOut */
+        OffsetPageOut: {
+            /** Items */
+            items: {
+                [key: string]: unknown;
+            }[];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /** Total */
+            total: number;
+        };
+        /** PolicyActivationIn */
+        PolicyActivationIn: {
+            /** Checksum */
+            checksum: string;
+            /**
+             * Confirm
+             * @constant
+             */
+            confirm: "ACTIVATE";
         };
         /** PolicyIn */
         PolicyIn: {
@@ -849,6 +1482,44 @@ export interface components {
             include_untrusted: boolean;
             /** Stable Kinds */
             stable_kinds?: string[];
+        };
+        /** ProfileOut */
+        ProfileOut: {
+            /** Dynamic */
+            dynamic: {
+                [key: string]: unknown;
+            }[];
+            /** Generated At */
+            generated_at: string;
+            /** Policy Id */
+            policy_id: string;
+            /** Stable */
+            stable: {
+                [key: string]: unknown;
+            }[];
+            /** Used Tokens */
+            used_tokens: number;
+        };
+        /** PromotionIn */
+        PromotionIn: {
+            /** Checksum */
+            checksum: string;
+            /**
+             * Confirm
+             * @constant
+             */
+            confirm: "PROMOTE";
+        };
+        /** ReadyOut */
+        ReadyOut: {
+            /** Database */
+            database: boolean;
+            /** Embedder */
+            embedder: boolean;
+            /** Qdrant */
+            qdrant: boolean;
+            /** Ready */
+            ready: boolean;
         };
         /** RecordIn */
         RecordIn: {
@@ -898,6 +1569,35 @@ export interface components {
              */
             limit: number;
         };
+        /** ReplayIn */
+        ReplayIn: {
+            /**
+             * Apply
+             * @default false
+             */
+            apply: boolean;
+        };
+        /** ReplayReviewIn */
+        ReplayReviewIn: {
+            /**
+             * Decision
+             * @enum {string}
+             */
+            decision: "accepted" | "rejected" | "edited";
+            /** Edits */
+            edits?: {
+                [key: string]: unknown;
+            } | null;
+        };
+        /** RetrievalRunFeedbackIn */
+        RetrievalRunFeedbackIn: {
+            /** Correct */
+            correct?: boolean | null;
+            /** Memory Id */
+            memory_id: string;
+            /** Useful */
+            useful?: boolean | null;
+        };
         /** SearchIn */
         SearchIn: {
             /**
@@ -933,6 +1633,23 @@ export interface components {
             policy_id: string;
             /** Query */
             query: string;
+        };
+        /** SessionMessagesOut */
+        SessionMessagesOut: {
+            /** Items */
+            items: {
+                [key: string]: unknown;
+            }[];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /** Session */
+            session: {
+                [key: string]: unknown;
+            };
+            /** Total */
+            total: number;
         };
         /** ValidationError */
         ValidationError: {
@@ -971,9 +1688,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: boolean;
-                    };
+                    "application/json": components["schemas"]["HealthOut"];
                 };
             };
         };
@@ -993,7 +1708,27 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["ReadyOut"];
+                };
+            };
+        };
+    };
+    backup_status_v1_admin_backups_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItemsOut"];
                 };
             };
         };
@@ -1017,9 +1752,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: string;
-                    };
+                    "application/json": components["schemas"]["JobQueuedOut"];
                 };
             };
             /** @description Validation Error */
@@ -1048,9 +1781,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["AdminHealthOut"];
                 };
             };
         };
@@ -1073,9 +1804,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["OffsetPageOut"];
                 };
             };
             /** @description Validation Error */
@@ -1106,9 +1835,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["JudgeRunOut"];
                 };
             };
             /** @description Validation Error */
@@ -1137,9 +1864,62 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["MetricsOut"];
+                };
+            };
+        };
+    };
+    run_policy_sweep_v1_admin_policy_sweep_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FlexibleOut"];
+                };
+            };
+        };
+    };
+    activate_policy_sweep_v1_admin_policy_sweep__checksum__activate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                checksum: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PolicyActivationIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FlexibleOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -1151,7 +1931,11 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ReplayIn"] | null;
+            };
+        };
         responses: {
             /** @description Successful Response */
             202: {
@@ -1159,9 +1943,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: string;
-                    };
+                    "application/json": components["schemas"]["JobQueuedOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -1181,9 +1972,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: string;
-                    };
+                    "application/json": components["schemas"]["JobQueuedOut"];
                 };
             };
         };
@@ -1206,9 +1995,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["OffsetPageOut"];
                 };
             };
             /** @description Validation Error */
@@ -1242,9 +2029,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["SessionMessagesOut"];
                 };
             };
             /** @description Validation Error */
@@ -1276,9 +2061,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["EntityOut"];
                 };
             };
             /** @description Validation Error */
@@ -1314,9 +2097,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["EntityOut"];
                 };
             };
             /** @description Validation Error */
@@ -1332,7 +2113,9 @@ export interface operations {
     };
     delete_record_v1_collections__namespace___name__records__record_id__delete: {
         parameters: {
-            query?: never;
+            query: {
+                expected_revision: number;
+            };
             header?: never;
             path: {
                 namespace: string;
@@ -1349,9 +2132,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["EntityOut"];
                 };
             };
             /** @description Validation Error */
@@ -1388,9 +2169,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["EntityOut"];
                 };
             };
             /** @description Validation Error */
@@ -1423,9 +2202,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["ItemsOut"];
                 };
             };
             /** @description Validation Error */
@@ -1461,9 +2238,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["CursorPageOut"];
                 };
             };
             /** @description Validation Error */
@@ -1496,9 +2271,221 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: string;
-                    };
+                    "application/json": components["schemas"]["JobQueuedOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_evaluations_v1_evaluations_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItemsOut"];
+                };
+            };
+        };
+    };
+    create_evaluation_v1_evaluations_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EvaluationCreateIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FlexibleOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_evaluation_v1_evaluations__evaluation_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                evaluation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FlexibleOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_evaluation_cases_v1_evaluations__evaluation_id__cases_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                evaluation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItemsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_evaluation_case_v1_evaluations__evaluation_id__cases__case_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                evaluation_id: string;
+                case_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FlexibleOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    review_evaluation_case_v1_evaluations__evaluation_id__cases__case_id__review_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                evaluation_id: string;
+                case_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EvaluationReviewIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FlexibleOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    finalize_evaluation_v1_evaluations__evaluation_id__finalize_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                evaluation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FlexibleOut"];
                 };
             };
             /** @description Validation Error */
@@ -1564,9 +2551,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["BatchOut"];
                 };
             };
             /** @description Validation Error */
@@ -1595,9 +2580,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: string;
-                    };
+                    "application/json": components["schemas"]["JobQueuedOut"];
                 };
             };
         };
@@ -1621,9 +2604,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["CursorPageOut"];
                 };
             };
             /** @description Validation Error */
@@ -1654,9 +2635,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["JobOut"];
                 };
             };
             /** @description Validation Error */
@@ -1687,9 +2666,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: string;
-                    };
+                    "application/json": components["schemas"]["JobQueuedOut"];
                 };
             };
             /** @description Validation Error */
@@ -1723,9 +2700,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["CursorPageOut"];
                 };
             };
             /** @description Validation Error */
@@ -1758,9 +2733,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["MemoryCreatedOut"];
                 };
             };
             /** @description Validation Error */
@@ -1793,9 +2766,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["MemorySearchOut"];
                 };
             };
             /** @description Validation Error */
@@ -1826,9 +2797,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["EntityOut"];
                 };
             };
             /** @description Validation Error */
@@ -1863,9 +2832,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["EntityOut"];
                 };
             };
             /** @description Validation Error */
@@ -1896,9 +2863,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["MemoryHistoryOut"];
                 };
             };
             /** @description Validation Error */
@@ -1929,9 +2894,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["MemorySourcesOut"];
                 };
             };
             /** @description Validation Error */
@@ -1960,9 +2923,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["ItemsOut"];
                 };
             };
         };
@@ -1986,9 +2947,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["EntityOut"];
                 };
             };
             /** @description Validation Error */
@@ -2019,9 +2978,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["ItemsOut"];
                 };
             };
             /** @description Validation Error */
@@ -2056,9 +3013,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["EntityOut"];
                 };
             };
             /** @description Validation Error */
@@ -2089,9 +3044,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["ItemsOut"];
                 };
             };
             /** @description Validation Error */
@@ -2126,9 +3079,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["EntityOut"];
                 };
             };
             /** @description Validation Error */
@@ -2159,9 +3110,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["ItemsOut"];
                 };
             };
             /** @description Validation Error */
@@ -2194,9 +3143,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["EntityOut"];
                 };
             };
             /** @description Validation Error */
@@ -2229,9 +3176,292 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["ProfileOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_replay_batches_v1_replay_batches_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItemsOut"];
+                };
+            };
+        };
+    };
+    replay_batch_v1_replay_batches__batch_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FlexibleOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    approve_replay_batch_v1_replay_batches__batch_id__approve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChecksumIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FlexibleOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_replay_batch_v1_replay_batches__batch_id__export_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FlexibleOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    replay_batch_items_v1_replay_batches__batch_id__items_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItemsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    review_replay_item_v1_replay_batches__batch_id__items__item_id__review_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batch_id: string;
+                item_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReplayReviewIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FlexibleOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    promote_replay_batch_v1_replay_batches__batch_id__promote_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PromotionIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FlexibleOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    replay_promotion_gates_v1_replay_batches__batch_id__promotion_gates_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChecksumIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FlexibleOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    validate_replay_batch_v1_replay_batches__batch_id__validate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FlexibleOut"];
                 };
             };
             /** @description Validation Error */
@@ -2264,9 +3494,73 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: boolean;
-                    };
+                    "application/json": components["schemas"]["FeedbackOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    recent_retrieval_runs_v1_retrieval_runs_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItemsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    retrieval_run_feedback_v1_retrieval_runs__retrieval_id__feedback_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                retrieval_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RetrievalRunFeedbackIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedbackOut"];
                 };
             };
             /** @description Validation Error */
@@ -2297,9 +3591,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["JobQueuedOut"];
                 };
             };
             /** @description Validation Error */

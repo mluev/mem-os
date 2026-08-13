@@ -43,6 +43,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import re
 import threading
 from pathlib import Path
 from typing import Any
@@ -55,6 +56,12 @@ from .scrub import scrub
 logger = logging.getLogger(__name__)
 
 _LAST = "__last__"
+_HELPFUL_MEMORY = re.compile(
+    r"(?i)\b(memory|remembered|recalled|recall)\b.{0,50}\b(helpful|right|correct|useful)\b"
+)
+_WRONG_MEMORY = re.compile(
+    r"(?i)\b(memory|remembered|recalled|recall)\b.{0,50}\b(wrong|incorrect|false|outdated)\b"
+)
 
 MEMKIT_SEARCH = {
     "name": "memkit_search",
@@ -105,9 +112,9 @@ MEMKIT_REMEMBER = {
 
 def _config() -> dict[str, Any]:
     try:
-        from hermes_cli.config import cfg_get
+        from hermes_cli.config import cfg_get, load_config
 
-        return cfg_get("plugins.memkit", {}) or {}
+        return cfg_get(load_config(), "plugins", "memkit", default={}) or {}
     except Exception:
         return {}
 
@@ -118,6 +125,7 @@ class MemkitProvider(MemoryProvider):
         self._client: Client | None = None
         self._session_id = ""
         self._cache: dict[str, list[dict[str, Any]]] = {}
+        self._last_retrieval: dict[str, Any] | None = None
         self._threads: list[threading.Thread] = []
         self._lock = threading.Lock()
         self._budget = int(self._config.get("budget_tokens", 800) or 800)
@@ -152,6 +160,18 @@ class MemkitProvider(MemoryProvider):
         return str(self._config.get("base_url") or "http://127.0.0.1:8077")
 
     def _api_key(self) -> str:
+        key_file = self._config.get("api_key_file")
+        if key_file:
+            try:
+                path = Path(str(key_file)).expanduser()
+                if path.stat().st_mode & 0o077:
+                    logger.warning("memkit: API key file permissions must be 0600")
+                    return ""
+                value = path.read_text(encoding="utf-8").strip()
+                return value if len(value) >= 32 else ""
+            except OSError:
+                logger.warning("memkit: API key file is unavailable")
+                return ""
         env_var = str(self._config.get("api_key_env") or "MEMKIT_API_KEY")
         return os.environ.get(env_var, "")
 
@@ -215,7 +235,7 @@ class MemkitProvider(MemoryProvider):
             return ""
         key = query.strip()[:200]
         try:
-            memories = self._client.search(
+            memories = self._search_and_track(
                 key, budget_tokens=self._budget, timeout=self._prefetch_timeout
             )
             with self._lock:
@@ -242,7 +262,7 @@ class MemkitProvider(MemoryProvider):
     def _warm(self, key: str) -> None:
         """Prime the cache, or just the connection when `key` is empty."""
         try:
-            memories = self._client.search(
+            memories = self._search_and_track(
                 key or "user preferences and identity",
                 budget_tokens=self._budget,
                 timeout=5.0,
@@ -258,6 +278,46 @@ class MemkitProvider(MemoryProvider):
         with self._lock:
             self._cache[key] = memories
 
+    def _search_and_track(self, query: str, **kwargs: Any) -> list[dict[str, Any]]:
+        if self._client is None:
+            return []
+        search_with_run = getattr(self._client, "search_with_run", None)
+        if search_with_run is None:
+            return self._client.search(query, **kwargs)
+        result = search_with_run(query, **kwargs)
+        memories = list(result.get("memories") or [])
+        retrieval_id = result.get("retrieval_id")
+        if retrieval_id:
+            with self._lock:
+                self._last_retrieval = {
+                    "id": str(retrieval_id),
+                    "memory_ids": [str(item["id"]) for item in memories if item.get("id")],
+                }
+        return memories
+
+    def _record_explicit_feedback(self, user_content: str) -> None:
+        helpful = bool(_HELPFUL_MEMORY.search(user_content))
+        wrong = bool(_WRONG_MEMORY.search(user_content))
+        if not helpful and not wrong:
+            return
+        with self._lock:
+            recent = dict(self._last_retrieval) if self._last_retrieval else None
+        if not recent or self._client is None:
+            return
+        sender = getattr(self._client, "retrieval_feedback", None)
+        if sender is None:
+            return
+        for memory_id in recent["memory_ids"]:
+            try:
+                sender(
+                    recent["id"],
+                    memory_id,
+                    useful=helpful and not wrong,
+                    correct=not wrong,
+                )
+            except Exception:
+                logger.debug("memkit feedback failed", exc_info=True)
+
     # -- write path --------------------------------------------------------
 
     def sync_turn(
@@ -270,6 +330,7 @@ class MemkitProvider(MemoryProvider):
     ) -> None:
         if not self._client or self._read_only:
             return
+        self._spawn(self._record_explicit_feedback, user_content)
         sid = session_id or self._session_id
         payloads = [
             self._message("user", user_content, sid),
@@ -363,6 +424,7 @@ class MemkitProvider(MemoryProvider):
         self._session_id = new_session_id or ""
         with self._lock:
             self._cache.clear()
+            self._last_retrieval = None
 
     # -- tools -------------------------------------------------------------
 
@@ -381,7 +443,7 @@ class MemkitProvider(MemoryProvider):
                     return tool_error("query is required")
                 context_key = str(args.get("context_key") or "").strip()
                 context_value = str(args.get("context_value") or "").strip()
-                memories = self._client.search(
+                memories = self._search_and_track(
                     query,
                     budget_tokens=self._budget,
                     context={context_key: context_value} if context_key and context_value else None,
@@ -399,7 +461,10 @@ class MemkitProvider(MemoryProvider):
                 # Straight to /v1/memories, past the judge, at high importance: the
                 # user said "remember this", so there is nothing to weigh up.
                 result = self._client.add_memory(
-                    text, kind=str(args.get("kind") or "fact"), importance=0.9
+                    text,
+                    kind=str(args.get("kind") or "fact"),
+                    importance=0.9,
+                    source_role="manual",
                 )
                 return f"Remembered: {text} (id {result.get('id', '?')})"
             return tool_error(f"unknown tool: {tool_name}")
@@ -419,8 +484,18 @@ class MemkitProvider(MemoryProvider):
                 "key": "api_key",
                 "description": "X-API-Key for the memkit service",
                 "secret": True,
-                "required": True,
+                "required": False,
                 "env_var": "MEMKIT_API_KEY",
+            },
+            {
+                "key": "api_key_file",
+                "description": "Restricted file containing the memkit API key",
+                "default": "~/.config/memkit/api-key",
+            },
+            {
+                "key": "db_path",
+                "description": "SQLite source-of-truth path included by Hermes backup",
+                "default": "./data/memkit.db",
             },
             {
                 "key": "budget_tokens",
@@ -471,14 +546,10 @@ class MemkitProvider(MemoryProvider):
         memory. Resolved from config only, with no network and no initialize(), as
         the ABC requires.
         """
-        paths: list[str] = []
-        db_path = self._config.get("db_path")
-        if db_path:
-            paths.append(str(Path(str(db_path)).expanduser()))
-        qdrant_path = self._config.get("qdrant_storage")
-        if qdrant_path:
-            paths.append(str(Path(str(qdrant_path)).expanduser()))
-        return paths
+        db_path = (
+            self._config.get("db_path") or os.environ.get("MEMKIT_DB_PATH") or "./data/memkit.db"
+        )
+        return [str(Path(str(db_path)).expanduser().resolve())]
 
 
 def register(ctx: Any) -> None:

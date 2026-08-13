@@ -6,9 +6,7 @@ import httpx
 from ... import errors
 from ...client import AuthenticatedClient, Client
 from ...models.http_validation_error import HTTPValidationError
-from ...models.list_policies_v1_policies_get_response_list_policies_v1_policies_get import (
-    ListPoliciesV1PoliciesGetResponseListPoliciesV1PoliciesGet,
-)
+from ...models.items_out import ItemsOut
 from ...types import UNSET, Response, Unset
 
 
@@ -39,9 +37,9 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> HTTPValidationError | ListPoliciesV1PoliciesGetResponseListPoliciesV1PoliciesGet | None:
+) -> HTTPValidationError | ItemsOut | None:
     if response.status_code == 200:
-        response_200 = ListPoliciesV1PoliciesGetResponseListPoliciesV1PoliciesGet.from_dict(response.json())
+        response_200 = ItemsOut.from_dict(response.json())
 
         return response_200
 
@@ -58,7 +56,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[HTTPValidationError | ListPoliciesV1PoliciesGetResponseListPoliciesV1PoliciesGet]:
+) -> Response[HTTPValidationError | ItemsOut]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -71,7 +69,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
     namespace: None | str | Unset = UNSET,
-) -> Response[HTTPValidationError | ListPoliciesV1PoliciesGetResponseListPoliciesV1PoliciesGet]:
+) -> Response[HTTPValidationError | ItemsOut]:
     """List Policies
 
     Args:
@@ -82,7 +80,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | ListPoliciesV1PoliciesGetResponseListPoliciesV1PoliciesGet]
+        Response[HTTPValidationError | ItemsOut]
     """
 
     kwargs = _get_kwargs(
@@ -100,7 +98,7 @@ def sync(
     *,
     client: AuthenticatedClient,
     namespace: None | str | Unset = UNSET,
-) -> HTTPValidationError | ListPoliciesV1PoliciesGetResponseListPoliciesV1PoliciesGet | None:
+) -> HTTPValidationError | ItemsOut | None:
     """List Policies
 
     Args:
@@ -111,7 +109,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | ListPoliciesV1PoliciesGetResponseListPoliciesV1PoliciesGet
+        HTTPValidationError | ItemsOut
     """
 
     return sync_detailed(
@@ -124,7 +122,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
     namespace: None | str | Unset = UNSET,
-) -> Response[HTTPValidationError | ListPoliciesV1PoliciesGetResponseListPoliciesV1PoliciesGet]:
+) -> Response[HTTPValidationError | ItemsOut]:
     """List Policies
 
     Args:
@@ -135,7 +133,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | ListPoliciesV1PoliciesGetResponseListPoliciesV1PoliciesGet]
+        Response[HTTPValidationError | ItemsOut]
     """
 
     kwargs = _get_kwargs(
@@ -151,7 +149,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
     namespace: None | str | Unset = UNSET,
-) -> HTTPValidationError | ListPoliciesV1PoliciesGetResponseListPoliciesV1PoliciesGet | None:
+) -> HTTPValidationError | ItemsOut | None:
     """List Policies
 
     Args:
@@ -162,7 +160,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | ListPoliciesV1PoliciesGetResponseListPoliciesV1PoliciesGet
+        HTTPValidationError | ItemsOut
     """
 
     return (

@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 import uuid
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
-from .db import transaction, utcnow
+from .db import connect, transaction, utcnow
 
 
 class BudgetExceeded(RuntimeError):
@@ -56,13 +59,26 @@ def get(conn: sqlite3.Connection, job_id: str) -> sqlite3.Row:
     return row
 
 
-def claim(conn: sqlite3.Connection, job_id: str) -> sqlite3.Row:
+def claim(
+    conn: sqlite3.Connection,
+    job_id: str,
+    *,
+    holder: str | None = None,
+    lease_seconds: int = 120,
+) -> sqlite3.Row:
     now = utcnow()
+    holder = holder or f"worker:{uuid.uuid4()}"
+    expires = (
+        (datetime.now(UTC) + timedelta(seconds=lease_seconds))
+        .isoformat(timespec="seconds")
+        .replace("+00:00", "Z")
+    )
     with transaction(conn):
         changed = conn.execute(
-            """UPDATE jobs SET status='running',started_at=?,updated_at=?
+            """UPDATE jobs SET status='running',started_at=COALESCE(started_at,?),updated_at=?,
+                               holder=?,lease_expires_at=?,attempts=attempts+1
                 WHERE id=? AND status='queued'""",
-            (now, now, job_id),
+            (now, now, holder, expires, job_id),
         ).rowcount
     if not changed:
         raise RuntimeError("job is not queued")
@@ -72,6 +88,63 @@ def claim(conn: sqlite3.Connection, job_id: str) -> sqlite3.Row:
             (job_id, now),
         )
     return get(conn, job_id)
+
+
+def renew(
+    conn: sqlite3.Connection,
+    job_id: str,
+    *,
+    holder: str,
+    lease_seconds: int = 120,
+) -> bool:
+    expires = (
+        (datetime.now(UTC) + timedelta(seconds=lease_seconds))
+        .isoformat(timespec="seconds")
+        .replace("+00:00", "Z")
+    )
+    with transaction(conn):
+        changed = conn.execute(
+            """UPDATE jobs SET lease_expires_at=?,updated_at=?
+                 WHERE id=? AND status='running' AND holder=?""",
+            (expires, utcnow(), job_id, holder),
+        ).rowcount
+    return bool(changed)
+
+
+@contextmanager
+def heartbeat(
+    conn: sqlite3.Connection,
+    job_id: str,
+    *,
+    holder: str,
+    interval_seconds: int = 30,
+    lease_seconds: int = 120,
+):
+    """Renew a running job lease from an independent SQLite connection."""
+    path = Path(str(conn.execute("PRAGMA database_list").fetchone()[2]))
+    stop = threading.Event()
+
+    def beat() -> None:
+        heartbeat_conn = connect(path)
+        try:
+            while not stop.wait(interval_seconds):
+                if not renew(
+                    heartbeat_conn,
+                    job_id,
+                    holder=holder,
+                    lease_seconds=lease_seconds,
+                ):
+                    return
+        finally:
+            heartbeat_conn.close()
+
+    thread = threading.Thread(target=beat, name=f"memkit-heartbeat-{job_id[:8]}", daemon=True)
+    thread.start()
+    try:
+        yield
+    finally:
+        stop.set()
+        thread.join(timeout=2)
 
 
 def request_cancel(conn: sqlite3.Connection, job_id: str) -> None:
@@ -110,7 +183,8 @@ def finish(
     with transaction(conn):
         conn.execute(
             """UPDATE jobs SET status=?,result_json=?,error_code=?,error=?,
-                              finished_at=?,updated_at=? WHERE id=?""",
+                              finished_at=?,updated_at=?,holder=NULL,lease_expires_at=NULL
+                 WHERE id=?""",
             (
                 status,
                 json.dumps(result, ensure_ascii=False, sort_keys=True)
@@ -239,6 +313,65 @@ def release_budget(conn: sqlite3.Connection, reservation_id: str) -> None:
         ).rowcount
     if not changed:
         raise RuntimeError("unknown or inactive budget reservation")
+
+
+def recover_stale(conn: sqlite3.Connection) -> dict[str, int]:
+    """Requeue abandoned jobs and release their unreconciled spend reservations."""
+    now = utcnow()
+    conn.commit()
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        stale_ids = [
+            row[0]
+            for row in conn.execute(
+                """SELECT id FROM jobs WHERE status='running'
+                     AND (lease_expires_at IS NULL OR lease_expires_at<=?)""",
+                (now,),
+            ).fetchall()
+        ]
+        released_for_stale = 0
+        released_claims = 0
+        if stale_ids:
+            placeholders = ",".join("?" for _ in stale_ids)
+            released_for_stale = conn.execute(
+                f"""UPDATE budget_reservations SET status='released',actual_usd=0,updated_at=?
+                      WHERE status='active' AND job_id IN ({placeholders})""",
+                (now, *stale_ids),
+            ).rowcount
+            conn.execute(
+                f"""UPDATE jobs SET status='queued',holder=NULL,lease_expires_at=NULL,
+                                      updated_at=?
+                      WHERE id IN ({placeholders})""",
+                (now, *stale_ids),
+            )
+            conn.executemany(
+                """INSERT INTO job_events(job_id,status,detail_json,created_at)
+                   VALUES (?,'recovered','{}',?)""",
+                [(job_id, now) for job_id in stale_ids],
+            )
+            released_claims = conn.execute(
+                f"""UPDATE messages SET claim_token=NULL,claim_expires_at=NULL
+                       WHERE processed=0 AND EXISTS (
+                           SELECT 1 FROM jobs j WHERE j.id IN ({placeholders})
+                             AND messages.claim_token LIKE j.id || ':%'
+                       )""",
+                stale_ids,
+            ).rowcount
+        released = conn.execute(
+            """UPDATE budget_reservations SET status='released',actual_usd=0,updated_at=?
+                 WHERE status='active' AND job_id IS NOT NULL
+                   AND job_id IN (SELECT id FROM jobs WHERE status!='running')""",
+            (now,),
+        ).rowcount
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+    return {
+        "jobs": len(stale_ids),
+        "reservations": int(released_for_stale) + int(released),
+        "message_claims": int(released_claims),
+    }
 
 
 def acquire_lease(conn: sqlite3.Connection, *, name: str, holder: str, ttl_seconds: int) -> bool:

@@ -5,11 +5,9 @@ import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
-from ...models.erase_data_v1_erase_post_response_erase_data_v1_erase_post import (
-    EraseDataV1ErasePostResponseEraseDataV1ErasePost,
-)
 from ...models.erase_in import EraseIn
 from ...models.http_validation_error import HTTPValidationError
+from ...models.job_queued_out import JobQueuedOut
 from ...types import Response
 
 
@@ -34,9 +32,9 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> EraseDataV1ErasePostResponseEraseDataV1ErasePost | HTTPValidationError | None:
+) -> HTTPValidationError | JobQueuedOut | None:
     if response.status_code == 202:
-        response_202 = EraseDataV1ErasePostResponseEraseDataV1ErasePost.from_dict(response.json())
+        response_202 = JobQueuedOut.from_dict(response.json())
 
         return response_202
 
@@ -53,7 +51,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[EraseDataV1ErasePostResponseEraseDataV1ErasePost | HTTPValidationError]:
+) -> Response[HTTPValidationError | JobQueuedOut]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -66,7 +64,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
     body: EraseIn,
-) -> Response[EraseDataV1ErasePostResponseEraseDataV1ErasePost | HTTPValidationError]:
+) -> Response[HTTPValidationError | JobQueuedOut]:
     """Erase Data
 
     Args:
@@ -77,7 +75,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[EraseDataV1ErasePostResponseEraseDataV1ErasePost | HTTPValidationError]
+        Response[HTTPValidationError | JobQueuedOut]
     """
 
     kwargs = _get_kwargs(
@@ -95,7 +93,7 @@ def sync(
     *,
     client: AuthenticatedClient,
     body: EraseIn,
-) -> EraseDataV1ErasePostResponseEraseDataV1ErasePost | HTTPValidationError | None:
+) -> HTTPValidationError | JobQueuedOut | None:
     """Erase Data
 
     Args:
@@ -106,7 +104,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        EraseDataV1ErasePostResponseEraseDataV1ErasePost | HTTPValidationError
+        HTTPValidationError | JobQueuedOut
     """
 
     return sync_detailed(
@@ -119,7 +117,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
     body: EraseIn,
-) -> Response[EraseDataV1ErasePostResponseEraseDataV1ErasePost | HTTPValidationError]:
+) -> Response[HTTPValidationError | JobQueuedOut]:
     """Erase Data
 
     Args:
@@ -130,7 +128,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[EraseDataV1ErasePostResponseEraseDataV1ErasePost | HTTPValidationError]
+        Response[HTTPValidationError | JobQueuedOut]
     """
 
     kwargs = _get_kwargs(
@@ -146,7 +144,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
     body: EraseIn,
-) -> EraseDataV1ErasePostResponseEraseDataV1ErasePost | HTTPValidationError | None:
+) -> HTTPValidationError | JobQueuedOut | None:
     """Erase Data
 
     Args:
@@ -157,7 +155,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        EraseDataV1ErasePostResponseEraseDataV1ErasePost | HTTPValidationError
+        HTTPValidationError | JobQueuedOut
     """
 
     return (

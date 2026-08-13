@@ -6,9 +6,7 @@ import httpx
 from ... import errors
 from ...client import AuthenticatedClient, Client
 from ...models.http_validation_error import HTTPValidationError
-from ...models.list_sessions_v1_admin_sessions_get_response_list_sessions_v1_admin_sessions_get import (
-    ListSessionsV1AdminSessionsGetResponseListSessionsV1AdminSessionsGet,
-)
+from ...models.offset_page_out import OffsetPageOut
 from ...types import UNSET, Response, Unset
 
 
@@ -37,9 +35,9 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> HTTPValidationError | ListSessionsV1AdminSessionsGetResponseListSessionsV1AdminSessionsGet | None:
+) -> HTTPValidationError | OffsetPageOut | None:
     if response.status_code == 200:
-        response_200 = ListSessionsV1AdminSessionsGetResponseListSessionsV1AdminSessionsGet.from_dict(response.json())
+        response_200 = OffsetPageOut.from_dict(response.json())
 
         return response_200
 
@@ -56,7 +54,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[HTTPValidationError | ListSessionsV1AdminSessionsGetResponseListSessionsV1AdminSessionsGet]:
+) -> Response[HTTPValidationError | OffsetPageOut]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -70,7 +68,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     limit: int | Unset = 50,
     offset: int | Unset = 0,
-) -> Response[HTTPValidationError | ListSessionsV1AdminSessionsGetResponseListSessionsV1AdminSessionsGet]:
+) -> Response[HTTPValidationError | OffsetPageOut]:
     """List Sessions
 
     Args:
@@ -82,7 +80,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | ListSessionsV1AdminSessionsGetResponseListSessionsV1AdminSessionsGet]
+        Response[HTTPValidationError | OffsetPageOut]
     """
 
     kwargs = _get_kwargs(
@@ -102,7 +100,7 @@ def sync(
     client: AuthenticatedClient,
     limit: int | Unset = 50,
     offset: int | Unset = 0,
-) -> HTTPValidationError | ListSessionsV1AdminSessionsGetResponseListSessionsV1AdminSessionsGet | None:
+) -> HTTPValidationError | OffsetPageOut | None:
     """List Sessions
 
     Args:
@@ -114,7 +112,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | ListSessionsV1AdminSessionsGetResponseListSessionsV1AdminSessionsGet
+        HTTPValidationError | OffsetPageOut
     """
 
     return sync_detailed(
@@ -129,7 +127,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     limit: int | Unset = 50,
     offset: int | Unset = 0,
-) -> Response[HTTPValidationError | ListSessionsV1AdminSessionsGetResponseListSessionsV1AdminSessionsGet]:
+) -> Response[HTTPValidationError | OffsetPageOut]:
     """List Sessions
 
     Args:
@@ -141,7 +139,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | ListSessionsV1AdminSessionsGetResponseListSessionsV1AdminSessionsGet]
+        Response[HTTPValidationError | OffsetPageOut]
     """
 
     kwargs = _get_kwargs(
@@ -159,7 +157,7 @@ async def asyncio(
     client: AuthenticatedClient,
     limit: int | Unset = 50,
     offset: int | Unset = 0,
-) -> HTTPValidationError | ListSessionsV1AdminSessionsGetResponseListSessionsV1AdminSessionsGet | None:
+) -> HTTPValidationError | OffsetPageOut | None:
     """List Sessions
 
     Args:
@@ -171,7 +169,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | ListSessionsV1AdminSessionsGetResponseListSessionsV1AdminSessionsGet
+        HTTPValidationError | OffsetPageOut
     """
 
     return (

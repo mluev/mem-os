@@ -256,6 +256,19 @@ a { color: inherit; text-decoration: none; }
 .score-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
 .score-head p { margin: 8px 0 0; font-size: 12px; line-height: 1.5; }
 .score { font: 12px var(--font-mono); font-weight: 650; }
+.score, .health-line strong, .triage-count { font-variant-numeric: tabular-nums; }
+.replay-batch-button { width: 100%; border: 0; border-bottom: 1px solid var(--line); background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.replay-batch-button:hover { background: var(--panel-subtle); }
+.replay-item { padding: 16px 18px; border-bottom: 1px solid var(--line); }
+.replay-item > p { font-size: 12px; line-height: 1.55; }
+.replay-item > p, .evaluation-arm > p { text-wrap: pretty; }
+.replay-item details { color: var(--muted); font-size: 10px; }
+.replay-item blockquote { border-left: 2px solid var(--line-strong); margin: 9px 0; padding-left: 10px; color: var(--ink); }
+.replay-textarea { width: 100%; min-height: 90px; padding: 10px; margin-bottom: 8px; }
+.evaluation-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; background: var(--line); }
+.evaluation-arm { background: var(--panel); padding: 16px 18px; }
+.evaluation-arm > strong { font: 11px var(--font-mono); }
+.evaluation-arm > p { min-height: 72px; white-space: pre-wrap; font-size: 12px; line-height: 1.55; }
 .score-bar { height: 7px; background: var(--line); display: flex; overflow: hidden; border-radius: 4px; margin: 12px 0 8px; }
 .score-bar span:nth-child(1) { background: var(--blue); }
 .score-bar span:nth-child(2) { background: var(--amber); }
@@ -792,6 +805,7 @@ body { background: var(--bg); font-size: 14px; }
   letter-spacing: -.055em;
   font-variant-numeric: tabular-nums;
 }
+.metric-card > strong { font-variant-numeric: tabular-nums; }
 .metric-card > small { display: flex; align-items: center; gap: 5px; margin-top: 7px; color: var(--muted); font-size: 10px; }
 .analytics-grid { display: grid; grid-template-columns: minmax(0, 1.8fr) minmax(290px, .7fr); gap: 18px; }
 .activity-panel, .agent-panel { min-height: 360px; }
@@ -1289,6 +1303,7 @@ body { background: var(--bg); font-size: 14px; }
   .dropped-grid { grid-template-columns: 1fr; }
   .filter-bar { top: 64px; }
   .activity-heatmap-summary { align-items: flex-start; flex-direction: column; gap: 3px; }
+  .evaluation-grid { grid-template-columns: 1fr; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }

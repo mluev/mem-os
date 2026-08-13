@@ -5,8 +5,8 @@ import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
+from ...models.cursor_page_out import CursorPageOut
 from ...models.http_validation_error import HTTPValidationError
-from ...models.list_jobs_v1_jobs_get_response_list_jobs_v1_jobs_get import ListJobsV1JobsGetResponseListJobsV1JobsGet
 from ...models.list_jobs_v1_jobs_get_status_type_0 import ListJobsV1JobsGetStatusType0
 from ...types import UNSET, Response, Unset
 
@@ -51,9 +51,9 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> HTTPValidationError | ListJobsV1JobsGetResponseListJobsV1JobsGet | None:
+) -> CursorPageOut | HTTPValidationError | None:
     if response.status_code == 200:
-        response_200 = ListJobsV1JobsGetResponseListJobsV1JobsGet.from_dict(response.json())
+        response_200 = CursorPageOut.from_dict(response.json())
 
         return response_200
 
@@ -70,7 +70,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[HTTPValidationError | ListJobsV1JobsGetResponseListJobsV1JobsGet]:
+) -> Response[CursorPageOut | HTTPValidationError]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -85,7 +85,7 @@ def sync_detailed(
     status: ListJobsV1JobsGetStatusType0 | None | Unset = UNSET,
     limit: int | Unset = 50,
     cursor: None | str | Unset = UNSET,
-) -> Response[HTTPValidationError | ListJobsV1JobsGetResponseListJobsV1JobsGet]:
+) -> Response[CursorPageOut | HTTPValidationError]:
     """List Jobs
 
     Args:
@@ -98,7 +98,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | ListJobsV1JobsGetResponseListJobsV1JobsGet]
+        Response[CursorPageOut | HTTPValidationError]
     """
 
     kwargs = _get_kwargs(
@@ -120,7 +120,7 @@ def sync(
     status: ListJobsV1JobsGetStatusType0 | None | Unset = UNSET,
     limit: int | Unset = 50,
     cursor: None | str | Unset = UNSET,
-) -> HTTPValidationError | ListJobsV1JobsGetResponseListJobsV1JobsGet | None:
+) -> CursorPageOut | HTTPValidationError | None:
     """List Jobs
 
     Args:
@@ -133,7 +133,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | ListJobsV1JobsGetResponseListJobsV1JobsGet
+        CursorPageOut | HTTPValidationError
     """
 
     return sync_detailed(
@@ -150,7 +150,7 @@ async def asyncio_detailed(
     status: ListJobsV1JobsGetStatusType0 | None | Unset = UNSET,
     limit: int | Unset = 50,
     cursor: None | str | Unset = UNSET,
-) -> Response[HTTPValidationError | ListJobsV1JobsGetResponseListJobsV1JobsGet]:
+) -> Response[CursorPageOut | HTTPValidationError]:
     """List Jobs
 
     Args:
@@ -163,7 +163,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | ListJobsV1JobsGetResponseListJobsV1JobsGet]
+        Response[CursorPageOut | HTTPValidationError]
     """
 
     kwargs = _get_kwargs(
@@ -183,7 +183,7 @@ async def asyncio(
     status: ListJobsV1JobsGetStatusType0 | None | Unset = UNSET,
     limit: int | Unset = 50,
     cursor: None | str | Unset = UNSET,
-) -> HTTPValidationError | ListJobsV1JobsGetResponseListJobsV1JobsGet | None:
+) -> CursorPageOut | HTTPValidationError | None:
     """List Jobs
 
     Args:
@@ -196,7 +196,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | ListJobsV1JobsGetResponseListJobsV1JobsGet
+        CursorPageOut | HTTPValidationError
     """
 
     return (

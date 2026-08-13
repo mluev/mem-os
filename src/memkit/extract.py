@@ -6,10 +6,12 @@ import hashlib
 import json
 import logging
 import sqlite3
+import uuid
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from . import judge, outbox, provenance, store, vectors
+from . import judge, provenance, store
 from .db import transaction, utcnow
 
 logger = logging.getLogger(__name__)
@@ -59,6 +61,71 @@ def unprocessed_window(conn: sqlite3.Connection, session_id: str) -> list[sqlite
             ORDER BY id LIMIT ?""",
         (session_id, WINDOW_SIZE),
     ).fetchall()
+
+
+def claim_window(
+    conn: sqlite3.Connection,
+    *,
+    session_id: str,
+    job_id: str,
+    lease_seconds: int = 300,
+) -> list[sqlite3.Row]:
+    """Atomically lease one exact message range so provider work is never duplicated."""
+    now = utcnow()
+    expires = (
+        (datetime.now(UTC) + timedelta(seconds=lease_seconds))
+        .isoformat(timespec="seconds")
+        .replace("+00:00", "Z")
+    )
+    token = f"{job_id}:{uuid.uuid4()}"
+    conn.commit()
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        conn.execute(
+            """UPDATE messages SET claim_token=NULL,claim_expires_at=NULL
+                 WHERE processed=0 AND claim_expires_at IS NOT NULL AND claim_expires_at<=?""",
+            (now,),
+        )
+        ids = [
+            int(row[0])
+            for row in conn.execute(
+                """SELECT id FROM messages
+                     WHERE session_id=? AND processed=0 AND claim_token IS NULL
+                     ORDER BY id LIMIT ?""",
+                (session_id, WINDOW_SIZE),
+            ).fetchall()
+        ]
+        if not ids:
+            conn.execute("COMMIT")
+            return []
+        placeholders = ",".join("?" for _ in ids)
+        changed = conn.execute(
+            f"""UPDATE messages SET claim_token=?,claim_expires_at=?
+                  WHERE id IN ({placeholders}) AND processed=0 AND claim_token IS NULL""",
+            (token, expires, *ids),
+        ).rowcount
+        if changed != len(ids):
+            conn.execute("ROLLBACK")
+            return []
+        conn.execute("COMMIT")
+        return conn.execute(
+            f"SELECT * FROM messages WHERE id IN ({placeholders}) ORDER BY id", ids
+        ).fetchall()
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+
+
+def release_window(conn: sqlite3.Connection, rows: list[sqlite3.Row]) -> None:
+    claims = {str(row["claim_token"]) for row in rows if row["claim_token"]}
+    if not claims:
+        return
+    with transaction(conn):
+        conn.executemany(
+            """UPDATE messages SET claim_token=NULL,claim_expires_at=NULL
+                 WHERE claim_token=? AND processed=0""",
+            [(claim,) for claim in claims],
+        )
 
 
 def session_context(conn: sqlite3.Connection, session_id: str) -> dict[str, Any]:
@@ -113,6 +180,14 @@ def _validated_evidence(
             return None
         start = citation["start_char"]
         end = citation["end_char"]
+        quote = str(citation.get("quote") or "")
+        if quote:
+            first = str(row["content"]).find(quote)
+            # Derive offsets locally only from a unique verbatim user span.
+            # Ambiguous or non-verbatim quotes remain invalid citations.
+            if first < 0 or str(row["content"]).find(quote, first + 1) >= 0:
+                return None
+            start, end = first, first + len(quote)
         if end > len(row["content"]):
             return None
         excerpt = row["content"][start:end]
@@ -216,46 +291,33 @@ def apply_ops(
             outcome.rejected += 1
             continue
         if op.op == "DELETE":
-            conn.execute(
-                "UPDATE memories SET status='archived',updated_at=? WHERE id=?",
-                (utcnow(), existing["id"]),
-            )
-            outbox.enqueue(
+            store.set_memory_status(
                 conn,
-                collection=vectors.MEMORIES,
-                entity_id=existing["id"],
-                operation="delete",
+                memory_id=existing["id"],
+                owner_id=owner_id,
+                status="archived",
+                expected_revision=int(existing["revision"]),
             )
             outcome.deleted += 1
             continue
 
-        now = utcnow()
-        conn.execute(
-            """UPDATE memories
-                  SET text=?,kind=?,importance=?,confidence=?,valid_until=?,
-                      updated_at=?,extraction_version=?,judge_run_id=?
-                WHERE id=?""",
-            (
-                op.text,
-                op.kind or existing["kind"],
-                op.importance if op.importance is not None else existing["importance"],
-                op.confidence if op.confidence is not None else existing["confidence"],
-                op.valid_until,
-                now,
-                extraction_version,
-                judge_run_id,
-                existing["id"],
-            ),
+        store.update_memory(
+            conn,
+            memory_id=existing["id"],
+            owner_id=owner_id,
+            expected_revision=int(existing["revision"]),
+            text=op.text or existing["text"],
+            kind=op.kind or existing["kind"],
+            context=existing_context,
+            tags=json.loads(existing["tags_json"] or "[]"),
+            importance=op.importance if op.importance is not None else existing["importance"],
+            confidence=op.confidence if op.confidence is not None else existing["confidence"],
+            valid_until=op.valid_until,
+            extraction_version=extraction_version,
+            judge_run_id=judge_run_id,
+            source_role=source_role,
         )
         _link_evidence(conn, existing["id"], evidence)
-        saved = conn.execute("SELECT * FROM memories WHERE id=?", (existing["id"],)).fetchone()
-        outbox.enqueue(
-            conn,
-            collection=vectors.MEMORIES,
-            entity_id=existing["id"],
-            operation="upsert",
-            payload=store.mem_payload(saved),
-        )
         outcome.updated += 1
     return outcome
 
@@ -282,18 +344,20 @@ def run_extraction(
         return ExtractionOutcome(error="unknown_session")
     if session["owner_id"] != owner_id or session["agent_id"] != agent_id:
         return ExtractionOutcome(error="session_identity_mismatch")
-    window = unprocessed_window(conn, session_id)
+    window = claim_window(conn, session_id=session_id, job_id=job_id or "inline")
     if not window:
         return ExtractionOutcome()
     if not force and not judge.should_extract(
         messages_since_last=len(window), session_closed=False, text=window[-1]["content"]
     ):
+        release_window(conn, window)
         return ExtractionOutcome()
     if not any(row["role"] == "user" for row in window):
         with transaction(conn):
             conn.executemany(
-                "UPDATE messages SET processed=1 WHERE id=?",
-                [(row["id"],) for row in window],
+                """UPDATE messages SET processed=1,claim_token=NULL,claim_expires_at=NULL
+                     WHERE id=? AND claim_token=?""",
+                [(row["id"], row["claim_token"]) for row in window],
             )
         return ExtractionOutcome(skipped=len(window))
     context = session_context(conn, session_id)
@@ -321,6 +385,7 @@ def run_extraction(
         error=result.error,
     )
     if result.error or result.judge_run_id is None:
+        release_window(conn, window)
         return outcome
     with transaction(conn):
         applied = apply_ops(
@@ -333,8 +398,9 @@ def run_extraction(
             source_message_ids=[int(row["id"]) for row in window],
         )
         conn.executemany(
-            "UPDATE messages SET processed=1 WHERE id=?",
-            [(row["id"],) for row in window],
+            """UPDATE messages SET processed=1,claim_token=NULL,claim_expires_at=NULL
+                 WHERE id=? AND claim_token=?""",
+            [(row["id"], row["claim_token"]) for row in window],
         )
     applied.cost_usd = result.cost_usd
     return applied
