@@ -5,9 +5,7 @@ import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
-from ...models.detailed_health_v1_admin_health_get_response_detailed_health_v1_admin_health_get import (
-    DetailedHealthV1AdminHealthGetResponseDetailedHealthV1AdminHealthGet,
-)
+from ...models.admin_health_out import AdminHealthOut
 from ...types import Response
 
 
@@ -21,11 +19,9 @@ def _get_kwargs() -> dict[str, Any]:
     return _kwargs
 
 
-def _parse_response(
-    *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> DetailedHealthV1AdminHealthGetResponseDetailedHealthV1AdminHealthGet | None:
+def _parse_response(*, client: AuthenticatedClient | Client, response: httpx.Response) -> AdminHealthOut | None:
     if response.status_code == 200:
-        response_200 = DetailedHealthV1AdminHealthGetResponseDetailedHealthV1AdminHealthGet.from_dict(response.json())
+        response_200 = AdminHealthOut.from_dict(response.json())
 
         return response_200
 
@@ -35,9 +31,7 @@ def _parse_response(
         return None
 
 
-def _build_response(
-    *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[DetailedHealthV1AdminHealthGetResponseDetailedHealthV1AdminHealthGet]:
+def _build_response(*, client: AuthenticatedClient | Client, response: httpx.Response) -> Response[AdminHealthOut]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -49,7 +43,7 @@ def _build_response(
 def sync_detailed(
     *,
     client: AuthenticatedClient,
-) -> Response[DetailedHealthV1AdminHealthGetResponseDetailedHealthV1AdminHealthGet]:
+) -> Response[AdminHealthOut]:
     """Detailed Health
 
     Raises:
@@ -57,7 +51,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[DetailedHealthV1AdminHealthGetResponseDetailedHealthV1AdminHealthGet]
+        Response[AdminHealthOut]
     """
 
     kwargs = _get_kwargs()
@@ -72,7 +66,7 @@ def sync_detailed(
 def sync(
     *,
     client: AuthenticatedClient,
-) -> DetailedHealthV1AdminHealthGetResponseDetailedHealthV1AdminHealthGet | None:
+) -> AdminHealthOut | None:
     """Detailed Health
 
     Raises:
@@ -80,7 +74,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        DetailedHealthV1AdminHealthGetResponseDetailedHealthV1AdminHealthGet
+        AdminHealthOut
     """
 
     return sync_detailed(
@@ -91,7 +85,7 @@ def sync(
 async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
-) -> Response[DetailedHealthV1AdminHealthGetResponseDetailedHealthV1AdminHealthGet]:
+) -> Response[AdminHealthOut]:
     """Detailed Health
 
     Raises:
@@ -99,7 +93,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[DetailedHealthV1AdminHealthGetResponseDetailedHealthV1AdminHealthGet]
+        Response[AdminHealthOut]
     """
 
     kwargs = _get_kwargs()
@@ -112,7 +106,7 @@ async def asyncio_detailed(
 async def asyncio(
     *,
     client: AuthenticatedClient,
-) -> DetailedHealthV1AdminHealthGetResponseDetailedHealthV1AdminHealthGet | None:
+) -> AdminHealthOut | None:
     """Detailed Health
 
     Raises:
@@ -120,7 +114,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        DetailedHealthV1AdminHealthGetResponseDetailedHealthV1AdminHealthGet
+        AdminHealthOut
     """
 
     return (

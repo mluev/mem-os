@@ -18,7 +18,7 @@ def check() -> list[str]:
         errors.append("openapi.json is stale; run tools/export_openapi.py")
     required = {
         "docs/01-architecture.md": "Memory, not workflow",
-        "docs/02-data-model.md": "Schema version is 4",
+        "docs/02-data-model.md": "Schema version is 5",
         "docs/05-retrieval.md": "BM25",
         "docs/08-testing.md": "10,000 distractors",
     }

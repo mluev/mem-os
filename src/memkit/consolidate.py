@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
+import json
 import re
 import sqlite3
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any
 
-from . import outbox, store, vectors
-from .db import transaction, utcnow
+from . import store
+from .db import transaction
 
 
 def _normalise(text: str) -> str:
@@ -81,39 +82,37 @@ def run(
     if dry_run:
         return outcome
     with transaction(conn):
-        now = utcnow()
         for memory_id in outcome.expired:
-            conn.execute(
-                "UPDATE memories SET status='expired',updated_at=? WHERE id=?",
-                (now, memory_id),
-            )
-            outbox.enqueue(
+            store.set_memory_status(
                 conn,
-                collection=vectors.MEMORIES,
-                entity_id=memory_id,
-                operation="delete",
+                memory_id=memory_id,
+                owner_id=owner_id,
+                status="expired",
             )
         for memory_id in outcome.demoted:
-            conn.execute(
-                """UPDATE memories SET importance=MAX(0,importance-?),updated_at=?
-                    WHERE id=?""",
-                (demotion, now, memory_id),
-            )
             row = conn.execute("SELECT * FROM memories WHERE id=?", (memory_id,)).fetchone()
-            outbox.enqueue(
+            store.update_memory(
                 conn,
-                collection=vectors.MEMORIES,
-                entity_id=memory_id,
-                operation="upsert",
-                payload=store.mem_payload(row),
+                memory_id=memory_id,
+                owner_id=owner_id,
+                expected_revision=int(row["revision"]),
+                text=row["text"],
+                kind=row["kind"],
+                context=json.loads(row["context_json"]),
+                tags=json.loads(row["tags_json"]),
+                importance=max(0, float(row["importance"]) - demotion),
+                confidence=float(row["confidence"]),
+                valid_until=row["valid_until"],
             )
         for group in outcome.candidate_groups:
             survivor, *duplicates = group
             for duplicate in duplicates:
-                conn.execute(
-                    """UPDATE memories SET status='superseded',superseded_by=?,updated_at=?
-                        WHERE id=?""",
-                    (survivor, now, duplicate),
+                store.set_memory_status(
+                    conn,
+                    memory_id=duplicate,
+                    owner_id=owner_id,
+                    status="superseded",
+                    superseded_by=survivor,
                 )
                 conn.execute(
                     """INSERT OR IGNORE INTO memory_sources(memory_id,message_id)
@@ -126,12 +125,6 @@ def run(
                        SELECT ?,message_id,start_char,end_char,excerpt_sha256
                          FROM memory_evidence WHERE memory_id=?""",
                     (survivor, duplicate),
-                )
-                outbox.enqueue(
-                    conn,
-                    collection=vectors.MEMORIES,
-                    entity_id=duplicate,
-                    operation="delete",
                 )
                 outcome.superseded.append(duplicate)
     return outcome

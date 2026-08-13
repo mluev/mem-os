@@ -7,9 +7,7 @@ import httpx
 from ... import errors
 from ...client import AuthenticatedClient, Client
 from ...models.http_validation_error import HTTPValidationError
-from ...models.memory_history_v1_memories_memory_id_history_get_response_memory_history_v1_memories_memory_id_history_get import (
-    MemoryHistoryV1MemoriesMemoryIdHistoryGetResponseMemoryHistoryV1MemoriesMemoryIdHistoryGet,
-)
+from ...models.memory_history_out import MemoryHistoryOut
 from ...types import Response
 
 
@@ -29,17 +27,9 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> (
-    HTTPValidationError
-    | MemoryHistoryV1MemoriesMemoryIdHistoryGetResponseMemoryHistoryV1MemoriesMemoryIdHistoryGet
-    | None
-):
+) -> HTTPValidationError | MemoryHistoryOut | None:
     if response.status_code == 200:
-        response_200 = (
-            MemoryHistoryV1MemoriesMemoryIdHistoryGetResponseMemoryHistoryV1MemoriesMemoryIdHistoryGet.from_dict(
-                response.json()
-            )
-        )
+        response_200 = MemoryHistoryOut.from_dict(response.json())
 
         return response_200
 
@@ -56,9 +46,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[
-    HTTPValidationError | MemoryHistoryV1MemoriesMemoryIdHistoryGetResponseMemoryHistoryV1MemoriesMemoryIdHistoryGet
-]:
+) -> Response[HTTPValidationError | MemoryHistoryOut]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -71,9 +59,7 @@ def sync_detailed(
     memory_id: str,
     *,
     client: AuthenticatedClient,
-) -> Response[
-    HTTPValidationError | MemoryHistoryV1MemoriesMemoryIdHistoryGetResponseMemoryHistoryV1MemoriesMemoryIdHistoryGet
-]:
+) -> Response[HTTPValidationError | MemoryHistoryOut]:
     """Memory History
 
     Args:
@@ -84,7 +70,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | MemoryHistoryV1MemoriesMemoryIdHistoryGetResponseMemoryHistoryV1MemoriesMemoryIdHistoryGet]
+        Response[HTTPValidationError | MemoryHistoryOut]
     """
 
     kwargs = _get_kwargs(
@@ -102,11 +88,7 @@ def sync(
     memory_id: str,
     *,
     client: AuthenticatedClient,
-) -> (
-    HTTPValidationError
-    | MemoryHistoryV1MemoriesMemoryIdHistoryGetResponseMemoryHistoryV1MemoriesMemoryIdHistoryGet
-    | None
-):
+) -> HTTPValidationError | MemoryHistoryOut | None:
     """Memory History
 
     Args:
@@ -117,7 +99,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | MemoryHistoryV1MemoriesMemoryIdHistoryGetResponseMemoryHistoryV1MemoriesMemoryIdHistoryGet
+        HTTPValidationError | MemoryHistoryOut
     """
 
     return sync_detailed(
@@ -130,9 +112,7 @@ async def asyncio_detailed(
     memory_id: str,
     *,
     client: AuthenticatedClient,
-) -> Response[
-    HTTPValidationError | MemoryHistoryV1MemoriesMemoryIdHistoryGetResponseMemoryHistoryV1MemoriesMemoryIdHistoryGet
-]:
+) -> Response[HTTPValidationError | MemoryHistoryOut]:
     """Memory History
 
     Args:
@@ -143,7 +123,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | MemoryHistoryV1MemoriesMemoryIdHistoryGetResponseMemoryHistoryV1MemoriesMemoryIdHistoryGet]
+        Response[HTTPValidationError | MemoryHistoryOut]
     """
 
     kwargs = _get_kwargs(
@@ -159,11 +139,7 @@ async def asyncio(
     memory_id: str,
     *,
     client: AuthenticatedClient,
-) -> (
-    HTTPValidationError
-    | MemoryHistoryV1MemoriesMemoryIdHistoryGetResponseMemoryHistoryV1MemoriesMemoryIdHistoryGet
-    | None
-):
+) -> HTTPValidationError | MemoryHistoryOut | None:
     """Memory History
 
     Args:
@@ -174,7 +150,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | MemoryHistoryV1MemoriesMemoryIdHistoryGetResponseMemoryHistoryV1MemoriesMemoryIdHistoryGet
+        HTTPValidationError | MemoryHistoryOut
     """
 
     return (

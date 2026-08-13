@@ -7,9 +7,7 @@ import httpx
 from ... import errors
 from ...client import AuthenticatedClient, Client
 from ...models.http_validation_error import HTTPValidationError
-from ...models.record_history_v1_collections_namespace_name_records_record_id_history_get_response_record_history_v1_collections_namespace_name_records_record_id_history_get import (
-    RecordHistoryV1CollectionsNamespaceNameRecordsRecordIdHistoryGetResponseRecordHistoryV1CollectionsNamespaceNameRecordsRecordIdHistoryGet,
-)
+from ...models.items_out import ItemsOut
 from ...types import Response
 
 
@@ -33,15 +31,9 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> (
-    HTTPValidationError
-    | RecordHistoryV1CollectionsNamespaceNameRecordsRecordIdHistoryGetResponseRecordHistoryV1CollectionsNamespaceNameRecordsRecordIdHistoryGet
-    | None
-):
+) -> HTTPValidationError | ItemsOut | None:
     if response.status_code == 200:
-        response_200 = RecordHistoryV1CollectionsNamespaceNameRecordsRecordIdHistoryGetResponseRecordHistoryV1CollectionsNamespaceNameRecordsRecordIdHistoryGet.from_dict(
-            response.json()
-        )
+        response_200 = ItemsOut.from_dict(response.json())
 
         return response_200
 
@@ -58,10 +50,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[
-    HTTPValidationError
-    | RecordHistoryV1CollectionsNamespaceNameRecordsRecordIdHistoryGetResponseRecordHistoryV1CollectionsNamespaceNameRecordsRecordIdHistoryGet
-]:
+) -> Response[HTTPValidationError | ItemsOut]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -76,10 +65,7 @@ def sync_detailed(
     record_id: str,
     *,
     client: AuthenticatedClient,
-) -> Response[
-    HTTPValidationError
-    | RecordHistoryV1CollectionsNamespaceNameRecordsRecordIdHistoryGetResponseRecordHistoryV1CollectionsNamespaceNameRecordsRecordIdHistoryGet
-]:
+) -> Response[HTTPValidationError | ItemsOut]:
     """Record History
 
     Args:
@@ -92,7 +78,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | RecordHistoryV1CollectionsNamespaceNameRecordsRecordIdHistoryGetResponseRecordHistoryV1CollectionsNamespaceNameRecordsRecordIdHistoryGet]
+        Response[HTTPValidationError | ItemsOut]
     """
 
     kwargs = _get_kwargs(
@@ -114,11 +100,7 @@ def sync(
     record_id: str,
     *,
     client: AuthenticatedClient,
-) -> (
-    HTTPValidationError
-    | RecordHistoryV1CollectionsNamespaceNameRecordsRecordIdHistoryGetResponseRecordHistoryV1CollectionsNamespaceNameRecordsRecordIdHistoryGet
-    | None
-):
+) -> HTTPValidationError | ItemsOut | None:
     """Record History
 
     Args:
@@ -131,7 +113,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | RecordHistoryV1CollectionsNamespaceNameRecordsRecordIdHistoryGetResponseRecordHistoryV1CollectionsNamespaceNameRecordsRecordIdHistoryGet
+        HTTPValidationError | ItemsOut
     """
 
     return sync_detailed(
@@ -148,10 +130,7 @@ async def asyncio_detailed(
     record_id: str,
     *,
     client: AuthenticatedClient,
-) -> Response[
-    HTTPValidationError
-    | RecordHistoryV1CollectionsNamespaceNameRecordsRecordIdHistoryGetResponseRecordHistoryV1CollectionsNamespaceNameRecordsRecordIdHistoryGet
-]:
+) -> Response[HTTPValidationError | ItemsOut]:
     """Record History
 
     Args:
@@ -164,7 +143,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | RecordHistoryV1CollectionsNamespaceNameRecordsRecordIdHistoryGetResponseRecordHistoryV1CollectionsNamespaceNameRecordsRecordIdHistoryGet]
+        Response[HTTPValidationError | ItemsOut]
     """
 
     kwargs = _get_kwargs(
@@ -184,11 +163,7 @@ async def asyncio(
     record_id: str,
     *,
     client: AuthenticatedClient,
-) -> (
-    HTTPValidationError
-    | RecordHistoryV1CollectionsNamespaceNameRecordsRecordIdHistoryGetResponseRecordHistoryV1CollectionsNamespaceNameRecordsRecordIdHistoryGet
-    | None
-):
+) -> HTTPValidationError | ItemsOut | None:
     """Record History
 
     Args:
@@ -201,7 +176,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | RecordHistoryV1CollectionsNamespaceNameRecordsRecordIdHistoryGetResponseRecordHistoryV1CollectionsNamespaceNameRecordsRecordIdHistoryGet
+        HTTPValidationError | ItemsOut
     """
 
     return (

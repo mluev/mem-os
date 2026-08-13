@@ -6,10 +6,8 @@ import httpx
 from ... import errors
 from ...client import AuthenticatedClient, Client
 from ...models.http_validation_error import HTTPValidationError
+from ...models.memory_created_out import MemoryCreatedOut
 from ...models.memory_in import MemoryIn
-from ...models.post_memory_v1_memories_post_response_post_memory_v1_memories_post import (
-    PostMemoryV1MemoriesPostResponsePostMemoryV1MemoriesPost,
-)
 from ...types import Response
 
 
@@ -34,9 +32,9 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> HTTPValidationError | PostMemoryV1MemoriesPostResponsePostMemoryV1MemoriesPost | None:
+) -> HTTPValidationError | MemoryCreatedOut | None:
     if response.status_code == 201:
-        response_201 = PostMemoryV1MemoriesPostResponsePostMemoryV1MemoriesPost.from_dict(response.json())
+        response_201 = MemoryCreatedOut.from_dict(response.json())
 
         return response_201
 
@@ -53,7 +51,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[HTTPValidationError | PostMemoryV1MemoriesPostResponsePostMemoryV1MemoriesPost]:
+) -> Response[HTTPValidationError | MemoryCreatedOut]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -66,7 +64,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
     body: MemoryIn,
-) -> Response[HTTPValidationError | PostMemoryV1MemoriesPostResponsePostMemoryV1MemoriesPost]:
+) -> Response[HTTPValidationError | MemoryCreatedOut]:
     """Post Memory
 
     Args:
@@ -77,7 +75,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | PostMemoryV1MemoriesPostResponsePostMemoryV1MemoriesPost]
+        Response[HTTPValidationError | MemoryCreatedOut]
     """
 
     kwargs = _get_kwargs(
@@ -95,7 +93,7 @@ def sync(
     *,
     client: AuthenticatedClient,
     body: MemoryIn,
-) -> HTTPValidationError | PostMemoryV1MemoriesPostResponsePostMemoryV1MemoriesPost | None:
+) -> HTTPValidationError | MemoryCreatedOut | None:
     """Post Memory
 
     Args:
@@ -106,7 +104,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | PostMemoryV1MemoriesPostResponsePostMemoryV1MemoriesPost
+        HTTPValidationError | MemoryCreatedOut
     """
 
     return sync_detailed(
@@ -119,7 +117,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
     body: MemoryIn,
-) -> Response[HTTPValidationError | PostMemoryV1MemoriesPostResponsePostMemoryV1MemoriesPost]:
+) -> Response[HTTPValidationError | MemoryCreatedOut]:
     """Post Memory
 
     Args:
@@ -130,7 +128,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | PostMemoryV1MemoriesPostResponsePostMemoryV1MemoriesPost]
+        Response[HTTPValidationError | MemoryCreatedOut]
     """
 
     kwargs = _get_kwargs(
@@ -146,7 +144,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
     body: MemoryIn,
-) -> HTTPValidationError | PostMemoryV1MemoriesPostResponsePostMemoryV1MemoriesPost | None:
+) -> HTTPValidationError | MemoryCreatedOut | None:
     """Post Memory
 
     Args:
@@ -157,7 +155,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | PostMemoryV1MemoriesPostResponsePostMemoryV1MemoriesPost
+        HTTPValidationError | MemoryCreatedOut
     """
 
     return (

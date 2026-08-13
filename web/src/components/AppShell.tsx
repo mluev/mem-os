@@ -5,13 +5,16 @@ import {
   Command,
   Database,
   Gauge,
+  GitCompareArrows,
   KeyRound,
   Menu,
   Moon,
   Search,
+  ThumbsUp,
   Sun,
   TerminalSquare,
   UsersRound,
+  Vote,
   X,
 } from "lucide-react";
 import { Link, Outlet, useRouter, useRouterState } from "@tanstack/react-router";
@@ -38,12 +41,15 @@ const NAV = [
   { to: "/", label: "Overview", icon: Gauge },
   { to: "/memories", label: "Memories", icon: Brain },
   { to: "/search", label: "Search", icon: Search },
+  { to: "/feedback", label: "Feedback", icon: ThumbsUp },
+  { to: "/replay", label: "Replay review", icon: GitCompareArrows },
+  { to: "/evaluations", label: "Evaluation", icon: Vote },
   { to: "/judge-runs", label: "Judge runs", icon: BookOpen },
   { to: "/sessions", label: "Sessions", icon: UsersRound },
   { to: "/ops", label: "Operations", icon: TerminalSquare },
 ] as const;
 
-interface Health { qdrant: { memories: number; raw: number }; outbox: { pending: number } }
+interface Health { qdrant: { available: boolean; memories: number | null; raw: number | null }; outbox: { pending: number } }
 
 export function KeyGate({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(import.meta.env.DEV || Boolean(getApiKey()));
@@ -163,8 +169,8 @@ export function AppShell() {
           <div className="service-status">
             <span className={health.data ? "health-dot ok" : "health-dot bad"} />
             <div>
-              <strong>{health.data ? "Service healthy" : "Needs attention"}</strong>
-              <small>{health.data ? `${health.data.qdrant.memories} memories · ${health.data.outbox.pending} queued` : "Checking…"}</small>
+              <strong>{health.data?.qdrant.available ? "Service healthy" : "Needs attention"}</strong>
+              <small>{health.data ? `${health.data.qdrant.memories ?? "—"} memories · ${health.data.outbox.pending} queued` : "Checking…"}</small>
             </div>
           </div>
           <Button variant="ghost" size="sm" className="key-forget" onClick={forgetApiKey}><KeyRound size={13} /> API key</Button>

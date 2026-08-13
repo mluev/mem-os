@@ -7,9 +7,7 @@ import httpx
 from ... import errors
 from ...client import AuthenticatedClient, Client
 from ...models.http_validation_error import HTTPValidationError
-from ...models.list_links_v1_namespaces_namespace_links_get_response_list_links_v1_namespaces_namespace_links_get import (
-    ListLinksV1NamespacesNamespaceLinksGetResponseListLinksV1NamespacesNamespaceLinksGet,
-)
+from ...models.items_out import ItemsOut
 from ...types import Response
 
 
@@ -29,11 +27,9 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> HTTPValidationError | ListLinksV1NamespacesNamespaceLinksGetResponseListLinksV1NamespacesNamespaceLinksGet | None:
+) -> HTTPValidationError | ItemsOut | None:
     if response.status_code == 200:
-        response_200 = ListLinksV1NamespacesNamespaceLinksGetResponseListLinksV1NamespacesNamespaceLinksGet.from_dict(
-            response.json()
-        )
+        response_200 = ItemsOut.from_dict(response.json())
 
         return response_200
 
@@ -50,9 +46,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[
-    HTTPValidationError | ListLinksV1NamespacesNamespaceLinksGetResponseListLinksV1NamespacesNamespaceLinksGet
-]:
+) -> Response[HTTPValidationError | ItemsOut]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -65,9 +59,7 @@ def sync_detailed(
     namespace: str,
     *,
     client: AuthenticatedClient,
-) -> Response[
-    HTTPValidationError | ListLinksV1NamespacesNamespaceLinksGetResponseListLinksV1NamespacesNamespaceLinksGet
-]:
+) -> Response[HTTPValidationError | ItemsOut]:
     """List Links
 
     Args:
@@ -78,7 +70,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | ListLinksV1NamespacesNamespaceLinksGetResponseListLinksV1NamespacesNamespaceLinksGet]
+        Response[HTTPValidationError | ItemsOut]
     """
 
     kwargs = _get_kwargs(
@@ -96,7 +88,7 @@ def sync(
     namespace: str,
     *,
     client: AuthenticatedClient,
-) -> HTTPValidationError | ListLinksV1NamespacesNamespaceLinksGetResponseListLinksV1NamespacesNamespaceLinksGet | None:
+) -> HTTPValidationError | ItemsOut | None:
     """List Links
 
     Args:
@@ -107,7 +99,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | ListLinksV1NamespacesNamespaceLinksGetResponseListLinksV1NamespacesNamespaceLinksGet
+        HTTPValidationError | ItemsOut
     """
 
     return sync_detailed(
@@ -120,9 +112,7 @@ async def asyncio_detailed(
     namespace: str,
     *,
     client: AuthenticatedClient,
-) -> Response[
-    HTTPValidationError | ListLinksV1NamespacesNamespaceLinksGetResponseListLinksV1NamespacesNamespaceLinksGet
-]:
+) -> Response[HTTPValidationError | ItemsOut]:
     """List Links
 
     Args:
@@ -133,7 +123,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | ListLinksV1NamespacesNamespaceLinksGetResponseListLinksV1NamespacesNamespaceLinksGet]
+        Response[HTTPValidationError | ItemsOut]
     """
 
     kwargs = _get_kwargs(
@@ -149,7 +139,7 @@ async def asyncio(
     namespace: str,
     *,
     client: AuthenticatedClient,
-) -> HTTPValidationError | ListLinksV1NamespacesNamespaceLinksGetResponseListLinksV1NamespacesNamespaceLinksGet | None:
+) -> HTTPValidationError | ItemsOut | None:
     """List Links
 
     Args:
@@ -160,7 +150,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | ListLinksV1NamespacesNamespaceLinksGetResponseListLinksV1NamespacesNamespaceLinksGet
+        HTTPValidationError | ItemsOut
     """
 
     return (

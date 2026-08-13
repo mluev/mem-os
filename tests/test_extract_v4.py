@@ -72,6 +72,31 @@ class TestEvidencePreciseExtraction(unittest.TestCase):
         self.assertEqual(outcome.rejected, 1)
         self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM memories").fetchone()[0], 0)
 
+    def test_unique_verbatim_quote_repairs_model_offsets(self) -> None:
+        op = self.op(
+            evidence=[
+                {
+                    "message_id": self.message_id,
+                    "start_char": 99,
+                    "end_char": 100,
+                    "quote": "I prefer pnpm",
+                }
+            ]
+        )
+        with transaction(self.conn):
+            outcome = extract.apply_ops(
+                self.conn,
+                ops=[op],
+                owner_id=OWNER,
+                agent_id="chat",
+                context={"workspace": "mem-os"},
+                judge_run_id=make_judge_run(self.conn),
+                source_message_ids=[self.message_id],
+            )
+        self.assertEqual(outcome.added, 1)
+        evidence = self.conn.execute("SELECT start_char,end_char FROM memory_evidence").fetchone()
+        self.assertEqual((evidence["start_char"], evidence["end_char"]), (0, 13))
+
     def test_update_cannot_cross_owner(self) -> None:
         ensure_owner(self.conn, "other", "other")
         with transaction(self.conn):

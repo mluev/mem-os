@@ -117,6 +117,24 @@ class Client:
         context: dict[str, str] | None = None,
         timeout: float | None = None,
     ) -> list[dict[str, Any]]:
+        result = self.search_with_run(
+            query,
+            budget_tokens=budget_tokens,
+            limit=limit,
+            context=context,
+            timeout=timeout,
+        )
+        return list(result.get("memories") or [])
+
+    def search_with_run(
+        self,
+        query: str,
+        *,
+        budget_tokens: int = 800,
+        limit: int = 30,
+        context: dict[str, str] | None = None,
+        timeout: float | None = None,
+    ) -> dict[str, Any]:
         body: dict[str, Any] = {
             "query": query,
             "budget_tokens": budget_tokens,
@@ -129,8 +147,24 @@ class Client:
                     for key, value in context.items()
                 ]
             }
-        result = self._request("POST", "/v1/memories/search", body, timeout=timeout) or {}
-        return list(result.get("memories") or [])
+        return self._request("POST", "/v1/memories/search", body, timeout=timeout) or {}
+
+    def retrieval_feedback(
+        self,
+        retrieval_id: str,
+        memory_id: str,
+        *,
+        useful: bool | None = None,
+        correct: bool | None = None,
+    ) -> dict[str, Any]:
+        return (
+            self._request(
+                "POST",
+                f"/v1/retrieval-runs/{retrieval_id}/feedback",
+                {"memory_id": memory_id, "useful": useful, "correct": correct},
+            )
+            or {}
+        )
 
     def add_events(self, payloads: list[dict[str, Any]]) -> dict[str, Any]:
         return self._request("POST", "/v1/evidence/events:batch", {"events": payloads}) or {}

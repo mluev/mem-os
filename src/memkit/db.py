@@ -18,16 +18,157 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import sqlite3
 import threading
+import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager, suppress
 from datetime import UTC, datetime
+from hashlib import sha256
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 6
+
+MIGRATION_V6 = """
+CREATE TABLE IF NOT EXISTS schema_migrations (
+    version     INTEGER PRIMARY KEY,
+    checksum    TEXT NOT NULL,
+    applied_at  TEXT NOT NULL
+);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
+    memory_id UNINDEXED,
+    owner_id UNINDEXED,
+    text,
+    kind,
+    tags,
+    tokenize='unicode61 remove_diacritics 2'
+);
+
+CREATE TRIGGER IF NOT EXISTS memories_fts_insert AFTER INSERT ON memories
+WHEN NEW.status='active'
+BEGIN
+    INSERT INTO memories_fts(memory_id,owner_id,text,kind,tags)
+    VALUES (NEW.id,NEW.owner_id,NEW.text,NEW.kind,NEW.tags_json);
+END;
+
+CREATE TRIGGER IF NOT EXISTS memories_fts_update
+AFTER UPDATE OF text,kind,tags_json,status,owner_id ON memories
+BEGIN
+    DELETE FROM memories_fts WHERE memory_id=OLD.id;
+    INSERT INTO memories_fts(memory_id,owner_id,text,kind,tags)
+    SELECT NEW.id,NEW.owner_id,NEW.text,NEW.kind,NEW.tags_json
+    WHERE NEW.status='active';
+END;
+
+CREATE TRIGGER IF NOT EXISTS memories_fts_delete AFTER DELETE ON memories
+BEGIN
+    DELETE FROM memories_fts WHERE memory_id=OLD.id;
+END;
+
+CREATE TABLE IF NOT EXISTS retrieval_runs (
+    id            TEXT PRIMARY KEY,
+    owner_id      TEXT NOT NULL REFERENCES owners(id) ON DELETE CASCADE,
+    query_hash    TEXT NOT NULL,
+    policy_id     TEXT NOT NULL,
+    result_json   TEXT NOT NULL CHECK(json_valid(result_json)),
+    timings_json  TEXT NOT NULL CHECK(json_valid(timings_json)),
+    used_tokens   INTEGER NOT NULL CHECK(used_tokens >= 0),
+    abstained     INTEGER NOT NULL CHECK(abstained IN (0,1)),
+    created_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_retrieval_runs_owner_created
+    ON retrieval_runs(owner_id,created_at);
+
+CREATE TABLE IF NOT EXISTS retrieval_run_feedback (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    retrieval_run_id  TEXT NOT NULL REFERENCES retrieval_runs(id) ON DELETE CASCADE,
+    memory_id         TEXT NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+    useful            INTEGER CHECK(useful IN (0,1)),
+    correct           INTEGER CHECK(correct IN (0,1)),
+    created_at        TEXT NOT NULL,
+    UNIQUE(retrieval_run_id,memory_id)
+);
+
+CREATE TABLE IF NOT EXISTS replay_batches (
+    id                 TEXT PRIMARY KEY,
+    owner_id           TEXT NOT NULL REFERENCES owners(id) ON DELETE CASCADE,
+    job_id             TEXT REFERENCES jobs(id) ON DELETE SET NULL,
+    status             TEXT NOT NULL CHECK(status IN (
+                           'queued','running','review','validated','approved',
+                           'promoting','promoted','failed','cancelled')),
+    model              TEXT NOT NULL,
+    prompt_version     TEXT NOT NULL,
+    source_checksum    TEXT NOT NULL,
+    shadow_path        TEXT,
+    stats_json         TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(stats_json)),
+    approval_checksum  TEXT,
+    error              TEXT,
+    created_at         TEXT NOT NULL,
+    updated_at         TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_replay_batches_owner_created
+    ON replay_batches(owner_id,created_at);
+
+CREATE TABLE IF NOT EXISTS replay_items (
+    id                 TEXT PRIMARY KEY,
+    batch_id           TEXT NOT NULL REFERENCES replay_batches(id) ON DELETE CASCADE,
+    sequence           INTEGER NOT NULL CHECK(sequence >= 0),
+    action             TEXT NOT NULL CHECK(action IN ('ADD','UPDATE','DELETE')),
+    target_memory_id   TEXT,
+    source_revision    INTEGER,
+    before_json        TEXT CHECK(before_json IS NULL OR json_valid(before_json)),
+    proposed_json      TEXT CHECK(proposed_json IS NULL OR json_valid(proposed_json)),
+    evidence_json      TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(evidence_json)),
+    source_role        TEXT NOT NULL CHECK(source_role IN ('user','assistant','tool','manual','agent')),
+    decision           TEXT NOT NULL DEFAULT 'pending'
+                       CHECK(decision IN ('pending','accepted','rejected','edited')),
+    reviewed_json      TEXT CHECK(reviewed_json IS NULL OR json_valid(reviewed_json)),
+    reviewed_at        TEXT,
+    created_at         TEXT NOT NULL,
+    UNIQUE(batch_id,sequence)
+);
+CREATE INDEX IF NOT EXISTS idx_replay_items_batch_decision
+    ON replay_items(batch_id,decision,sequence);
+
+CREATE TABLE IF NOT EXISTS evaluation_runs (
+    id            TEXT PRIMARY KEY,
+    status        TEXT NOT NULL CHECK(status IN ('draft','ready','reviewing','complete','failed')),
+    model         TEXT NOT NULL,
+    rubric_json   TEXT NOT NULL CHECK(json_valid(rubric_json)),
+    summary_json  TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(summary_json)),
+    created_at    TEXT NOT NULL,
+    updated_at    TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS evaluation_cases (
+    id              TEXT PRIMARY KEY,
+    evaluation_id   TEXT NOT NULL REFERENCES evaluation_runs(id) ON DELETE CASCADE,
+    case_key        TEXT NOT NULL,
+    prompt          TEXT NOT NULL,
+    arms_json       TEXT NOT NULL CHECK(json_valid(arms_json)),
+    order_json      TEXT NOT NULL CHECK(json_valid(order_json)),
+    review_json     TEXT CHECK(review_json IS NULL OR json_valid(review_json)),
+    reviewed_at     TEXT,
+    UNIQUE(evaluation_id,case_key)
+);
+
+CREATE TABLE IF NOT EXISTS backup_artifacts (
+    id            TEXT PRIMARY KEY,
+    kind          TEXT NOT NULL CHECK(kind IN ('daily','weekly','pre-migration','pre-promotion','emergency')),
+    path          TEXT NOT NULL UNIQUE,
+    sha256        TEXT NOT NULL,
+    size_bytes    INTEGER NOT NULL CHECK(size_bytes >= 0),
+    verified_at   TEXT NOT NULL,
+    protected     INTEGER NOT NULL DEFAULT 0 CHECK(protected IN (0,1)),
+    created_at    TEXT NOT NULL
+);
+"""
+
+MIGRATION_CHECKSUMS = {6: sha256(MIGRATION_V6.encode()).hexdigest()}
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS owners (
@@ -61,7 +202,9 @@ CREATE TABLE IF NOT EXISTS messages (
     external_id     TEXT,
     context_json    TEXT NOT NULL DEFAULT '{}'
                     CHECK(json_valid(context_json)),
-    redacted        INTEGER NOT NULL DEFAULT 0 CHECK(redacted IN (0,1))
+    redacted        INTEGER NOT NULL DEFAULT 0 CHECK(redacted IN (0,1)),
+    claim_token     TEXT,
+    claim_expires_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, id);
 CREATE INDEX IF NOT EXISTS idx_messages_unprocessed
@@ -106,6 +249,7 @@ CREATE TABLE IF NOT EXISTS memories (
     updated_at         TEXT NOT NULL,
     last_retrieved_at  TEXT,
     retrieval_count    INTEGER NOT NULL DEFAULT 0,
+    revision           INTEGER NOT NULL DEFAULT 1 CHECK(revision >= 1),
     extraction_version TEXT NOT NULL,
     judge_run_id       INTEGER REFERENCES judge_runs(id),
     -- Who the claim came from: the highest-authority role among the messages
@@ -148,6 +292,26 @@ CREATE TABLE IF NOT EXISTS memory_evidence (
     PRIMARY KEY (memory_id, message_id, start_char, end_char)
 );
 
+CREATE TABLE IF NOT EXISTS memory_revisions (
+    memory_id          TEXT NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+    revision           INTEGER NOT NULL CHECK(revision >= 1),
+    kind               TEXT NOT NULL,
+    text               TEXT NOT NULL,
+    importance         REAL NOT NULL,
+    confidence         REAL NOT NULL,
+    status             TEXT NOT NULL,
+    superseded_by      TEXT,
+    valid_until        TEXT,
+    extraction_version TEXT NOT NULL,
+    judge_run_id       INTEGER,
+    source_role        TEXT NOT NULL,
+    context_json       TEXT NOT NULL CHECK(json_valid(context_json)),
+    tags_json          TEXT NOT NULL CHECK(json_valid(tags_json)),
+    redacted           INTEGER NOT NULL CHECK(redacted IN (0,1)),
+    created_at         TEXT NOT NULL,
+    PRIMARY KEY (memory_id, revision)
+);
+
 CREATE TABLE IF NOT EXISTS index_outbox (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     collection    TEXT NOT NULL,
@@ -159,14 +323,15 @@ CREATE TABLE IF NOT EXISTS index_outbox (
     attempts      INTEGER NOT NULL DEFAULT 0 CHECK(attempts >= 0),
     available_at  TEXT NOT NULL,
     last_error    TEXT,
+    claim_token   TEXT,
+    lease_expires_at TEXT,
     created_at    TEXT NOT NULL,
     updated_at    TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_outbox_pending
     ON index_outbox(status, available_at, id);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_outbox_one_active
-    ON index_outbox(collection, entity_id, operation)
-    WHERE status IN ('pending','processing');
+CREATE INDEX IF NOT EXISTS idx_outbox_entity_sequence
+    ON index_outbox(collection, entity_id, id);
 
 CREATE TABLE IF NOT EXISTS jobs (
     id              TEXT PRIMARY KEY,
@@ -180,6 +345,9 @@ CREATE TABLE IF NOT EXISTS jobs (
     call_limit      INTEGER NOT NULL DEFAULT 0 CHECK(call_limit >= 0),
     calls_completed INTEGER NOT NULL DEFAULT 0 CHECK(calls_completed >= 0),
     cancel_requested INTEGER NOT NULL DEFAULT 0 CHECK(cancel_requested IN (0,1)),
+    holder          TEXT,
+    lease_expires_at TEXT,
+    attempts        INTEGER NOT NULL DEFAULT 0 CHECK(attempts >= 0),
     created_at      TEXT NOT NULL,
     started_at      TEXT,
     finished_at     TEXT,
@@ -262,6 +430,8 @@ CREATE TABLE IF NOT EXISTS record_revisions (
     value_json     TEXT NOT NULL CHECK(json_valid(value_json)),
     metadata_json  TEXT NOT NULL CHECK(json_valid(metadata_json)),
     context_json   TEXT NOT NULL CHECK(json_valid(context_json)),
+    status         TEXT NOT NULL DEFAULT 'active'
+                   CHECK(status IN ('active','archived','deleted')),
     created_at     TEXT NOT NULL,
     PRIMARY KEY(record_id, revision)
 );
@@ -295,6 +465,7 @@ CREATE TABLE IF NOT EXISTS retrieval_feedback (
     correct     INTEGER CHECK(correct IN (0,1)),
     created_at  TEXT NOT NULL
 );
+
 """
 
 
@@ -335,6 +506,9 @@ def init_db(db_path: Path) -> None:
         )
         if current == 0 and not has_legacy_data:
             conn.executescript(SCHEMA)
+            conn.executescript(MIGRATION_V6)
+            _sync_fts(conn)
+            _record_migration_history(conn, through=SCHEMA_VERSION)
             _seed_core_policies(conn)
             conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
             return
@@ -361,6 +535,7 @@ def init_db(db_path: Path) -> None:
         if current == 3:
             _backup_and_export_v3(conn, db_path)
             _migrate_v4(conn)
+            current = 4
         memory_columns = {row["name"] for row in conn.execute("PRAGMA table_info(memories)")}
         if "kind" in memory_columns and "legacy_imported" not in memory_columns:
             conn.execute(
@@ -368,8 +543,158 @@ def init_db(db_path: Path) -> None:
                 "INTEGER NOT NULL DEFAULT 0 CHECK(legacy_imported IN (0,1))"
             )
         conn.executescript(SCHEMA)
+        if current < 5:
+            _migrate_v5(conn)
+            conn.executescript(SCHEMA)
+            current = 5
+        if current < 6:
+            _assert_database_integrity(conn, stage="before migration v6")
+            artifact = _create_pre_migration_backup(conn, db_path, source_version=current)
+            conn.executescript(MIGRATION_V6)
+            _sync_fts(conn)
+            _record_migration_history(conn, through=6)
+            conn.execute(
+                """INSERT OR IGNORE INTO backup_artifacts
+                   (id,kind,path,sha256,size_bytes,verified_at,protected,created_at)
+                   VALUES (?,'pre-migration',?,?,?,?,1,?)""",
+                (
+                    str(uuid.uuid4()),
+                    str(artifact["path"]),
+                    artifact["sha256"],
+                    artifact["size_bytes"],
+                    artifact["verified_at"],
+                    artifact["created_at"],
+                ),
+            )
+            _assert_database_integrity(conn, stage="after migration v6")
+            current = 6
+        _verify_migration_history(conn)
         _seed_core_policies(conn)
         conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
+
+
+def _assert_database_integrity(conn: sqlite3.Connection, *, stage: str) -> None:
+    quick = [str(row[0]) for row in conn.execute("PRAGMA quick_check").fetchall()]
+    if quick != ["ok"]:
+        raise RuntimeError(f"{stage}: SQLite quick_check failed: {quick[:3]}")
+    broken = conn.execute("PRAGMA foreign_key_check").fetchall()
+    if broken:
+        raise RuntimeError(f"{stage}: SQLite has {len(broken)} foreign-key violations")
+
+
+def _file_sha256(path: Path) -> str:
+    digest = sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _create_pre_migration_backup(
+    conn: sqlite3.Connection, db_path: Path, *, source_version: int
+) -> dict[str, object]:
+    conn.commit()
+    backup_dir = db_path.parent / "backups"
+    backup_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(backup_dir, 0o700)
+    timestamp = utcnow().replace(":", "").replace("-", "")
+    path = backup_dir / f"pre-migration-v{source_version}-{timestamp}-{uuid.uuid4().hex[:8]}.db"
+    temporary = path.with_suffix(".db.tmp")
+    target = sqlite3.connect(temporary)
+    try:
+        conn.backup(target)
+    finally:
+        target.close()
+    os.chmod(temporary, 0o600)
+    check = sqlite3.connect(f"file:{temporary}?mode=ro", uri=True)
+    try:
+        check.execute("PRAGMA foreign_keys=ON")
+        _assert_database_integrity(check, stage="migration backup verification")
+    finally:
+        check.close()
+    temporary.replace(path)
+    now = utcnow()
+    return {
+        "path": path.resolve(),
+        "sha256": _file_sha256(path),
+        "size_bytes": path.stat().st_size,
+        "verified_at": now,
+        "created_at": now,
+    }
+
+
+def _sync_fts(conn: sqlite3.Connection) -> None:
+    conn.execute("DELETE FROM memories_fts")
+    conn.execute(
+        """INSERT INTO memories_fts(memory_id,owner_id,text,kind,tags)
+           SELECT id,owner_id,text,kind,tags_json FROM memories WHERE status='active'"""
+    )
+
+
+def _record_migration_history(conn: sqlite3.Connection, *, through: int) -> None:
+    for version in range(1, through + 1):
+        checksum = MIGRATION_CHECKSUMS.get(
+            version, sha256(f"legacy-schema-v{version}".encode()).hexdigest()
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations(version,checksum,applied_at) VALUES (?,?,?)",
+            (version, checksum, utcnow()),
+        )
+
+
+def _verify_migration_history(conn: sqlite3.Connection) -> None:
+    rows = conn.execute(
+        "SELECT version,checksum FROM schema_migrations ORDER BY version"
+    ).fetchall()
+    expected_versions = list(range(1, SCHEMA_VERSION + 1))
+    if [int(row["version"]) for row in rows] != expected_versions:
+        raise RuntimeError("database migration ledger is incomplete or out of order")
+    for row in rows:
+        expected = MIGRATION_CHECKSUMS.get(
+            int(row["version"]),
+            sha256(f"legacy-schema-v{int(row['version'])}".encode()).hexdigest(),
+        )
+        if row["checksum"] != expected:
+            raise RuntimeError(f"database migration {row['version']} checksum mismatch")
+
+
+def _migrate_v5(conn: sqlite3.Connection) -> None:
+    """Add durable claims and immutable revision streams to schema v4."""
+
+    def add(table: str, column: str, declaration: str) -> None:
+        columns = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+        if column not in columns:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {declaration}")
+
+    add("messages", "claim_token", "TEXT")
+    add("messages", "claim_expires_at", "TEXT")
+    add("memories", "revision", "INTEGER NOT NULL DEFAULT 1 CHECK(revision >= 1)")
+    add("index_outbox", "claim_token", "TEXT")
+    add("index_outbox", "lease_expires_at", "TEXT")
+    add("jobs", "holder", "TEXT")
+    add("jobs", "lease_expires_at", "TEXT")
+    add("jobs", "attempts", "INTEGER NOT NULL DEFAULT 0 CHECK(attempts >= 0)")
+    add(
+        "record_revisions",
+        "status",
+        "TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','archived','deleted'))",
+    )
+    conn.execute("DROP INDEX IF EXISTS idx_outbox_one_active")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_outbox_entity_sequence "
+        "ON index_outbox(collection,entity_id,id)"
+    )
+    now = utcnow()
+    conn.execute(
+        """INSERT OR IGNORE INTO memory_revisions
+           (memory_id,revision,kind,text,importance,confidence,status,superseded_by,
+            valid_until,extraction_version,judge_run_id,source_role,context_json,
+            tags_json,redacted,created_at)
+           SELECT id,revision,kind,text,importance,confidence,status,superseded_by,
+                  valid_until,extraction_version,judge_run_id,source_role,context_json,
+                  tags_json,redacted,COALESCE(updated_at,?) FROM memories""",
+        (now,),
+    )
 
 
 def _seed_core_policies(conn: sqlite3.Connection) -> None:
@@ -421,7 +746,21 @@ def _seed_core_policies(conn: sqlite3.Connection) -> None:
 def _backup_and_export_v3(conn: sqlite3.Connection, db_path: Path) -> None:
     """Create recoverable v3 artifacts before retiring the task aggregate."""
     conn.commit()
-    backup_path = db_path.with_suffix(f"{db_path.suffix}.v3.bak")
+    identity_payload = {
+        "database": str(db_path.resolve()),
+        "owners": conn.execute("SELECT COUNT(*) FROM owners").fetchone()[0],
+        "sessions": conn.execute("SELECT COUNT(*) FROM sessions").fetchone()[0],
+        "messages": conn.execute("SELECT COUNT(*) FROM messages").fetchone()[0],
+        "memories": conn.execute("SELECT COUNT(*) FROM memories").fetchone()[0],
+        "task_ids": [
+            row[0]
+            for row in conn.execute(
+                "SELECT memory_id FROM task_board ORDER BY memory_id"
+            ).fetchall()
+        ],
+    }
+    source_identity = sha256(json.dumps(identity_payload, sort_keys=True).encode()).hexdigest()[:16]
+    backup_path = db_path.with_name(f"{db_path.name}.v3-{source_identity}.bak")
     if not backup_path.exists():
         temporary = backup_path.with_suffix(f"{backup_path.suffix}.tmp")
         backup_conn = sqlite3.connect(temporary)
@@ -453,7 +792,7 @@ def _backup_and_export_v3(conn: sqlite3.Connection, db_path: Path) -> None:
             ]
     export_dir = db_path.parent / "exports"
     export_dir.mkdir(parents=True, exist_ok=True)
-    export_path = export_dir / "task-board-v3.json"
+    export_path = export_dir / f"task-board-v3-{source_identity}.json"
     if not export_path.exists():
         temporary = export_path.with_suffix(".json.tmp")
         temporary.write_text(
@@ -462,6 +801,7 @@ def _backup_and_export_v3(conn: sqlite3.Connection, db_path: Path) -> None:
                     "schema_version": 3,
                     "exported_at": utcnow(),
                     "source_database": db_path.name,
+                    "source_identity": source_identity,
                     "tasks": tasks,
                 },
                 ensure_ascii=False,

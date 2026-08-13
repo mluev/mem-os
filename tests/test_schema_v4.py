@@ -146,7 +146,7 @@ class TestSchemaV4(unittest.TestCase):
         db.init_db(self.path)
 
         conn = db.connect(self.path)
-        self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 4)
+        self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 6)
         tables = {
             row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
         }
@@ -173,11 +173,12 @@ class TestSchemaV4(unittest.TestCase):
         self.assertEqual(pref["kind"], "preference")
         self.assertEqual(json.loads(pref["context_json"]), {"source_workspace": "mem-os"})
 
-        backup = self.path.with_suffix(".db.v3.bak")
-        export = self.root / "exports" / "task-board-v3.json"
+        backup = next(self.root.glob("memkit.db.v3-*.bak"))
+        export = next((self.root / "exports").glob("task-board-v3-*.json"))
         self.assertTrue(backup.is_file())
         payload = json.loads(export.read_text())
         self.assertEqual(payload["schema_version"], 3)
+        self.assertTrue(payload["source_identity"])
         self.assertEqual(payload["tasks"][0]["memory_id"], "m-task")
         self.assertEqual(payload["tasks"][0]["due_at"], "2026-08-10T00:00:00Z")
 

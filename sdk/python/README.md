@@ -18,6 +18,8 @@ from memkit_client import AuthenticatedClient
 client = AuthenticatedClient(base_url="https://api.example.com", token="SuperSecretToken")
 ```
 
+`AuthenticatedClient` sends the token in Memkit's required `X-API-Key` header.
+
 Now call your endpoint and use your models:
 
 ```python

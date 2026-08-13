@@ -39,6 +39,7 @@ logger = logging.getLogger(__name__)
 
 ProviderCallable = Callable[..., "ProviderResult"]
 _CUSTOM_PROVIDERS: dict[str, tuple[str, ProviderCallable]] = {}
+PROVIDER_TIMEOUT_SECONDS = 120.0
 
 
 def register_provider(family: str, *, model_prefix: str, call: ProviderCallable) -> None:
@@ -72,8 +73,9 @@ def _operation_properties(*, anthropic: bool) -> dict[str, Any]:
             "message_id": {"type": "integer"},
             "start_char": {"type": "integer"},
             "end_char": {"type": "integer"},
+            "quote": nullable_string,
         },
-        "required": ["message_id", "start_char", "end_char"],
+        "required": ["message_id", "start_char", "end_char", "quote"],
     }
     context_item = {
         "type": "object",
@@ -201,7 +203,11 @@ def call_anthropic(*, model: str, prompt: str, api_key: str, effort: str = "low"
         extra["output_config"] = {"effort": effort}
 
     tool = anthropic_tool()
-    response = Anthropic(api_key=api_key).messages.create(
+    response = Anthropic(
+        api_key=api_key,
+        timeout=PROVIDER_TIMEOUT_SECONDS,
+        max_retries=1,
+    ).messages.create(
         model=model,
         max_tokens=4096,
         tools=[tool],
@@ -257,9 +263,13 @@ def call_vertex(
             project=project,
             location=location or "global",
             api_key=api_key or None,
+            http_options=types.HttpOptions(timeout=int(PROVIDER_TIMEOUT_SECONDS * 1000)),
         )
     else:
-        client = genai.Client(api_key=api_key)
+        client = genai.Client(
+            api_key=api_key,
+            http_options=types.HttpOptions(timeout=int(PROVIDER_TIMEOUT_SECONDS * 1000)),
+        )
     response = client.models.generate_content(
         model=model,
         contents=prompt,
@@ -406,7 +416,11 @@ def call_merge(
     extra: dict[str, Any] = {}
     if not model.startswith("claude-haiku"):
         extra["output_config"] = {"effort": "low"}
-    response = Anthropic(api_key=anthropic_api_key).messages.create(
+    response = Anthropic(
+        api_key=anthropic_api_key,
+        timeout=PROVIDER_TIMEOUT_SECONDS,
+        max_retries=1,
+    ).messages.create(
         model=model,
         max_tokens=1024,
         tools=[tool],

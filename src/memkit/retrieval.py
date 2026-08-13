@@ -110,6 +110,7 @@ class Explain:
     dropped_relevance: list[str] = field(default_factory=list)
     policy_id: str = "neutral-v1"
     embed_ms: float = 0.0
+    timings: dict[str, float] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -121,6 +122,7 @@ class Explain:
             "dropped_relevance": self.dropped_relevance,
             "policy_id": self.policy_id,
             "embed_ms": round(self.embed_ms, 1),
+            "timings": {key: round(value, 1) for key, value in self.timings.items()},
         }
 
 
@@ -172,6 +174,79 @@ def _entity_matches(query: str, rows: list[sqlite3.Row]) -> dict[str, float]:
     }
 
 
+def _fts_candidates(
+    conn: sqlite3.Connection, *, query: str, owner_id: str, limit: int
+) -> dict[str, float]:
+    """Return a bounded, normalized FTS5 candidate set.
+
+    Tokens come from ``WORD_RE`` and are quoted individually, so user input is
+    never interpreted as FTS syntax. SQLite's BM25 is lower-is-better; ranking
+    by reciprocal position keeps the lexical component stable and bounded.
+    """
+    terms = list(dict.fromkeys(_terms(query)))
+    if not terms:
+        return {}
+    match = " OR ".join(f'"{term}"' for term in terms[:32])
+    rows = conn.execute(
+        """SELECT memory_id,bm25(memories_fts,0.0,0.0,1.0,0.35,0.2) AS rank
+           FROM memories_fts
+           WHERE memories_fts MATCH ? AND owner_id=?
+           ORDER BY rank,memory_id LIMIT ?""",
+        (match, owner_id, limit),
+    ).fetchall()
+    if not rows:
+        return {}
+    # FTS5's BM25 is negative/lower-is-better. Normalize the bounded result
+    # scores by the strongest magnitude; unlike reciprocal rank this does not
+    # arbitrarily push the second equally relevant document below abstention.
+    magnitudes = [abs(float(row["rank"])) for row in rows]
+    maximum = max(magnitudes, default=1.0) or 1.0
+    return {
+        str(row["memory_id"]): magnitude / maximum
+        for row, magnitude in zip(rows, magnitudes, strict=True)
+    }
+
+
+def _entity_candidates(
+    conn: sqlite3.Connection, *, query: str, owner_id: str, limit: int
+) -> dict[str, float]:
+    entities = list(
+        dict.fromkeys(
+            token.casefold()
+            for token in WORD_RE.findall(query)
+            if any(char.isdigit() or char in "./:@#_-" for char in token)
+            or (len(token) > 1 and token.isupper())
+        )
+    )[:16]
+    if not entities:
+        return {}
+    # Use the transactional FTS projection instead of scanning every memory
+    # with ``instr(lowerx(text), ...)``. Quoted entity phrases preserve exact
+    # identifier matching while the LIMIT keeps this arm bounded at 100k+ rows.
+    match = " OR ".join(f'"{entity}"' for entity in entities)
+    rows = conn.execute(
+        """SELECT memory_id FROM memories_fts
+            WHERE memories_fts MATCH ? AND owner_id=?
+            ORDER BY bm25(memories_fts),memory_id LIMIT ?""",
+        (match, owner_id, limit),
+    ).fetchall()
+    return {str(row["memory_id"]): 1.0 for row in rows}
+
+
+def _candidate_rows(
+    conn: sqlite3.Connection, *, owner_id: str, candidate_ids: set[str]
+) -> dict[str, sqlite3.Row]:
+    if not candidate_ids:
+        return {}
+    ordered = sorted(candidate_ids)
+    placeholders = ",".join("?" for _ in ordered)
+    rows = conn.execute(
+        f"SELECT * FROM memories WHERE owner_id=? AND id IN ({placeholders})",
+        (owner_id, *ordered),
+    ).fetchall()
+    return {str(row["id"]): row for row in rows}
+
+
 def _age_days(value: str, now: datetime) -> float:
     try:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
@@ -220,36 +295,44 @@ def explain(
     include_untrusted: bool = False,
     reranker: Reranker | None = None,
     now: datetime | None = None,
+    memory_collection: str = vectors.MEMORIES,
 ) -> Explain:
+    total_started = time.perf_counter()
+    filters.validate(expression)
     policy = policy or RetrievalPolicy()
     now = now or datetime.now(UTC)
-    rows = conn.execute(
-        "SELECT * FROM memories WHERE owner_id=? AND status='active'",
-        (owner_id,),
-    ).fetchall()
-    row_by_id = {row["id"]: row for row in rows}
-
-    started = time.perf_counter()
+    embed_started = time.perf_counter()
     dense_vector = embedder.encode_one(query)
+    embed_ms = (time.perf_counter() - embed_started) * 1000
+    dense_started = time.perf_counter()
     dense_hits = vectors.search(
         client,
-        vectors.MEMORIES,
+        memory_collection,
         dense_vector,
         limit=max(50, limit * 3),
         must=[vectors.keyword("owner_id", owner_id), vectors.keyword("status", "active")],
     )
-    embed_ms = (time.perf_counter() - started) * 1000
+    dense_ms = (time.perf_counter() - dense_started) * 1000
     dense = {str(hit.id): max(0.0, float(hit.score)) for hit in dense_hits}
-    lexical = _bm25(query, rows)
-    entity = _entity_matches(query, rows)
+    candidate_limit = max(50, limit * 3)
+    lexical_started = time.perf_counter()
+    lexical = _fts_candidates(conn, query=query, owner_id=owner_id, limit=candidate_limit)
+    lexical_ms = (time.perf_counter() - lexical_started) * 1000
+    entity_started = time.perf_counter()
+    entity = _entity_candidates(conn, query=query, owner_id=owner_id, limit=candidate_limit)
+    entity_ms = (time.perf_counter() - entity_started) * 1000
     candidate_ids = set(dense) | set(lexical) | set(entity)
+    fetch_started = time.perf_counter()
+    row_by_id = _candidate_rows(conn, owner_id=owner_id, candidate_ids=candidate_ids)
+    fetch_ms = (time.perf_counter() - fetch_started) * 1000
 
     dropped_trust: list[str] = []
     dropped_validity: list[str] = []
     dropped_filter: list[str] = []
     dropped_relevance: list[str] = []
     scored: list[Scored] = []
-    for memory_id in candidate_ids:
+    scoring_started = time.perf_counter()
+    for memory_id in sorted(candidate_ids):
         row = row_by_id.get(memory_id)
         if row is None:
             continue
@@ -310,6 +393,8 @@ def explain(
     scored.sort(key=lambda item: (-item.score, item.id))
     scored = (reranker or IdentityReranker()).rerank(query, scored)
     chosen, used = _fill_budget(scored[:limit], budget_tokens)
+    scoring_ms = (time.perf_counter() - scoring_started) * 1000
+    total_ms = (time.perf_counter() - total_started) * 1000
     return Explain(
         chosen=chosen,
         used_tokens=used,
@@ -319,6 +404,15 @@ def explain(
         dropped_relevance=dropped_relevance,
         policy_id=policy.id,
         embed_ms=embed_ms,
+        timings={
+            "embed_ms": embed_ms,
+            "dense_ms": dense_ms,
+            "lexical_ms": lexical_ms,
+            "entity_ms": entity_ms,
+            "fetch_ms": fetch_ms,
+            "scoring_ms": scoring_ms,
+            "total_ms": total_ms,
+        },
     )
 
 

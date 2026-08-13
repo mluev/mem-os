@@ -7,9 +7,7 @@ import httpx
 from ... import errors
 from ...client import AuthenticatedClient, Client
 from ...models.http_validation_error import HTTPValidationError
-from ...models.list_session_messages_v1_admin_sessions_session_id_messages_get_response_list_session_messages_v1_admin_sessions_session_id_messages_get import (
-    ListSessionMessagesV1AdminSessionsSessionIdMessagesGetResponseListSessionMessagesV1AdminSessionsSessionIdMessagesGet,
-)
+from ...models.session_messages_out import SessionMessagesOut
 from ...types import UNSET, Response, Unset
 
 
@@ -41,15 +39,9 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> (
-    HTTPValidationError
-    | ListSessionMessagesV1AdminSessionsSessionIdMessagesGetResponseListSessionMessagesV1AdminSessionsSessionIdMessagesGet
-    | None
-):
+) -> HTTPValidationError | SessionMessagesOut | None:
     if response.status_code == 200:
-        response_200 = ListSessionMessagesV1AdminSessionsSessionIdMessagesGetResponseListSessionMessagesV1AdminSessionsSessionIdMessagesGet.from_dict(
-            response.json()
-        )
+        response_200 = SessionMessagesOut.from_dict(response.json())
 
         return response_200
 
@@ -66,10 +58,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[
-    HTTPValidationError
-    | ListSessionMessagesV1AdminSessionsSessionIdMessagesGetResponseListSessionMessagesV1AdminSessionsSessionIdMessagesGet
-]:
+) -> Response[HTTPValidationError | SessionMessagesOut]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -84,10 +73,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     limit: int | Unset = 100,
     offset: int | Unset = 0,
-) -> Response[
-    HTTPValidationError
-    | ListSessionMessagesV1AdminSessionsSessionIdMessagesGetResponseListSessionMessagesV1AdminSessionsSessionIdMessagesGet
-]:
+) -> Response[HTTPValidationError | SessionMessagesOut]:
     """List Session Messages
 
     Args:
@@ -100,7 +86,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | ListSessionMessagesV1AdminSessionsSessionIdMessagesGetResponseListSessionMessagesV1AdminSessionsSessionIdMessagesGet]
+        Response[HTTPValidationError | SessionMessagesOut]
     """
 
     kwargs = _get_kwargs(
@@ -122,11 +108,7 @@ def sync(
     client: AuthenticatedClient,
     limit: int | Unset = 100,
     offset: int | Unset = 0,
-) -> (
-    HTTPValidationError
-    | ListSessionMessagesV1AdminSessionsSessionIdMessagesGetResponseListSessionMessagesV1AdminSessionsSessionIdMessagesGet
-    | None
-):
+) -> HTTPValidationError | SessionMessagesOut | None:
     """List Session Messages
 
     Args:
@@ -139,7 +121,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | ListSessionMessagesV1AdminSessionsSessionIdMessagesGetResponseListSessionMessagesV1AdminSessionsSessionIdMessagesGet
+        HTTPValidationError | SessionMessagesOut
     """
 
     return sync_detailed(
@@ -156,10 +138,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     limit: int | Unset = 100,
     offset: int | Unset = 0,
-) -> Response[
-    HTTPValidationError
-    | ListSessionMessagesV1AdminSessionsSessionIdMessagesGetResponseListSessionMessagesV1AdminSessionsSessionIdMessagesGet
-]:
+) -> Response[HTTPValidationError | SessionMessagesOut]:
     """List Session Messages
 
     Args:
@@ -172,7 +151,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | ListSessionMessagesV1AdminSessionsSessionIdMessagesGetResponseListSessionMessagesV1AdminSessionsSessionIdMessagesGet]
+        Response[HTTPValidationError | SessionMessagesOut]
     """
 
     kwargs = _get_kwargs(
@@ -192,11 +171,7 @@ async def asyncio(
     client: AuthenticatedClient,
     limit: int | Unset = 100,
     offset: int | Unset = 0,
-) -> (
-    HTTPValidationError
-    | ListSessionMessagesV1AdminSessionsSessionIdMessagesGetResponseListSessionMessagesV1AdminSessionsSessionIdMessagesGet
-    | None
-):
+) -> HTTPValidationError | SessionMessagesOut | None:
     """List Session Messages
 
     Args:
@@ -209,7 +184,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | ListSessionMessagesV1AdminSessionsSessionIdMessagesGetResponseListSessionMessagesV1AdminSessionsSessionIdMessagesGet
+        HTTPValidationError | SessionMessagesOut
     """
 
     return (

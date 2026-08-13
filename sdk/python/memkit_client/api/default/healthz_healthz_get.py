@@ -5,7 +5,7 @@ import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
-from ...models.healthz_healthz_get_response_healthz_healthz_get import HealthzHealthzGetResponseHealthzHealthzGet
+from ...models.health_out import HealthOut
 from ...types import Response
 
 
@@ -19,11 +19,9 @@ def _get_kwargs() -> dict[str, Any]:
     return _kwargs
 
 
-def _parse_response(
-    *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> HealthzHealthzGetResponseHealthzHealthzGet | None:
+def _parse_response(*, client: AuthenticatedClient | Client, response: httpx.Response) -> HealthOut | None:
     if response.status_code == 200:
-        response_200 = HealthzHealthzGetResponseHealthzHealthzGet.from_dict(response.json())
+        response_200 = HealthOut.from_dict(response.json())
 
         return response_200
 
@@ -33,9 +31,7 @@ def _parse_response(
         return None
 
 
-def _build_response(
-    *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[HealthzHealthzGetResponseHealthzHealthzGet]:
+def _build_response(*, client: AuthenticatedClient | Client, response: httpx.Response) -> Response[HealthOut]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -47,7 +43,7 @@ def _build_response(
 def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
-) -> Response[HealthzHealthzGetResponseHealthzHealthzGet]:
+) -> Response[HealthOut]:
     """Healthz
 
     Raises:
@@ -55,7 +51,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HealthzHealthzGetResponseHealthzHealthzGet]
+        Response[HealthOut]
     """
 
     kwargs = _get_kwargs()
@@ -70,7 +66,7 @@ def sync_detailed(
 def sync(
     *,
     client: AuthenticatedClient | Client,
-) -> HealthzHealthzGetResponseHealthzHealthzGet | None:
+) -> HealthOut | None:
     """Healthz
 
     Raises:
@@ -78,7 +74,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HealthzHealthzGetResponseHealthzHealthzGet
+        HealthOut
     """
 
     return sync_detailed(
@@ -89,7 +85,7 @@ def sync(
 async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
-) -> Response[HealthzHealthzGetResponseHealthzHealthzGet]:
+) -> Response[HealthOut]:
     """Healthz
 
     Raises:
@@ -97,7 +93,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HealthzHealthzGetResponseHealthzHealthzGet]
+        Response[HealthOut]
     """
 
     kwargs = _get_kwargs()
@@ -110,7 +106,7 @@ async def asyncio_detailed(
 async def asyncio(
     *,
     client: AuthenticatedClient | Client,
-) -> HealthzHealthzGetResponseHealthzHealthzGet | None:
+) -> HealthOut | None:
     """Healthz
 
     Raises:
@@ -118,7 +114,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HealthzHealthzGetResponseHealthzHealthzGet
+        HealthOut
     """
 
     return (

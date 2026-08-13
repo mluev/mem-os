@@ -72,6 +72,8 @@ def test_settings(db_path: Path) -> config.Settings:
     """
     return config.Settings(
         api_key=TEST_KEY,
+        api_key_file=None,
+        telemetry_hmac_key=TEST_KEY,
         db_path=db_path,
         owner_id=OWNER,
         owner_name="test",

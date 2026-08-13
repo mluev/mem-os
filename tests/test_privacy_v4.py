@@ -45,6 +45,13 @@ def test_export_is_complete_and_erasure_removes_truth_and_generations() -> None:
             collection_name="records",
             value={"name": "sample"},
         )
+        outbox.enqueue(
+            conn,
+            collection="future-derived-view",
+            entity_id="not-in-the-memory-snapshot",
+            operation="delete",
+            payload={"owner_id": OWNER, "text": "private queued payload"},
+        )
     outbox.drain(conn, client, embedder, limit=100)
     output = Path(tempfile.mkdtemp())
     archive = privacy.export_owner(conn, owner_id=OWNER, export_dir=output)
@@ -52,9 +59,11 @@ def test_export_is_complete_and_erasure_removes_truth_and_generations() -> None:
         payload = json.loads(handle.read("export.json"))
     assert payload["memories"][0]["id"] == memory_id
     assert payload["messages"] and payload["records"] and payload["record_revisions"]
+    assert payload["memory_revisions"][0]["memory_id"] == memory_id
 
-    counts = privacy.erase_owner(conn, client, embedder, owner_id=OWNER)
-    assert counts == {"memories": 1, "messages": 1}
+    counts = privacy.erase_owner(conn, client, embedder, owner_id=OWNER, export_dir=output)
+    assert counts == {"memories": 1, "messages": 1, "artifacts": 1}
+    assert not archive.exists()
     assert conn.execute("SELECT COUNT(*) FROM owners").fetchone()[0] == 0
     assert conn.execute("SELECT COUNT(*) FROM index_outbox").fetchone()[0] == 0
     assert all(not values for values in client._store.values())

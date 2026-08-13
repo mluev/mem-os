@@ -2,16 +2,33 @@
 
 from __future__ import annotations
 
+import os
+import stat
+import sys
 from pathlib import Path
 
-from pydantic import AliasChoices, Field
+from pydantic import AliasChoices, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+DEFAULT_CONFIG_DIR = Path.home() / ".config" / "memkit"
+DEFAULT_DATA_DIR = (
+    Path.home() / "Library" / "Application Support" / "memkit"
+    if sys.platform == "darwin"
+    else Path.home() / ".local" / "share" / "memkit"
+)
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_prefix="MEMKIT_", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=(DEFAULT_CONFIG_DIR / "config.env", ".env"),
+        env_prefix="MEMKIT_",
+        extra="ignore",
+    )
 
     api_key: str = "change-me"
+    api_key_file: Path | None = None
+    telemetry_hmac_key: str = ""
+    telemetry_retention_days: int = 90
     # Read unprefixed: the SDKs and every other tool expect these exact names.
     anthropic_api_key: str = Field(default="", validation_alias="ANTHROPIC_API_KEY")
 
@@ -50,8 +67,11 @@ class Settings(BaseSettings):
     expose_docs: bool = True
     allow_remote: bool = False
     export_dir: Path = Path("./data/exports")
+    backup_dir: Path = Path("./data/backups")
+    qdrant_version: str = "1.18.2"
 
     monthly_cost_limit_usd: float = 15.0
+    improvement_budget_usd: float = 10.0
 
     # Cheapest option. Swap for a claude-* model to compare on the same eval;
     # see providers.py.
@@ -79,6 +99,21 @@ class Settings(BaseSettings):
     consolidate_stale_days: int = 90
     consolidate_demotion: float = 0.1
 
+    @model_validator(mode="after")
+    def load_secret_files(self) -> Settings:
+        if self.api_key_file is not None:
+            path = self.api_key_file.expanduser()
+            mode = stat.S_IMODE(path.stat().st_mode)
+            if mode & 0o077:
+                raise ValueError(f"API key file permissions must be 0600: {path}")
+            key = path.read_text(encoding="utf-8").strip()
+            if len(key) < 32:
+                raise ValueError("API key file must contain at least 32 characters")
+            self.api_key = key
+        if not self.telemetry_hmac_key:
+            self.telemetry_hmac_key = self.api_key
+        return self
+
 
 _settings: Settings | None = None
 
@@ -88,4 +123,7 @@ def get_settings() -> Settings:
     if _settings is None:
         _settings = Settings()
         _settings.db_path.parent.mkdir(parents=True, exist_ok=True)
+        _settings.backup_dir.mkdir(parents=True, exist_ok=True)
+        if os.name == "posix":
+            os.chmod(_settings.backup_dir, 0o700)
     return _settings

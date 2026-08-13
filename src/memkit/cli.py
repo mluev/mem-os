@@ -13,7 +13,20 @@ import tempfile
 from importlib import resources
 from pathlib import Path
 
-from . import consolidate, outbox, privacy, reextract, reindex, store, vectors
+import yaml
+
+from . import (
+    benchmark,
+    consolidate,
+    operations,
+    outbox,
+    policy_sweep,
+    privacy,
+    reextract,
+    reindex,
+    store,
+    vectors,
+)
 from .config import get_settings
 from .db import connect, init_db, transaction
 from .embed import get_embedder
@@ -154,7 +167,13 @@ def cmd_erase(args: argparse.Namespace) -> int:
         return 2
     settings = get_settings()
     conn, client = _ready()
-    result = privacy.erase_owner(conn, client, get_embedder(), owner_id=settings.owner_id)
+    result = privacy.erase_owner(
+        conn,
+        client,
+        get_embedder(),
+        owner_id=settings.owner_id,
+        export_dir=settings.export_dir,
+    )
     conn.close()
     _json(result)
     return 0
@@ -195,22 +214,155 @@ def _hermes_source() -> Path:
     return Path(__file__).resolve().parents[2] / "integrations" / "hermes" / "memkit"
 
 
-def cmd_install_hermes(args: argparse.Namespace) -> int:
+def _configure_hermes(home: Path, settings: object) -> None:
+    config_path = home / "config.yaml"
+    existing = (
+        yaml.safe_load(config_path.read_text(encoding="utf-8-sig")) or {}
+        if config_path.exists()
+        else {}
+    )
+    existing.setdefault("memory", {})["provider"] = "memkit"
+    plugin = existing.setdefault("plugins", {}).setdefault("memkit", {})
+    plugin.update(
+        {
+            "base_url": f"http://{settings.host}:{settings.port}",
+            "db_path": str(settings.db_path.expanduser().resolve()),
+            "budget_tokens": int(plugin.get("budget_tokens", 800) or 800),
+            "prefetch_timeout": float(plugin.get("prefetch_timeout", 0.4) or 0.4),
+            "send_tool_results": False,
+        }
+    )
+    if settings.api_key_file is not None:
+        plugin["api_key_file"] = str(settings.api_key_file.expanduser().resolve())
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = config_path.with_suffix(".yaml.tmp")
+    temporary.write_text(
+        yaml.safe_dump(existing, default_flow_style=False, allow_unicode=True, sort_keys=False),
+        encoding="utf-8",
+    )
+    os.chmod(temporary, 0o600)
+    temporary.replace(config_path)
+
+
+def _install_hermes(
+    *,
+    hermes_home: str | None = None,
+    force: bool = False,
+    settings: object | None = None,
+) -> Path:
     source = _hermes_source()
     if not source.is_dir():
-        print("Hermes provider is missing from this installation", file=sys.stderr)
-        return 1
-    home = Path(args.hermes_home or os.environ.get("HERMES_HOME") or "~/.hermes").expanduser()
+        raise RuntimeError("Hermes provider is missing from this installation")
+    home = Path(hermes_home or os.environ.get("HERMES_HOME") or "~/.hermes").expanduser()
     target = home / "plugins" / "memkit"
-    if target.exists() and not args.force:
-        print(f"{target} exists; pass --force to replace it", file=sys.stderr)
-        return 1
+    if target.exists() and not force:
+        raise FileExistsError(f"{target} exists; pass --force to replace it")
     target.parent.mkdir(parents=True, exist_ok=True)
     if target.exists():
         shutil.rmtree(target)
     shutil.copytree(source, target, ignore=shutil.ignore_patterns("__pycache__"))
+    if settings is not None:
+        _configure_hermes(home, settings)
+    return target.resolve()
+
+
+def cmd_install_hermes(args: argparse.Namespace) -> int:
+    try:
+        target = _install_hermes(
+            hermes_home=args.hermes_home,
+            force=args.force,
+            settings=get_settings(),
+        )
+    except (RuntimeError, FileExistsError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
     print(target.resolve())
     return 0
+
+
+def cmd_doctor(args: argparse.Namespace) -> int:
+    report = operations.doctor(get_settings(), load_model=args.load_model)
+    if args.json:
+        _json(report)
+    else:
+        for check in report["checks"]:
+            mark = "OK" if check["ok"] else "FAIL"
+            print(f"{mark:4} {check['name']}: {check['detail']}")
+    return int(not report["ok"])
+
+
+def cmd_service(args: argparse.Namespace) -> int:
+    result = operations.service_action(args.action, get_settings())
+    _json(result)
+    return int(not result["ok"])
+
+
+def cmd_backup(args: argparse.Namespace) -> int:
+    settings = get_settings()
+    if args.backup_action == "create":
+        result = operations.create_backup(settings, kind=args.kind, protected=args.protected)
+        operations.prune_backups(settings)
+    elif args.backup_action == "list":
+        result = {"items": operations.list_backups(settings)}
+    elif args.backup_action == "verify":
+        rows = {str(row["id"]): row for row in operations.list_backups(settings)}
+        row = rows.get(args.id)
+        if row is None:
+            print("unknown backup artifact", file=sys.stderr)
+            return 1
+        result = operations.verify_backup(Path(row["path"]), expected_sha256=row["sha256"])
+    elif args.backup_action == "prune":
+        result = operations.prune_backups(settings)
+    elif args.backup_action == "restore":
+        operations.service_action("stop", settings)
+        try:
+            result = operations.restore_backup(settings, artifact_id=args.id, confirm=args.confirm)
+        finally:
+            operations.service_action("restart", settings)
+    else:  # pragma: no cover - argparse constrains this
+        raise AssertionError(args.backup_action)
+    _json(result)
+    return 0
+
+
+def cmd_setup(_args: argparse.Namespace) -> int:
+    result = operations.setup(
+        get_settings(),
+        install_hermes=lambda force, settings: _install_hermes(force=force, settings=settings),
+    )
+    _json(result)
+    return int(not result["doctor"]["ok"])
+
+
+def cmd_benchmark_retrieval(args: argparse.Namespace) -> int:
+    result = benchmark.run_100k(get_settings(), memories=args.memories, query_count=args.queries)
+    _json(result)
+    return int(not result["passed"])
+
+
+def cmd_policy_sweep(args: argparse.Namespace) -> int:
+    settings = get_settings()
+    init_db(settings.db_path)
+    conn = connect(settings.db_path)
+    try:
+        if args.activate:
+            path = settings.export_dir / "release-artifacts" / f"policy-sweep-{args.activate}.json"
+            result = policy_sweep.activate(
+                conn,
+                artifact_path=path,
+                checksum=args.activate,
+                confirm=args.confirm,
+            )
+        else:
+            result = policy_sweep.sweep(
+                conn,
+                owner_id=settings.owner_id,
+                output_dir=settings.export_dir / "release-artifacts",
+            )
+    finally:
+        conn.close()
+    _json(result)
+    return int(not result.get("passed", result.get("activated", False)))
 
 
 def main() -> int:
@@ -258,6 +410,50 @@ def main() -> int:
     hermes.add_argument("--hermes-home")
     hermes.add_argument("--force", action="store_true")
     hermes.set_defaults(func=cmd_install_hermes)
+
+    setup = commands.add_parser("setup", help="install and validate a production instance")
+    setup.set_defaults(func=cmd_setup)
+
+    doctor = commands.add_parser("doctor", help="check every local dependency")
+    doctor.add_argument("--json", action="store_true")
+    doctor.add_argument("--load-model", action="store_true")
+    doctor.set_defaults(func=cmd_doctor)
+
+    service = commands.add_parser("service", help="manage the macOS background service")
+    service.add_argument(
+        "action", choices=["install", "start", "stop", "restart", "status", "uninstall"]
+    )
+    service.set_defaults(func=cmd_service)
+
+    backup = commands.add_parser("backup", help="create, verify, prune, or restore backups")
+    backup_commands = backup.add_subparsers(dest="backup_action", required=True)
+    backup_create = backup_commands.add_parser("create")
+    backup_create.add_argument(
+        "--kind",
+        choices=["auto", "daily", "weekly", "pre-migration", "pre-promotion", "emergency"],
+        default="auto",
+    )
+    backup_create.add_argument("--protected", action="store_true")
+    backup_commands.add_parser("list")
+    backup_verify = backup_commands.add_parser("verify")
+    backup_verify.add_argument("--id", required=True)
+    backup_commands.add_parser("prune")
+    backup_restore = backup_commands.add_parser("restore")
+    backup_restore.add_argument("--id", required=True)
+    backup_restore.add_argument("--confirm", default="")
+    backup.set_defaults(func=cmd_backup)
+
+    retrieval_benchmark = commands.add_parser(
+        "benchmark-retrieval", help="run the protected 100k retrieval latency gate"
+    )
+    retrieval_benchmark.add_argument("--memories", type=int, default=100_000)
+    retrieval_benchmark.add_argument("--queries", type=int, default=50)
+    retrieval_benchmark.set_defaults(func=cmd_benchmark_retrieval)
+
+    sweep = commands.add_parser("policy-sweep", help="evaluate labelled retrieval weights offline")
+    sweep.add_argument("--activate", help="manually activate a passing artifact checksum")
+    sweep.add_argument("--confirm", default="")
+    sweep.set_defaults(func=cmd_policy_sweep)
 
     args = parser.parse_args()
     return int(args.func(args))

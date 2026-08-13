@@ -6,10 +6,8 @@ import httpx
 from ... import errors
 from ...client import AuthenticatedClient, Client
 from ...models.feedback_in import FeedbackIn
+from ...models.feedback_out import FeedbackOut
 from ...models.http_validation_error import HTTPValidationError
-from ...models.retrieval_feedback_v1_retrieval_feedback_post_response_retrieval_feedback_v1_retrieval_feedback_post import (
-    RetrievalFeedbackV1RetrievalFeedbackPostResponseRetrievalFeedbackV1RetrievalFeedbackPost,
-)
 from ...types import Response
 
 
@@ -34,17 +32,9 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> (
-    HTTPValidationError
-    | RetrievalFeedbackV1RetrievalFeedbackPostResponseRetrievalFeedbackV1RetrievalFeedbackPost
-    | None
-):
+) -> FeedbackOut | HTTPValidationError | None:
     if response.status_code == 201:
-        response_201 = (
-            RetrievalFeedbackV1RetrievalFeedbackPostResponseRetrievalFeedbackV1RetrievalFeedbackPost.from_dict(
-                response.json()
-            )
-        )
+        response_201 = FeedbackOut.from_dict(response.json())
 
         return response_201
 
@@ -61,9 +51,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[
-    HTTPValidationError | RetrievalFeedbackV1RetrievalFeedbackPostResponseRetrievalFeedbackV1RetrievalFeedbackPost
-]:
+) -> Response[FeedbackOut | HTTPValidationError]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -76,9 +64,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
     body: FeedbackIn,
-) -> Response[
-    HTTPValidationError | RetrievalFeedbackV1RetrievalFeedbackPostResponseRetrievalFeedbackV1RetrievalFeedbackPost
-]:
+) -> Response[FeedbackOut | HTTPValidationError]:
     """Retrieval Feedback
 
     Args:
@@ -89,7 +75,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | RetrievalFeedbackV1RetrievalFeedbackPostResponseRetrievalFeedbackV1RetrievalFeedbackPost]
+        Response[FeedbackOut | HTTPValidationError]
     """
 
     kwargs = _get_kwargs(
@@ -107,11 +93,7 @@ def sync(
     *,
     client: AuthenticatedClient,
     body: FeedbackIn,
-) -> (
-    HTTPValidationError
-    | RetrievalFeedbackV1RetrievalFeedbackPostResponseRetrievalFeedbackV1RetrievalFeedbackPost
-    | None
-):
+) -> FeedbackOut | HTTPValidationError | None:
     """Retrieval Feedback
 
     Args:
@@ -122,7 +104,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | RetrievalFeedbackV1RetrievalFeedbackPostResponseRetrievalFeedbackV1RetrievalFeedbackPost
+        FeedbackOut | HTTPValidationError
     """
 
     return sync_detailed(
@@ -135,9 +117,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
     body: FeedbackIn,
-) -> Response[
-    HTTPValidationError | RetrievalFeedbackV1RetrievalFeedbackPostResponseRetrievalFeedbackV1RetrievalFeedbackPost
-]:
+) -> Response[FeedbackOut | HTTPValidationError]:
     """Retrieval Feedback
 
     Args:
@@ -148,7 +128,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | RetrievalFeedbackV1RetrievalFeedbackPostResponseRetrievalFeedbackV1RetrievalFeedbackPost]
+        Response[FeedbackOut | HTTPValidationError]
     """
 
     kwargs = _get_kwargs(
@@ -164,11 +144,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
     body: FeedbackIn,
-) -> (
-    HTTPValidationError
-    | RetrievalFeedbackV1RetrievalFeedbackPostResponseRetrievalFeedbackV1RetrievalFeedbackPost
-    | None
-):
+) -> FeedbackOut | HTTPValidationError | None:
     """Retrieval Feedback
 
     Args:
@@ -179,7 +155,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | RetrievalFeedbackV1RetrievalFeedbackPostResponseRetrievalFeedbackV1RetrievalFeedbackPost
+        FeedbackOut | HTTPValidationError
     """
 
     return (

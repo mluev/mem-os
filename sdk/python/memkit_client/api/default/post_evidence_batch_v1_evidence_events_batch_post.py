@@ -5,11 +5,9 @@ import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
+from ...models.batch_out import BatchOut
 from ...models.evidence_batch_in import EvidenceBatchIn
 from ...models.http_validation_error import HTTPValidationError
-from ...models.post_evidence_batch_v1_evidence_events_batch_post_response_post_evidence_batch_v1_evidence_events_batch_post import (
-    PostEvidenceBatchV1EvidenceEventsBatchPostResponsePostEvidenceBatchV1EvidenceEventsBatchPost,
-)
 from ...types import Response
 
 
@@ -34,17 +32,9 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> (
-    HTTPValidationError
-    | PostEvidenceBatchV1EvidenceEventsBatchPostResponsePostEvidenceBatchV1EvidenceEventsBatchPost
-    | None
-):
+) -> BatchOut | HTTPValidationError | None:
     if response.status_code == 201:
-        response_201 = (
-            PostEvidenceBatchV1EvidenceEventsBatchPostResponsePostEvidenceBatchV1EvidenceEventsBatchPost.from_dict(
-                response.json()
-            )
-        )
+        response_201 = BatchOut.from_dict(response.json())
 
         return response_201
 
@@ -61,9 +51,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[
-    HTTPValidationError | PostEvidenceBatchV1EvidenceEventsBatchPostResponsePostEvidenceBatchV1EvidenceEventsBatchPost
-]:
+) -> Response[BatchOut | HTTPValidationError]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -76,9 +64,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
     body: EvidenceBatchIn,
-) -> Response[
-    HTTPValidationError | PostEvidenceBatchV1EvidenceEventsBatchPostResponsePostEvidenceBatchV1EvidenceEventsBatchPost
-]:
+) -> Response[BatchOut | HTTPValidationError]:
     """Post Evidence Batch
 
     Args:
@@ -89,7 +75,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | PostEvidenceBatchV1EvidenceEventsBatchPostResponsePostEvidenceBatchV1EvidenceEventsBatchPost]
+        Response[BatchOut | HTTPValidationError]
     """
 
     kwargs = _get_kwargs(
@@ -107,11 +93,7 @@ def sync(
     *,
     client: AuthenticatedClient,
     body: EvidenceBatchIn,
-) -> (
-    HTTPValidationError
-    | PostEvidenceBatchV1EvidenceEventsBatchPostResponsePostEvidenceBatchV1EvidenceEventsBatchPost
-    | None
-):
+) -> BatchOut | HTTPValidationError | None:
     """Post Evidence Batch
 
     Args:
@@ -122,7 +104,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | PostEvidenceBatchV1EvidenceEventsBatchPostResponsePostEvidenceBatchV1EvidenceEventsBatchPost
+        BatchOut | HTTPValidationError
     """
 
     return sync_detailed(
@@ -135,9 +117,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
     body: EvidenceBatchIn,
-) -> Response[
-    HTTPValidationError | PostEvidenceBatchV1EvidenceEventsBatchPostResponsePostEvidenceBatchV1EvidenceEventsBatchPost
-]:
+) -> Response[BatchOut | HTTPValidationError]:
     """Post Evidence Batch
 
     Args:
@@ -148,7 +128,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | PostEvidenceBatchV1EvidenceEventsBatchPostResponsePostEvidenceBatchV1EvidenceEventsBatchPost]
+        Response[BatchOut | HTTPValidationError]
     """
 
     kwargs = _get_kwargs(
@@ -164,11 +144,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
     body: EvidenceBatchIn,
-) -> (
-    HTTPValidationError
-    | PostEvidenceBatchV1EvidenceEventsBatchPostResponsePostEvidenceBatchV1EvidenceEventsBatchPost
-    | None
-):
+) -> BatchOut | HTTPValidationError | None:
     """Post Evidence Batch
 
     Args:
@@ -179,7 +155,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | PostEvidenceBatchV1EvidenceEventsBatchPostResponsePostEvidenceBatchV1EvidenceEventsBatchPost
+        BatchOut | HTTPValidationError
     """
 
     return (

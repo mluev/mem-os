@@ -1,4 +1,4 @@
-"""Legacy replay planning. Application is deliberately disabled."""
+"""Legacy replay planning and restart-safe application."""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from . import judge
-from .db import utcnow
+from . import extract, judge
+from .db import transaction, utcnow
 from .limits import MAX_MEMORY_CHARS
 
 
@@ -31,14 +31,19 @@ def dry_run_report(
             (owner_id,),
         )
     }
-    messages = int(
-        conn.execute(
-            """SELECT COUNT(*) FROM messages m JOIN sessions s ON s.id=m.session_id
-                WHERE s.owner_id=?""",
-            (owner_id,),
-        ).fetchone()[0]
+    session_counts = conn.execute(
+        """SELECT m.session_id,COUNT(*) n FROM messages m
+             JOIN sessions s ON s.id=m.session_id
+            WHERE s.owner_id=? GROUP BY m.session_id""",
+        (owner_id,),
+    ).fetchall()
+    messages = sum(int(row["n"]) for row in session_counts)
+    # Replay windows never cross session boundaries, so each session must be
+    # rounded separately or the durable job call limit can stop a valid replay.
+    windows = sum(
+        (int(row["n"]) + judge.MESSAGES_PER_EXTRACTION - 1) // judge.MESSAGES_PER_EXTRACTION
+        for row in session_counts
     )
-    windows = (messages + judge.MESSAGES_PER_EXTRACTION - 1) // judge.MESSAGES_PER_EXTRACTION
     estimated_cost = windows * judge.cost_of(3000, 150, model=model)
     provenance = {
         row["source_role"]: row["n"]
@@ -132,3 +137,66 @@ def dry_run_report(
     temporary.replace(path)
     report["report_path"] = str(path)
     return report
+
+
+def apply_replay(
+    conn: sqlite3.Connection,
+    *,
+    owner_id: str,
+    api_key: str,
+    gemini_api_key: str,
+    project: str,
+    location: str,
+    monthly_limit_usd: float,
+    model: str,
+    job_id: str,
+    cancelled,
+) -> dict[str, Any]:
+    """Replay every owner session through v7; processed flags are the durable cursor."""
+    initialized = conn.execute(
+        "SELECT 1 FROM job_events WHERE job_id=? AND status='replay_initialized'",
+        (job_id,),
+    ).fetchone()
+    if initialized is None:
+        with transaction(conn):
+            conn.execute(
+                """UPDATE messages SET processed=0,claim_token=NULL,claim_expires_at=NULL
+                     WHERE session_id IN (SELECT id FROM sessions WHERE owner_id=?)""",
+                (owner_id,),
+            )
+            conn.execute(
+                """INSERT INTO job_events(job_id,status,detail_json,created_at)
+                   VALUES (?,'replay_initialized','{}',?)""",
+                (job_id, utcnow()),
+            )
+    totals = {"windows": 0, "added": 0, "updated": 0, "deleted": 0, "rejected": 0}
+    sessions = conn.execute(
+        "SELECT id,agent_id FROM sessions WHERE owner_id=? ORDER BY started_at,id",
+        (owner_id,),
+    ).fetchall()
+    for session in sessions:
+        while extract.messages_since_last(conn, session["id"]):
+            if cancelled():
+                return {**totals, "cancelled": True}
+            outcome = extract.run_extraction(
+                conn,
+                session_id=session["id"],
+                owner_id=owner_id,
+                agent_id=session["agent_id"],
+                api_key=api_key,
+                gemini_api_key=gemini_api_key,
+                project=project,
+                location=location,
+                monthly_limit_usd=monthly_limit_usd,
+                model=model,
+                job_id=job_id,
+                force=True,
+            )
+            if outcome.error:
+                raise RuntimeError(f"replay stopped: {outcome.error}")
+            totals["windows"] += 1
+            totals["added"] += outcome.added
+            totals["updated"] += outcome.updated
+            totals["deleted"] += outcome.deleted
+            totals["rejected"] += outcome.rejected
+    return {**totals, "cancelled": False, "prompt_version": judge.PROMPT_VERSION}

@@ -9,7 +9,31 @@ class InvalidFilter(ValueError):
     pass
 
 
+def validate(expression: dict[str, Any] | None) -> None:
+    if not expression:
+        return
+    if set(expression) == {"all"}:
+        children = expression["all"]
+        if not isinstance(children, list):
+            raise InvalidFilter("all must be a list")
+        for child in children:
+            if not isinstance(child, dict):
+                raise InvalidFilter("filter children must be objects")
+            validate(child)
+        return
+    allowed = {"field", "op", "value"}
+    if not set(expression) <= allowed or "field" not in expression or "op" not in expression:
+        raise InvalidFilter("filter must contain field and op")
+    if not isinstance(expression["field"], str) or not expression["field"]:
+        raise InvalidFilter("filter field must be a non-empty string")
+    if expression["op"] not in {"exists", "absent", "eq", "in"}:
+        raise InvalidFilter(f"unsupported filter operator: {expression['op']}")
+    if expression["op"] == "in" and not isinstance(expression.get("value"), list):
+        raise InvalidFilter("in value must be a list")
+
+
 def matches(document: dict[str, Any], expression: dict[str, Any] | None) -> bool:
+    validate(expression)
     if not expression:
         return True
     if set(expression) == {"all"}:

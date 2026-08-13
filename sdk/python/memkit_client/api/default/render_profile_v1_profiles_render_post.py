@@ -7,9 +7,7 @@ from ... import errors
 from ...client import AuthenticatedClient, Client
 from ...models.http_validation_error import HTTPValidationError
 from ...models.profile_in import ProfileIn
-from ...models.render_profile_v1_profiles_render_post_response_render_profile_v1_profiles_render_post import (
-    RenderProfileV1ProfilesRenderPostResponseRenderProfileV1ProfilesRenderPost,
-)
+from ...models.profile_out import ProfileOut
 from ...types import Response
 
 
@@ -34,11 +32,9 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> HTTPValidationError | RenderProfileV1ProfilesRenderPostResponseRenderProfileV1ProfilesRenderPost | None:
+) -> HTTPValidationError | ProfileOut | None:
     if response.status_code == 200:
-        response_200 = RenderProfileV1ProfilesRenderPostResponseRenderProfileV1ProfilesRenderPost.from_dict(
-            response.json()
-        )
+        response_200 = ProfileOut.from_dict(response.json())
 
         return response_200
 
@@ -55,7 +51,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[HTTPValidationError | RenderProfileV1ProfilesRenderPostResponseRenderProfileV1ProfilesRenderPost]:
+) -> Response[HTTPValidationError | ProfileOut]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -68,7 +64,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
     body: ProfileIn,
-) -> Response[HTTPValidationError | RenderProfileV1ProfilesRenderPostResponseRenderProfileV1ProfilesRenderPost]:
+) -> Response[HTTPValidationError | ProfileOut]:
     """Render Profile
 
     Args:
@@ -79,7 +75,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | RenderProfileV1ProfilesRenderPostResponseRenderProfileV1ProfilesRenderPost]
+        Response[HTTPValidationError | ProfileOut]
     """
 
     kwargs = _get_kwargs(
@@ -97,7 +93,7 @@ def sync(
     *,
     client: AuthenticatedClient,
     body: ProfileIn,
-) -> HTTPValidationError | RenderProfileV1ProfilesRenderPostResponseRenderProfileV1ProfilesRenderPost | None:
+) -> HTTPValidationError | ProfileOut | None:
     """Render Profile
 
     Args:
@@ -108,7 +104,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | RenderProfileV1ProfilesRenderPostResponseRenderProfileV1ProfilesRenderPost
+        HTTPValidationError | ProfileOut
     """
 
     return sync_detailed(
@@ -121,7 +117,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
     body: ProfileIn,
-) -> Response[HTTPValidationError | RenderProfileV1ProfilesRenderPostResponseRenderProfileV1ProfilesRenderPost]:
+) -> Response[HTTPValidationError | ProfileOut]:
     """Render Profile
 
     Args:
@@ -132,7 +128,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | RenderProfileV1ProfilesRenderPostResponseRenderProfileV1ProfilesRenderPost]
+        Response[HTTPValidationError | ProfileOut]
     """
 
     kwargs = _get_kwargs(
@@ -148,7 +144,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
     body: ProfileIn,
-) -> HTTPValidationError | RenderProfileV1ProfilesRenderPostResponseRenderProfileV1ProfilesRenderPost | None:
+) -> HTTPValidationError | ProfileOut | None:
     """Render Profile
 
     Args:
@@ -159,7 +155,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | RenderProfileV1ProfilesRenderPostResponseRenderProfileV1ProfilesRenderPost
+        HTTPValidationError | ProfileOut
     """
 
     return (

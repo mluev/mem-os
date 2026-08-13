@@ -4,6 +4,14 @@ from tests.httpharness import ApiTestCase
 
 
 class TestV4Contract(ApiTestCase):
+    def test_invalid_memory_filter_is_a_client_error(self) -> None:
+        response = self.client.post(
+            "/v1/memories/search",
+            headers=self.auth,
+            json={"query": "anything", "filter": {"field": "kind", "op": "bogus"}},
+        )
+        self.assertEqual(response.status_code, 422, response.text)
+
     def test_single_owner_strict_memory_contract(self) -> None:
         rejected = self.client.post(
             "/v1/memories",

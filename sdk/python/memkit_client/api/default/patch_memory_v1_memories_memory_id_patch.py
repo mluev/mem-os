@@ -6,11 +6,9 @@ import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
+from ...models.entity_out import EntityOut
 from ...models.http_validation_error import HTTPValidationError
 from ...models.memory_patch import MemoryPatch
-from ...models.patch_memory_v1_memories_memory_id_patch_response_patch_memory_v1_memories_memory_id_patch import (
-    PatchMemoryV1MemoriesMemoryIdPatchResponsePatchMemoryV1MemoriesMemoryIdPatch,
-)
 from ...types import Response
 
 
@@ -38,11 +36,9 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> HTTPValidationError | PatchMemoryV1MemoriesMemoryIdPatchResponsePatchMemoryV1MemoriesMemoryIdPatch | None:
+) -> EntityOut | HTTPValidationError | None:
     if response.status_code == 200:
-        response_200 = PatchMemoryV1MemoriesMemoryIdPatchResponsePatchMemoryV1MemoriesMemoryIdPatch.from_dict(
-            response.json()
-        )
+        response_200 = EntityOut.from_dict(response.json())
 
         return response_200
 
@@ -59,7 +55,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[HTTPValidationError | PatchMemoryV1MemoriesMemoryIdPatchResponsePatchMemoryV1MemoriesMemoryIdPatch]:
+) -> Response[EntityOut | HTTPValidationError]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -73,7 +69,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
     body: MemoryPatch,
-) -> Response[HTTPValidationError | PatchMemoryV1MemoriesMemoryIdPatchResponsePatchMemoryV1MemoriesMemoryIdPatch]:
+) -> Response[EntityOut | HTTPValidationError]:
     """Patch Memory
 
     Args:
@@ -85,7 +81,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | PatchMemoryV1MemoriesMemoryIdPatchResponsePatchMemoryV1MemoriesMemoryIdPatch]
+        Response[EntityOut | HTTPValidationError]
     """
 
     kwargs = _get_kwargs(
@@ -105,7 +101,7 @@ def sync(
     *,
     client: AuthenticatedClient,
     body: MemoryPatch,
-) -> HTTPValidationError | PatchMemoryV1MemoriesMemoryIdPatchResponsePatchMemoryV1MemoriesMemoryIdPatch | None:
+) -> EntityOut | HTTPValidationError | None:
     """Patch Memory
 
     Args:
@@ -117,7 +113,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | PatchMemoryV1MemoriesMemoryIdPatchResponsePatchMemoryV1MemoriesMemoryIdPatch
+        EntityOut | HTTPValidationError
     """
 
     return sync_detailed(
@@ -132,7 +128,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
     body: MemoryPatch,
-) -> Response[HTTPValidationError | PatchMemoryV1MemoriesMemoryIdPatchResponsePatchMemoryV1MemoriesMemoryIdPatch]:
+) -> Response[EntityOut | HTTPValidationError]:
     """Patch Memory
 
     Args:
@@ -144,7 +140,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | PatchMemoryV1MemoriesMemoryIdPatchResponsePatchMemoryV1MemoriesMemoryIdPatch]
+        Response[EntityOut | HTTPValidationError]
     """
 
     kwargs = _get_kwargs(
@@ -162,7 +158,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
     body: MemoryPatch,
-) -> HTTPValidationError | PatchMemoryV1MemoriesMemoryIdPatchResponsePatchMemoryV1MemoriesMemoryIdPatch | None:
+) -> EntityOut | HTTPValidationError | None:
     """Patch Memory
 
     Args:
@@ -174,7 +170,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | PatchMemoryV1MemoriesMemoryIdPatchResponsePatchMemoryV1MemoriesMemoryIdPatch
+        EntityOut | HTTPValidationError
     """
 
     return (

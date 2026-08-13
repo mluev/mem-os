@@ -9,7 +9,7 @@
 #
 # Each case declares:
 #   expect  — facts that must be found. `text` is a regex (case-insensitive).
-#             `scope` / `type` are checked when given.
+#             `context` / `kind` are checked when given.
 #   reject  — patterns that must NOT appear in any emitted fact.
 #   max_ops — a ceiling; more than this means the variant is padding.
 #
@@ -19,72 +19,72 @@
 # ---------------------------------------------------------------- direct signal
 - id: direct-preference
   probes: a plainly stated preference
-  project: memkit
+  context: {workspace: memkit}
   messages:
     - [user, "давай использовать pnpm везде, npm я не хочу видеть в проекте"]
     - [assistant, "Понял, перевожу на pnpm. Обновлю lockfile и CI."]
   expect:
     - text: "pnpm"
-      scope: user
-      type: preference
+      context: {}
+      kind: preference
   reject: ["lockfile", "CI"]
   max_ops: 2
 
 - id: identity-fact
   probes: identity, should score high importance
-  project: cine
+  context: {workspace: cine}
   messages:
     - [user, "мой github это mluev, почта mluev@example.com, если нужно для CI"]
     - [assistant, "Записал, добавлю в конфиг деплоя."]
   expect:
     - text: "mluev"
-      scope: user
-      type: fact
+      context: {}
+      kind: fact
       min_importance: 0.7
   max_ops: 2
 
 - id: project-structure
-  probes: a project-scoped structural fact
-  project: memkit
+  probes: a workspace-bound structural fact
+  context: {workspace: memkit}
   messages:
     - [user, "запомни: авторизация у нас лежит в auth/ и работает на session cookie, не на JWT"]
     - [assistant, "Понял. Учту при добавлении middleware."]
   expect:
     - text: "auth/"
-      scope: project
+      context: {workspace: memkit}
   reject: ["middleware"]
   max_ops: 2
 
 # ------------------------------------------------------- preference by rejection
 - id: correction-implies-preference
   probes: the richest signal — a preference hidden in a correction
-  project: frontend
+  context: {workspace: frontend}
   messages:
     - [assistant, "Я задисейблил кнопку Submit пока форма невалидна, так пользователь не отправит битые данные."]
     - [user, "нет, не надо так. пусть жмёт и видит ошибки валидации, а не гадает почему кнопка мертвая"]
     - [assistant, "Понял, убираю disabled, добавляю вывод ошибок после submit."]
   expect:
     - text: "(disabl|неактивн|валидац|validation)"
-      scope: user
-      type: preference
+      context: {}
+      kind: preference
   max_ops: 2
 
 - id: correction-abstraction
   probes: rejection of over-engineering as a durable working style
-  project: memkit
+  context: {workspace: memkit}
   messages:
     - [assistant, "Вынес это в отдельный composable useUserSelection с фабрикой и инжектором зависимостей, чтобы было переиспользуемо."]
     - [user, "зачем? есть же company store. не надо плодить абстракции ради одного места"]
     - [assistant, "Убрал composable, использую существующий store."]
   expect:
     - text: "(абстракц|abstraction|существующ|existing|store)"
-      scope: user
+      context: {}
   max_ops: 2
 
 # -------------------------------------------------------------- must extract NOT
 - id: assistant-worklog-only
   probes: prompt rule 4 — a window of pure assistant narration
-  project: core
+  context: {workspace: core}
   messages:
     - [assistant, "Прочитал 18 файлов, обновил роутер, добавил 10 стабов вью. Прогнал type-check: 0 ошибок в новых файлах, 6 pre-existing в легаси."]
     - [assistant, "Прогнал lint. Prettier переформатировал файлы, это ожидаемо. Осталось 6 ошибок в легаси-коде, не мои."]
@@ -97,7 +97,7 @@
 
 - id: transient-state
   probes: prompt rule on transient states — mood is not a memory
-  project: notiky
+  context: {workspace: notiky}
   messages:
     - [user, "я сегодня уставший, давай что-нибудь простое поделаем"]
     - [assistant, "Хорошо, возьмём мелкие багфиксы."]
@@ -108,7 +108,7 @@
 
 - id: one-off-question
   probes: asking about X once is not interest in X
-  project: notiky
+  context: {workspace: notiky}
   messages:
     - [user, "а что такое tRPC вообще? чем от graphql отличается"]
     - [assistant, "tRPC — это типизированный RPC для TypeScript-монорепо. В отличие от GraphQL нет схемы и резолверов, типы выводятся напрямую из роутера на сервере."]
@@ -120,7 +120,7 @@
 # ------------------------------------------------------------------- credentials
 - id: credentials-must-not-leak
   probes: prompt rule 9 — extract intent, never the value
-  project: core
+  context: {workspace: core}
   messages:
     - [user, "запомни мой ключ для стейджа AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMIK7MDENGbPxRfiCYEXAMPLEKEY и токен ghp_16CharsExampleTokenAAAAAAAAAAAAAAAAA"]
     - [assistant, "Не буду сохранять секреты. Положи их в .env, я добавлю в gitignore."]
@@ -130,11 +130,11 @@
 # --------------------------------------------------------------- update vs add
 - id: contradicts-candidate
   probes: prompt rule 6 — refine an existing fact, do not duplicate it
-  project: frontend
+  context: {workspace: frontend}
   candidates:
     - id: cand-react-1
       text: "Uses React for frontend work"
-      type: preference
+      kind: preference
       importance: 0.7
   messages:
     - [user, "я месяц назад слез с реакта, вью норм заходит. везде теперь vue 3"]
@@ -148,7 +148,7 @@
 # ------------------------------------------------------------------ mixed window
 - id: mixed-user-and-project
   probes: one window carrying both a personal preference and a project decision
-  project: frontend-second
+  context: {workspace: frontend-second}
   messages:
     - [user, "мне не нравится как выглядит модалка расписания. слишком широкая, и чекбоксы нативные"]
     - [assistant, "Перевёрстываю: ширина 720px, заменяю нативные чекбоксы на app-switch."]
@@ -156,7 +156,7 @@
     - [assistant, "Понял, зафиксирую как правило."]
   expect:
     - text: "app-switch"
-      scope: user
+      context: {}
     - text: "(модалк|modal|расписан|schedule)"
   max_ops: 3
 
@@ -168,7 +168,7 @@
 # What still has to hold is that Russian input yields a *correct* fact at all.
 - id: russian-input-yields-a-fact
   probes: a Russian-only window must still produce the right content, in any language
-  project: cine
+  context: {workspace: cine}
   messages:
     - [user, "все кнопки, которые запускают подписание и отправку, давайте унифицируем под один лейбл «Подписать и отправить»"]
     - [assistant, "Понял, унифицирую лейблы."]
@@ -179,7 +179,7 @@
 # ------------------------------------------------------------ importance spread
 - id: hard-constraint
   probes: a hard constraint should land near the top of the importance range
-  project: memkit
+  context: {workspace: memkit}
   messages:
     - [user, "у меня 16 гигов на маке, локальные llm мы запускать не будем никогда. только API"]
     - [assistant, "Понял, судья через API, локально только эмбеддинги."]
@@ -188,14 +188,13 @@
       min_importance: 0.7
   max_ops: 2
 
-# ------------------------------------------------- scope priming (added for v5)
+# ----------------------------------------------- context priming (added for v5)
 # Reproduces the failure the short cases missed: a long, project-heavy window
-# that also carries a personal preference. v4 scored 6/6 on scope here in the
-# short cases yet dropped to 11% user-scope on the real corpus, so the golden set
-# needed a case where project context genuinely dominates the window.
+# that also carries a personal preference. Earlier prompts copied workspace context
+# onto general preferences, so this case makes irrelevant context visible.
 - id: preference-buried-in-project-work
   probes: a personal preference inside a window dominated by one codebase
-  project: frontend-second
+  context: {workspace: frontend-second}
   messages:
     - [assistant, "Открыл LmsCourseEditor.vue, LmsTestEditor.vue и LmsFlowEditor.vue. Обновил роутер, добавил редиректы со старых edit-роутов на query-param."]
     - [assistant, "Прогнал type-check по модулю LMS: 0 ошибок. Prettier переформатировал 4 файла."]
@@ -204,37 +203,33 @@
     - [assistant, "Готово: убрал 3 хелпера, логика теперь в LmsCourseEditor.vue."]
   expect:
     - text: "(хелпер|helper|рядом|colocat|inline|локальн)"
-      scope: user
-      type: preference
+      context: {}
+      kind: preference
   reject: ["prettier", "type-check", "0 ошибок"]
   max_ops: 2
 
 - id: project-fact-stays-project
-  probes: the reverse — a genuinely project-scoped fact must not drift to user
-  project: memkit
+  probes: the reverse — a genuinely workspace-bound fact must retain context
+  context: {workspace: memkit}
   messages:
     - [user, "SQLite у нас источник правды, Qdrant — производный индекс, его можно всегда пересобрать из базы"]
     - [assistant, "Понял, добавлю команду reindex."]
   expect:
     - text: "(sqlite|qdrant)"
-      scope: project
+      context: {workspace: memkit}
   max_ops: 2
 
-# ============================================================ scope drift, hard
-# Added after the full-corpus run: 41 of 62 facts came back scope=project, and
-# ~17 of those were personal preferences, leaving 34% of the store reachable
-# without naming a project. The short cases above score 8/8 on scope and did not
-# see it — project context has to genuinely dominate the window before the drift
-# appears.
+# ========================================================== context drift, hard
+# Added after the full-corpus run: irrelevant workspace context was copied onto
+# personal preferences, making those facts invisible to context-free retrieval.
 #
 # The measured tell is syntactic: the model writes "For frontend-second, prefers
 # modal dialogs with tabs" — a general preference grammatically bound to one
-# repository. So these cases reject that prefix outright, not just the wrong
-# scope field.
+# repository. These cases reject that prefix and assert the context object.
 
 - id: drift-preference-in-heavy-project-window
   probes: a general UI preference stated inside a long single-repo work log
-  project: frontend-second
+  context: {workspace: frontend-second}
   messages:
     - [assistant, "Прошёлся по модулю LMS: LmsCourseEditor.vue, LmsTestEditor.vue, LmsFlowEditor.vue, LmsAttemptsTable.vue. Обновил роутер, добавил редиректы со старых edit-роутов."]
     - [assistant, "type-check по модулю: 0 ошибок. Prettier переформатировал 6 файлов. Прогнал unit-тесты — 84/84 зелёные."]
@@ -244,15 +239,15 @@
     - [assistant, "Готово: LmsCourseEditor.vue теперь drawer 880px, роут удалён, редирект убран. Обновил 3 места вызова."]
   expect:
     - text: "(модалк|modal|drawer|таб|tab)"
-      scope: user
-      type: preference
+      context: {}
+      kind: preference
   # The drift signature: a general preference bound to one repo by its wording.
   reject: ["^(For|In) (the )?frontend-second", "prettier", "84/84", "0 ошибок"]
   max_ops: 2
 
 - id: drift-working-style-via-correction
   probes: working style implied by a correction, inside dense project work
-  project: notiky
+  context: {workspace: notiky}
   messages:
     - [assistant, "Нашёл баг в notiky: счётчик попыток не сбрасывался. Добавил фолбэк в компоненте — если бэк вернул null, считаем на клиенте."]
     - [assistant, "Заодно накинул shim для старого формата ответа, чтобы не ломать существующие вызовы."]
@@ -261,14 +256,14 @@
     - [assistant, "Готово: фолбэк удалён, добавлен тикет NOT-412."]
   expect:
     - text: "(бэкенд|backend|шим|shim|фолбэк|fallback|костыл)"
-      scope: user
-      type: preference
+      context: {}
+      kind: preference
   reject: ["^(For|In) (the )?notiky", "NOT-412"]
   max_ops: 2
 
 - id: drift-two-facts-one-window-hard
   probes: one personal preference plus one project decision, both required
-  project: portfolio
+  context: {workspace: portfolio}
   messages:
     - [assistant, "Собрал страницу продуктов: сетка 3 колонки, картинки грузятся сразу, ширина контента 1200px."]
     - [user, "картинки показывай только по клику на выбранный продукт, иначе страница весит как самолёт"]
@@ -277,26 +272,26 @@
     - [assistant, "Принял. Убрал фабрику product-renderer, оставил прямой компонент."]
   expect:
     - text: "(по клику|on click|ленив|lazy)"
-      scope: project
+      context: {workspace: portfolio}
     - text: "(переусложн|over-?engineer|читаем|readable|коротк)"
-      scope: user
+      context: {}
   max_ops: 3
 
 - id: drift-reverse-guard-generic-wording
   probes: a genuinely project-specific fact phrased generically must stay project
-  project: notiky
+  context: {workspace: notiky}
   messages:
     - [user, "тут вход через OTP на почту, пароля нет вообще. в dev используем dev@notiky.local"]
     - [assistant, "Понял, зафиксирую механизм входа."]
   expect:
     - text: "(otp|почт|email)"
-      scope: project
-  # The one-directional project->user promotion must not fire here.
+      context: {workspace: notiky}
+  # Context stripping must not fire here.
   max_ops: 2
 
 - id: drift-empty-despite-temptation
   probes: a long window whose only user content is transient — empty is correct
-  project: frontend-second
+  context: {workspace: frontend-second}
   messages:
     - [assistant, "Прогнал миграции, поднял сиды, накатил тестового тенанта. 12 таблиц, 340 строк."]
     - [assistant, "Собрал прод-бандл: 2.1 MB, gzip 640 KB. Lighthouse 94/100."]
@@ -307,7 +302,7 @@
 
 - id: correction-implies-comment-preference
   probes: the real miss from the corpus — repeated "too much comment" yielded nothing
-  project: frontend-second
+  context: {workspace: frontend-second}
   messages:
     - [assistant, "Прошёл ревью по модулю. В src/constants/lms.ts:402 добавил блок комментариев, описывающий каждое поле."]
     - [user, "In `src/constants/lms.ts` at line 402: too much comment"]
@@ -316,7 +311,7 @@
     - [assistant, "Понял, сокращаю комментарии по модулю."]
   expect:
     - text: "(комментар|comment)"
-      scope: user
-      type: preference
+      context: {}
+      kind: preference
   reject: ["^(For|In) (the )?frontend-second", "lms\\.ts:402"]
   max_ops: 2

@@ -6,10 +6,8 @@ import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
-from ...models.close_session_v1_sessions_session_id_close_post_response_close_session_v1_sessions_session_id_close_post import (
-    CloseSessionV1SessionsSessionIdClosePostResponseCloseSessionV1SessionsSessionIdClosePost,
-)
 from ...models.http_validation_error import HTTPValidationError
+from ...models.job_queued_out import JobQueuedOut
 from ...types import Response
 
 
@@ -29,17 +27,9 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> (
-    CloseSessionV1SessionsSessionIdClosePostResponseCloseSessionV1SessionsSessionIdClosePost
-    | HTTPValidationError
-    | None
-):
+) -> HTTPValidationError | JobQueuedOut | None:
     if response.status_code == 202:
-        response_202 = (
-            CloseSessionV1SessionsSessionIdClosePostResponseCloseSessionV1SessionsSessionIdClosePost.from_dict(
-                response.json()
-            )
-        )
+        response_202 = JobQueuedOut.from_dict(response.json())
 
         return response_202
 
@@ -56,9 +46,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[
-    CloseSessionV1SessionsSessionIdClosePostResponseCloseSessionV1SessionsSessionIdClosePost | HTTPValidationError
-]:
+) -> Response[HTTPValidationError | JobQueuedOut]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -71,9 +59,7 @@ def sync_detailed(
     session_id: str,
     *,
     client: AuthenticatedClient,
-) -> Response[
-    CloseSessionV1SessionsSessionIdClosePostResponseCloseSessionV1SessionsSessionIdClosePost | HTTPValidationError
-]:
+) -> Response[HTTPValidationError | JobQueuedOut]:
     """Close Session
 
     Args:
@@ -84,7 +70,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[CloseSessionV1SessionsSessionIdClosePostResponseCloseSessionV1SessionsSessionIdClosePost | HTTPValidationError]
+        Response[HTTPValidationError | JobQueuedOut]
     """
 
     kwargs = _get_kwargs(
@@ -102,11 +88,7 @@ def sync(
     session_id: str,
     *,
     client: AuthenticatedClient,
-) -> (
-    CloseSessionV1SessionsSessionIdClosePostResponseCloseSessionV1SessionsSessionIdClosePost
-    | HTTPValidationError
-    | None
-):
+) -> HTTPValidationError | JobQueuedOut | None:
     """Close Session
 
     Args:
@@ -117,7 +99,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        CloseSessionV1SessionsSessionIdClosePostResponseCloseSessionV1SessionsSessionIdClosePost | HTTPValidationError
+        HTTPValidationError | JobQueuedOut
     """
 
     return sync_detailed(
@@ -130,9 +112,7 @@ async def asyncio_detailed(
     session_id: str,
     *,
     client: AuthenticatedClient,
-) -> Response[
-    CloseSessionV1SessionsSessionIdClosePostResponseCloseSessionV1SessionsSessionIdClosePost | HTTPValidationError
-]:
+) -> Response[HTTPValidationError | JobQueuedOut]:
     """Close Session
 
     Args:
@@ -143,7 +123,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[CloseSessionV1SessionsSessionIdClosePostResponseCloseSessionV1SessionsSessionIdClosePost | HTTPValidationError]
+        Response[HTTPValidationError | JobQueuedOut]
     """
 
     kwargs = _get_kwargs(
@@ -159,11 +139,7 @@ async def asyncio(
     session_id: str,
     *,
     client: AuthenticatedClient,
-) -> (
-    CloseSessionV1SessionsSessionIdClosePostResponseCloseSessionV1SessionsSessionIdClosePost
-    | HTTPValidationError
-    | None
-):
+) -> HTTPValidationError | JobQueuedOut | None:
     """Close Session
 
     Args:
@@ -174,7 +150,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        CloseSessionV1SessionsSessionIdClosePostResponseCloseSessionV1SessionsSessionIdClosePost | HTTPValidationError
+        HTTPValidationError | JobQueuedOut
     """
 
     return (

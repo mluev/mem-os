@@ -19,7 +19,7 @@ T = TypeVar("T", bound="MemoryPatch")
 class MemoryPatch:
     """
     Attributes:
-        expected_updated_at (datetime.datetime):
+        expected_revision (int):
         clear_valid_until (bool | Unset):  Default: False.
         confidence (float | None | Unset):
         context (MemoryPatchContextType0 | None | Unset):
@@ -31,7 +31,7 @@ class MemoryPatch:
         valid_until (datetime.datetime | None | Unset):
     """
 
-    expected_updated_at: datetime.datetime
+    expected_revision: int
     clear_valid_until: bool | Unset = False
     confidence: float | None | Unset = UNSET
     context: MemoryPatchContextType0 | None | Unset = UNSET
@@ -45,7 +45,7 @@ class MemoryPatch:
     def to_dict(self) -> dict[str, Any]:
         from ..models.memory_patch_context_type_0 import MemoryPatchContextType0
 
-        expected_updated_at = self.expected_updated_at.isoformat()
+        expected_revision = self.expected_revision
 
         clear_valid_until = self.clear_valid_until
 
@@ -104,7 +104,7 @@ class MemoryPatch:
 
         field_dict.update(
             {
-                "expected_updated_at": expected_updated_at,
+                "expected_revision": expected_revision,
             }
         )
         if clear_valid_until is not UNSET:
@@ -133,7 +133,7 @@ class MemoryPatch:
         from ..models.memory_patch_context_type_0 import MemoryPatchContextType0
 
         d = dict(src_dict)
-        expected_updated_at = datetime.datetime.fromisoformat(d.pop("expected_updated_at"))
+        expected_revision = d.pop("expected_revision")
 
         clear_valid_until = d.pop("clear_valid_until", UNSET)
 
@@ -227,7 +227,7 @@ class MemoryPatch:
         valid_until = _parse_valid_until(d.pop("valid_until", UNSET))
 
         memory_patch = cls(
-            expected_updated_at=expected_updated_at,
+            expected_revision=expected_revision,
             clear_valid_until=clear_valid_until,
             confidence=confidence,
             context=context,

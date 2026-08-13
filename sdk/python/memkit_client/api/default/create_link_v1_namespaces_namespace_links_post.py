@@ -6,9 +6,7 @@ import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
-from ...models.create_link_v1_namespaces_namespace_links_post_response_create_link_v1_namespaces_namespace_links_post import (
-    CreateLinkV1NamespacesNamespaceLinksPostResponseCreateLinkV1NamespacesNamespaceLinksPost,
-)
+from ...models.entity_out import EntityOut
 from ...models.http_validation_error import HTTPValidationError
 from ...models.link_in import LinkIn
 from ...types import Response
@@ -38,17 +36,9 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> (
-    CreateLinkV1NamespacesNamespaceLinksPostResponseCreateLinkV1NamespacesNamespaceLinksPost
-    | HTTPValidationError
-    | None
-):
+) -> EntityOut | HTTPValidationError | None:
     if response.status_code == 201:
-        response_201 = (
-            CreateLinkV1NamespacesNamespaceLinksPostResponseCreateLinkV1NamespacesNamespaceLinksPost.from_dict(
-                response.json()
-            )
-        )
+        response_201 = EntityOut.from_dict(response.json())
 
         return response_201
 
@@ -65,9 +55,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[
-    CreateLinkV1NamespacesNamespaceLinksPostResponseCreateLinkV1NamespacesNamespaceLinksPost | HTTPValidationError
-]:
+) -> Response[EntityOut | HTTPValidationError]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -81,9 +69,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
     body: LinkIn,
-) -> Response[
-    CreateLinkV1NamespacesNamespaceLinksPostResponseCreateLinkV1NamespacesNamespaceLinksPost | HTTPValidationError
-]:
+) -> Response[EntityOut | HTTPValidationError]:
     """Create Link
 
     Args:
@@ -95,7 +81,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[CreateLinkV1NamespacesNamespaceLinksPostResponseCreateLinkV1NamespacesNamespaceLinksPost | HTTPValidationError]
+        Response[EntityOut | HTTPValidationError]
     """
 
     kwargs = _get_kwargs(
@@ -115,11 +101,7 @@ def sync(
     *,
     client: AuthenticatedClient,
     body: LinkIn,
-) -> (
-    CreateLinkV1NamespacesNamespaceLinksPostResponseCreateLinkV1NamespacesNamespaceLinksPost
-    | HTTPValidationError
-    | None
-):
+) -> EntityOut | HTTPValidationError | None:
     """Create Link
 
     Args:
@@ -131,7 +113,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        CreateLinkV1NamespacesNamespaceLinksPostResponseCreateLinkV1NamespacesNamespaceLinksPost | HTTPValidationError
+        EntityOut | HTTPValidationError
     """
 
     return sync_detailed(
@@ -146,9 +128,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
     body: LinkIn,
-) -> Response[
-    CreateLinkV1NamespacesNamespaceLinksPostResponseCreateLinkV1NamespacesNamespaceLinksPost | HTTPValidationError
-]:
+) -> Response[EntityOut | HTTPValidationError]:
     """Create Link
 
     Args:
@@ -160,7 +140,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[CreateLinkV1NamespacesNamespaceLinksPostResponseCreateLinkV1NamespacesNamespaceLinksPost | HTTPValidationError]
+        Response[EntityOut | HTTPValidationError]
     """
 
     kwargs = _get_kwargs(
@@ -178,11 +158,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
     body: LinkIn,
-) -> (
-    CreateLinkV1NamespacesNamespaceLinksPostResponseCreateLinkV1NamespacesNamespaceLinksPost
-    | HTTPValidationError
-    | None
-):
+) -> EntityOut | HTTPValidationError | None:
     """Create Link
 
     Args:
@@ -194,7 +170,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        CreateLinkV1NamespacesNamespaceLinksPostResponseCreateLinkV1NamespacesNamespaceLinksPost | HTTPValidationError
+        EntityOut | HTTPValidationError
     """
 
     return (

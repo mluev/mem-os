@@ -6,9 +6,7 @@ import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
-from ...models.get_collection_v1_collections_namespace_name_get_response_get_collection_v1_collections_namespace_name_get import (
-    GetCollectionV1CollectionsNamespaceNameGetResponseGetCollectionV1CollectionsNamespaceNameGet,
-)
+from ...models.entity_out import EntityOut
 from ...models.http_validation_error import HTTPValidationError
 from ...types import Response
 
@@ -31,17 +29,9 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> (
-    GetCollectionV1CollectionsNamespaceNameGetResponseGetCollectionV1CollectionsNamespaceNameGet
-    | HTTPValidationError
-    | None
-):
+) -> EntityOut | HTTPValidationError | None:
     if response.status_code == 200:
-        response_200 = (
-            GetCollectionV1CollectionsNamespaceNameGetResponseGetCollectionV1CollectionsNamespaceNameGet.from_dict(
-                response.json()
-            )
-        )
+        response_200 = EntityOut.from_dict(response.json())
 
         return response_200
 
@@ -58,9 +48,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[
-    GetCollectionV1CollectionsNamespaceNameGetResponseGetCollectionV1CollectionsNamespaceNameGet | HTTPValidationError
-]:
+) -> Response[EntityOut | HTTPValidationError]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -74,9 +62,7 @@ def sync_detailed(
     name: str,
     *,
     client: AuthenticatedClient,
-) -> Response[
-    GetCollectionV1CollectionsNamespaceNameGetResponseGetCollectionV1CollectionsNamespaceNameGet | HTTPValidationError
-]:
+) -> Response[EntityOut | HTTPValidationError]:
     """Get Collection
 
     Args:
@@ -88,7 +74,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[GetCollectionV1CollectionsNamespaceNameGetResponseGetCollectionV1CollectionsNamespaceNameGet | HTTPValidationError]
+        Response[EntityOut | HTTPValidationError]
     """
 
     kwargs = _get_kwargs(
@@ -108,11 +94,7 @@ def sync(
     name: str,
     *,
     client: AuthenticatedClient,
-) -> (
-    GetCollectionV1CollectionsNamespaceNameGetResponseGetCollectionV1CollectionsNamespaceNameGet
-    | HTTPValidationError
-    | None
-):
+) -> EntityOut | HTTPValidationError | None:
     """Get Collection
 
     Args:
@@ -124,7 +106,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        GetCollectionV1CollectionsNamespaceNameGetResponseGetCollectionV1CollectionsNamespaceNameGet | HTTPValidationError
+        EntityOut | HTTPValidationError
     """
 
     return sync_detailed(
@@ -139,9 +121,7 @@ async def asyncio_detailed(
     name: str,
     *,
     client: AuthenticatedClient,
-) -> Response[
-    GetCollectionV1CollectionsNamespaceNameGetResponseGetCollectionV1CollectionsNamespaceNameGet | HTTPValidationError
-]:
+) -> Response[EntityOut | HTTPValidationError]:
     """Get Collection
 
     Args:
@@ -153,7 +133,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[GetCollectionV1CollectionsNamespaceNameGetResponseGetCollectionV1CollectionsNamespaceNameGet | HTTPValidationError]
+        Response[EntityOut | HTTPValidationError]
     """
 
     kwargs = _get_kwargs(
@@ -171,11 +151,7 @@ async def asyncio(
     name: str,
     *,
     client: AuthenticatedClient,
-) -> (
-    GetCollectionV1CollectionsNamespaceNameGetResponseGetCollectionV1CollectionsNamespaceNameGet
-    | HTTPValidationError
-    | None
-):
+) -> EntityOut | HTTPValidationError | None:
     """Get Collection
 
     Args:
@@ -187,7 +163,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        GetCollectionV1CollectionsNamespaceNameGetResponseGetCollectionV1CollectionsNamespaceNameGet | HTTPValidationError
+        EntityOut | HTTPValidationError
     """
 
     return (

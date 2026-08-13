@@ -5,15 +5,15 @@
     Supersedes:    —
     Superseded by: 0051
     Evidence:      ../measurements.md#snapshot-corpus-and-store
-    Code:          eval/scope_review.py
+    Code:          eval/context_review.py
     Contract:      ../06-roadmap.md#open-work
 
 ## Decision
 
 Facts extracted under prompt v4 carry `scope='project'` more often than they
 should, which makes them unreachable unless the caller names that project.
-Reclassifying them is a manual review, assisted by `eval/scope_review.py`, which
-emits a ready-to-post bulk payload but decides nothing.
+Reclassifying them was a manual review. The current `eval/context_review.py`
+only lists neutral-context candidates and their revisions; it mutates nothing.
 
 ## Why not automate it
 
@@ -23,8 +23,8 @@ question once and got it wrong; asking the same class of model the same question
 a different layer is the same mistake with an extra step, and this time it would be
 applied to the whole store at once rather than one window at a time.
 
-`scope_review.py` therefore classifies with two regexes into `PROMOTE?`, `look` and
-`keep`, prints the reachable share, and stops. A human decides.
+The replacement diagnostic identifies context-bound personal statements, prints
+their current context and revision, and stops. A human decides.
 
 ## Why it stays open
 

@@ -21,6 +21,8 @@ just to try hybrid search.
 from __future__ import annotations
 
 import logging
+import re
+import time
 from typing import Any
 
 from qdrant_client import QdrantClient, models
@@ -160,6 +162,32 @@ def keyword(field: str, value: str | list[str]) -> models.FieldCondition:
 
 def drop_collection(client: QdrantClient, collection: str) -> None:
     client.delete_collection(collection_name=collection)
+
+
+def drop_generations(client: QdrantClient, generations: dict[str, str]) -> list[str]:
+    """Delete unactivated candidate generations after deterministic validation."""
+    removed: list[str] = []
+    for generation in generations.values():
+        client.delete_collection(collection_name=generation)
+        removed.append(generation)
+    return removed
+
+
+def prune_retired_generations(
+    client: QdrantClient, *, retention_days: int = 7, now_ns: int | None = None
+) -> list[str]:
+    """Remove retired generations only after the rollback-retention window."""
+    active = set(_aliases(client).values())
+    cutoff = (now_ns or time.time_ns()) - retention_days * 86_400 * 1_000_000_000
+    removed: list[str] = []
+    for item in client.get_collections().collections:
+        name = str(item.name)
+        match = re.fullmatch(r"(?:memories|raw)__g(\d+)", name)
+        if name in active or match is None or int(match.group(1)) >= cutoff:
+            continue
+        client.delete_collection(collection_name=name)
+        removed.append(name)
+    return removed
 
 
 def erase_all_indices(client: QdrantClient) -> None:

@@ -1,25 +1,86 @@
 {
   "components": {
     "schemas": {
+      "AdminHealthOut": {
+        "additionalProperties": false,
+        "properties": {
+          "database": {
+            "additionalProperties": true,
+            "title": "Database",
+            "type": "object"
+          },
+          "embedder": {
+            "additionalProperties": true,
+            "title": "Embedder",
+            "type": "object"
+          },
+          "jobs": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Jobs",
+            "type": "object"
+          },
+          "outbox": {
+            "additionalProperties": true,
+            "title": "Outbox",
+            "type": "object"
+          },
+          "qdrant": {
+            "additionalProperties": true,
+            "title": "Qdrant",
+            "type": "object"
+          }
+        },
+        "required": [
+          "database",
+          "qdrant",
+          "embedder",
+          "outbox",
+          "jobs"
+        ],
+        "title": "AdminHealthOut",
+        "type": "object"
+      },
+      "BatchOut": {
+        "additionalProperties": false,
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/MessageOut"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items",
+          "count"
+        ],
+        "title": "BatchOut",
+        "type": "object"
+      },
+      "ChecksumIn": {
+        "additionalProperties": false,
+        "properties": {
+          "checksum": {
+            "title": "Checksum",
+            "type": "string"
+          }
+        },
+        "required": [
+          "checksum"
+        ],
+        "title": "ChecksumIn",
+        "type": "object"
+      },
       "CollectionIn": {
         "additionalProperties": false,
         "properties": {
-          "embedding_fields": {
-            "items": {
-              "type": "string"
-            },
-            "maxItems": 16,
-            "title": "Embedding Fields",
-            "type": "array"
-          },
-          "indexed_fields": {
-            "items": {
-              "type": "string"
-            },
-            "maxItems": 64,
-            "title": "Indexed Fields",
-            "type": "array"
-          },
           "name": {
             "maxLength": 128,
             "minLength": 1,
@@ -56,6 +117,72 @@
         "title": "ConsolidateIn",
         "type": "object"
       },
+      "CursorPageOut": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "CursorPageOut",
+        "type": "object"
+      },
+      "EntityOut": {
+        "additionalProperties": true,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "EntityOut",
+        "type": "object"
+      },
       "EraseIn": {
         "additionalProperties": false,
         "properties": {
@@ -69,6 +196,153 @@
           "confirm"
         ],
         "title": "EraseIn",
+        "type": "object"
+      },
+      "EvaluationArmsIn": {
+        "additionalProperties": false,
+        "properties": {
+          "current_memory": {
+            "title": "Current Memory",
+            "type": "string"
+          },
+          "no_memory": {
+            "title": "No Memory",
+            "type": "string"
+          },
+          "oracle_memory": {
+            "title": "Oracle Memory",
+            "type": "string"
+          },
+          "reviewed_v7": {
+            "title": "Reviewed V7",
+            "type": "string"
+          }
+        },
+        "required": [
+          "no_memory",
+          "current_memory",
+          "reviewed_v7",
+          "oracle_memory"
+        ],
+        "title": "EvaluationArmsIn",
+        "type": "object"
+      },
+      "EvaluationCaseIn": {
+        "additionalProperties": false,
+        "properties": {
+          "arms": {
+            "$ref": "#/components/schemas/EvaluationArmsIn"
+          },
+          "case_key": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Case Key",
+            "type": "string"
+          },
+          "prompt": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Prompt",
+            "type": "string"
+          }
+        },
+        "required": [
+          "case_key",
+          "prompt",
+          "arms"
+        ],
+        "title": "EvaluationCaseIn",
+        "type": "object"
+      },
+      "EvaluationCreateIn": {
+        "additionalProperties": false,
+        "properties": {
+          "cases": {
+            "items": {
+              "$ref": "#/components/schemas/EvaluationCaseIn"
+            },
+            "maxItems": 32,
+            "minItems": 1,
+            "title": "Cases",
+            "type": "array"
+          },
+          "model": {
+            "const": "gpt-5.6-sol",
+            "default": "gpt-5.6-sol",
+            "title": "Model",
+            "type": "string"
+          },
+          "rubric": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rubric"
+          }
+        },
+        "required": [
+          "cases"
+        ],
+        "title": "EvaluationCreateIn",
+        "type": "object"
+      },
+      "EvaluationReviewIn": {
+        "additionalProperties": false,
+        "properties": {
+          "current_vs_v7": {
+            "enum": [
+              "v7_win",
+              "current_win",
+              "tie"
+            ],
+            "title": "Current Vs V7",
+            "type": "string"
+          },
+          "harmful": {
+            "items": {
+              "enum": [
+                "A",
+                "B",
+                "C",
+                "D"
+              ],
+              "type": "string"
+            },
+            "title": "Harmful",
+            "type": "array"
+          },
+          "notes": {
+            "default": "",
+            "maxLength": 2000,
+            "title": "Notes",
+            "type": "string"
+          },
+          "ranking": {
+            "items": {
+              "enum": [
+                "A",
+                "B",
+                "C",
+                "D"
+              ],
+              "type": "string"
+            },
+            "maxItems": 4,
+            "minItems": 4,
+            "title": "Ranking",
+            "type": "array"
+          }
+        },
+        "required": [
+          "ranking",
+          "current_vs_v7"
+        ],
+        "title": "EvaluationReviewIn",
         "type": "object"
       },
       "EvidenceBatchIn": {
@@ -131,6 +405,27 @@
         "title": "FeedbackIn",
         "type": "object"
       },
+      "FeedbackOut": {
+        "additionalProperties": false,
+        "properties": {
+          "recorded": {
+            "title": "Recorded",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "recorded"
+        ],
+        "title": "FeedbackOut",
+        "type": "object"
+      },
+      "FlexibleOut": {
+        "additionalProperties": true,
+        "description": "Typed public fields while allowing additive response evolution.",
+        "properties": {},
+        "title": "FlexibleOut",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -142,6 +437,122 @@
           }
         },
         "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "HealthOut": {
+        "additionalProperties": false,
+        "properties": {
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ok"
+        ],
+        "title": "HealthOut",
+        "type": "object"
+      },
+      "ItemsOut": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "ItemsOut",
+        "type": "object"
+      },
+      "JobOut": {
+        "additionalProperties": true,
+        "properties": {
+          "history": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "History",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "status",
+          "history"
+        ],
+        "title": "JobOut",
+        "type": "object"
+      },
+      "JobQueuedOut": {
+        "additionalProperties": false,
+        "properties": {
+          "job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "status"
+        ],
+        "title": "JobQueuedOut",
+        "type": "object"
+      },
+      "JudgeRunOut": {
+        "additionalProperties": true,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "JudgeRunOut",
         "type": "object"
       },
       "LinkIn": {
@@ -177,6 +588,87 @@
           "to_ref"
         ],
         "title": "LinkIn",
+        "type": "object"
+      },
+      "MemoryCreatedOut": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "index_job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Index Job Id"
+          },
+          "indexed": {
+            "title": "Indexed",
+            "type": "boolean"
+          },
+          "stored": {
+            "title": "Stored",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "stored",
+          "indexed"
+        ],
+        "title": "MemoryCreatedOut",
+        "type": "object"
+      },
+      "MemoryHistoryOut": {
+        "additionalProperties": false,
+        "properties": {
+          "memory": {
+            "additionalProperties": true,
+            "title": "Memory",
+            "type": "object"
+          },
+          "predecessors": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Predecessors",
+            "type": "array"
+          },
+          "revisions": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Revisions",
+            "type": "array"
+          },
+          "successor": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Successor"
+          }
+        },
+        "required": [
+          "memory",
+          "revisions",
+          "predecessors",
+          "successor"
+        ],
+        "title": "MemoryHistoryOut",
         "type": "object"
       },
       "MemoryIn": {
@@ -301,10 +793,10 @@
             ],
             "title": "Context"
           },
-          "expected_updated_at": {
-            "format": "date-time",
-            "title": "Expected Updated At",
-            "type": "string"
+          "expected_revision": {
+            "minimum": 1.0,
+            "title": "Expected Revision",
+            "type": "integer"
           },
           "importance": {
             "anyOf": [
@@ -381,9 +873,135 @@
           }
         },
         "required": [
-          "expected_updated_at"
+          "expected_revision"
         ],
         "title": "MemoryPatch",
+        "type": "object"
+      },
+      "MemorySearchOut": {
+        "additionalProperties": false,
+        "properties": {
+          "dropped_filter": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Dropped Filter",
+            "type": "array"
+          },
+          "dropped_relevance": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Dropped Relevance",
+            "type": "array"
+          },
+          "dropped_trust": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Dropped Trust",
+            "type": "array"
+          },
+          "dropped_validity": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Dropped Validity",
+            "type": "array"
+          },
+          "embed_ms": {
+            "title": "Embed Ms",
+            "type": "number"
+          },
+          "memories": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Memories",
+            "type": "array"
+          },
+          "policy_id": {
+            "title": "Policy Id",
+            "type": "string"
+          },
+          "raw": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Raw",
+            "type": "array"
+          },
+          "retrieval_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retrieval Id"
+          },
+          "timings": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "title": "Timings",
+            "type": "object"
+          },
+          "took_ms": {
+            "title": "Took Ms",
+            "type": "number"
+          },
+          "used_tokens": {
+            "title": "Used Tokens",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "memories",
+          "used_tokens",
+          "dropped_trust",
+          "dropped_validity",
+          "dropped_filter",
+          "dropped_relevance",
+          "policy_id",
+          "embed_ms",
+          "raw",
+          "took_ms"
+        ],
+        "title": "MemorySearchOut",
+        "type": "object"
+      },
+      "MemorySourcesOut": {
+        "additionalProperties": false,
+        "properties": {
+          "evidence": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Evidence",
+            "type": "array"
+          },
+          "memory": {
+            "additionalProperties": true,
+            "title": "Memory",
+            "type": "object"
+          },
+          "source_role": {
+            "title": "Source Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "memory",
+          "source_role",
+          "evidence"
+        ],
+        "title": "MemorySourcesOut",
         "type": "object"
       },
       "MessageIn": {
@@ -536,6 +1154,191 @@
         "title": "MessageOut",
         "type": "object"
       },
+      "MetricsOut": {
+        "additionalProperties": false,
+        "properties": {
+          "abstention_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Abstention Rate"
+          },
+          "backup_freshness_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Backup Freshness Seconds"
+          },
+          "correct_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Correct Rate"
+          },
+          "feedback_labels": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Feedback Labels"
+          },
+          "feedback_runs": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Feedback Runs"
+          },
+          "index_parity": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "boolean"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Index Parity"
+          },
+          "month_reserved_usd": {
+            "title": "Month Reserved Usd",
+            "type": "number"
+          },
+          "month_spend_usd": {
+            "title": "Month Spend Usd",
+            "type": "number"
+          },
+          "oldest_unprocessed_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oldest Unprocessed Message"
+          },
+          "outbox_oldest_age_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outbox Oldest Age Seconds"
+          },
+          "outbox_pending": {
+            "title": "Outbox Pending",
+            "type": "integer"
+          },
+          "outbox_retries": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outbox Retries"
+          },
+          "provider_errors": {
+            "title": "Provider Errors",
+            "type": "integer"
+          },
+          "retrieval_runs": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retrieval Runs"
+          },
+          "search_latency_ms": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Search Latency Ms"
+          },
+          "useful_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Useful Rate"
+          }
+        },
+        "required": [
+          "outbox_pending",
+          "oldest_unprocessed_message",
+          "provider_errors",
+          "month_spend_usd",
+          "month_reserved_usd"
+        ],
+        "title": "MetricsOut",
+        "type": "object"
+      },
       "NamespaceIn": {
         "additionalProperties": false,
         "properties": {
@@ -556,6 +1359,59 @@
           "name"
         ],
         "title": "NamespaceIn",
+        "type": "object"
+      },
+      "OffsetPageOut": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "OffsetPageOut",
+        "type": "object"
+      },
+      "PolicyActivationIn": {
+        "additionalProperties": false,
+        "properties": {
+          "checksum": {
+            "title": "Checksum",
+            "type": "string"
+          },
+          "confirm": {
+            "const": "ACTIVATE",
+            "title": "Confirm",
+            "type": "string"
+          }
+        },
+        "required": [
+          "checksum",
+          "confirm"
+        ],
+        "title": "PolicyActivationIn",
         "type": "object"
       },
       "PolicyIn": {
@@ -643,6 +1499,97 @@
           }
         },
         "title": "ProfileIn",
+        "type": "object"
+      },
+      "ProfileOut": {
+        "additionalProperties": false,
+        "properties": {
+          "dynamic": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Dynamic",
+            "type": "array"
+          },
+          "generated_at": {
+            "title": "Generated At",
+            "type": "string"
+          },
+          "policy_id": {
+            "title": "Policy Id",
+            "type": "string"
+          },
+          "stable": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Stable",
+            "type": "array"
+          },
+          "used_tokens": {
+            "title": "Used Tokens",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "stable",
+          "dynamic",
+          "used_tokens",
+          "generated_at",
+          "policy_id"
+        ],
+        "title": "ProfileOut",
+        "type": "object"
+      },
+      "PromotionIn": {
+        "additionalProperties": false,
+        "properties": {
+          "checksum": {
+            "title": "Checksum",
+            "type": "string"
+          },
+          "confirm": {
+            "const": "PROMOTE",
+            "title": "Confirm",
+            "type": "string"
+          }
+        },
+        "required": [
+          "checksum",
+          "confirm"
+        ],
+        "title": "PromotionIn",
+        "type": "object"
+      },
+      "ReadyOut": {
+        "additionalProperties": false,
+        "properties": {
+          "database": {
+            "title": "Database",
+            "type": "boolean"
+          },
+          "embedder": {
+            "title": "Embedder",
+            "type": "boolean"
+          },
+          "qdrant": {
+            "title": "Qdrant",
+            "type": "boolean"
+          },
+          "ready": {
+            "title": "Ready",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ready",
+          "database",
+          "qdrant",
+          "embedder"
+        ],
+        "title": "ReadyOut",
         "type": "object"
       },
       "RecordIn": {
@@ -765,6 +1712,85 @@
         "title": "RecordSearchIn",
         "type": "object"
       },
+      "ReplayIn": {
+        "additionalProperties": false,
+        "properties": {
+          "apply": {
+            "default": false,
+            "title": "Apply",
+            "type": "boolean"
+          }
+        },
+        "title": "ReplayIn",
+        "type": "object"
+      },
+      "ReplayReviewIn": {
+        "additionalProperties": false,
+        "properties": {
+          "decision": {
+            "enum": [
+              "accepted",
+              "rejected",
+              "edited"
+            ],
+            "title": "Decision",
+            "type": "string"
+          },
+          "edits": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Edits"
+          }
+        },
+        "required": [
+          "decision"
+        ],
+        "title": "ReplayReviewIn",
+        "type": "object"
+      },
+      "RetrievalRunFeedbackIn": {
+        "additionalProperties": false,
+        "properties": {
+          "correct": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Correct"
+          },
+          "memory_id": {
+            "title": "Memory Id",
+            "type": "string"
+          },
+          "useful": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Useful"
+          }
+        },
+        "required": [
+          "memory_id"
+        ],
+        "title": "RetrievalRunFeedbackIn",
+        "type": "object"
+      },
       "SearchIn": {
         "additionalProperties": false,
         "properties": {
@@ -838,6 +1864,45 @@
         "title": "SearchIn",
         "type": "object"
       },
+      "SessionMessagesOut": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "session": {
+            "additionalProperties": true,
+            "title": "Session",
+            "type": "object"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset",
+          "session"
+        ],
+        "title": "SessionMessagesOut",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "ctx": {
@@ -901,11 +1966,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": {
-                    "type": "boolean"
-                  },
-                  "title": "Response Healthz Healthz Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/HealthOut"
                 }
               }
             },
@@ -922,13 +1983,38 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ReadyOut"
+                }
               }
             },
             "description": "Successful Response"
           }
         },
         "summary": "Readyz"
+      }
+    },
+    "/v1/admin/backups": {
+      "get": {
+        "operationId": "backup_status_v1_admin_backups_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Backup Status"
       }
     },
     "/v1/admin/consolidate": {
@@ -949,11 +2035,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "title": "Response Start Consolidation V1 Admin Consolidate Post",
-                  "type": "object"
+                  "$ref": "#/components/schemas/JobQueuedOut"
                 }
               }
             },
@@ -986,9 +2068,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Detailed Health V1 Admin Health Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/AdminHealthOut"
                 }
               }
             },
@@ -1036,9 +2116,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response List Judge Runs V1 Admin Judge Runs Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/OffsetPageOut"
                 }
               }
             },
@@ -1082,9 +2160,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Get Judge Run V1 Admin Judge Runs  Run Id  Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/JudgeRunOut"
                 }
               }
             },
@@ -1117,9 +2193,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Metrics V1 Admin Metrics Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/MetricsOut"
                 }
               }
             },
@@ -1134,23 +2208,123 @@
         "summary": "Metrics"
       }
     },
+    "/v1/admin/policy-sweep": {
+      "post": {
+        "operationId": "run_policy_sweep_v1_admin_policy_sweep_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FlexibleOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Run Policy Sweep"
+      }
+    },
+    "/v1/admin/policy-sweep/{checksum}/activate": {
+      "post": {
+        "operationId": "activate_policy_sweep_v1_admin_policy_sweep__checksum__activate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "checksum",
+            "required": true,
+            "schema": {
+              "title": "Checksum",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PolicyActivationIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FlexibleOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Activate Policy Sweep"
+      }
+    },
     "/v1/admin/reextract": {
       "post": {
         "operationId": "start_replay_report_v1_admin_reextract_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/ReplayIn"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
         "responses": {
           "202": {
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "title": "Response Start Replay Report V1 Admin Reextract Post",
-                  "type": "object"
+                  "$ref": "#/components/schemas/JobQueuedOut"
                 }
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "security": [
@@ -1169,11 +2343,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "title": "Response Start Reindex V1 Admin Reindex Post",
-                  "type": "object"
+                  "$ref": "#/components/schemas/JobQueuedOut"
                 }
               }
             },
@@ -1221,9 +2391,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response List Sessions V1 Admin Sessions Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/OffsetPageOut"
                 }
               }
             },
@@ -1290,9 +2458,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response List Session Messages V1 Admin Sessions  Session Id  Messages Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/SessionMessagesOut"
                 }
               }
             },
@@ -1345,9 +2511,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Get Collection V1 Collections  Namespace   Name  Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/EntityOut"
                 }
               }
             },
@@ -1410,9 +2574,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Create Record V1 Collections  Namespace   Name  Records Post",
-                  "type": "object"
+                  "$ref": "#/components/schemas/EntityOut"
                 }
               }
             },
@@ -1467,6 +2629,16 @@
               "title": "Record Id",
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "expected_revision",
+            "required": true,
+            "schema": {
+              "minimum": 1,
+              "title": "Expected Revision",
+              "type": "integer"
+            }
           }
         ],
         "responses": {
@@ -1474,9 +2646,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Delete Record V1 Collections  Namespace   Name  Records  Record Id  Delete",
-                  "type": "object"
+                  "$ref": "#/components/schemas/EntityOut"
                 }
               }
             },
@@ -1546,9 +2716,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Update Record V1 Collections  Namespace   Name  Records  Record Id  Patch",
-                  "type": "object"
+                  "$ref": "#/components/schemas/EntityOut"
                 }
               }
             },
@@ -1610,9 +2778,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Record History V1 Collections  Namespace   Name  Records  Record Id  History Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/ItemsOut"
                 }
               }
             },
@@ -1675,9 +2841,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Search Records V1 Collections  Namespace   Name  Search Post",
-                  "type": "object"
+                  "$ref": "#/components/schemas/CursorPageOut"
                 }
               }
             },
@@ -1720,11 +2884,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "title": "Response Erase Data V1 Erase Post",
-                  "type": "object"
+                  "$ref": "#/components/schemas/JobQueuedOut"
                 }
               }
             },
@@ -1747,6 +2907,318 @@
           }
         ],
         "summary": "Erase Data"
+      }
+    },
+    "/v1/evaluations": {
+      "get": {
+        "operationId": "list_evaluations_v1_evaluations_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "List Evaluations"
+      },
+      "post": {
+        "operationId": "create_evaluation_v1_evaluations_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EvaluationCreateIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FlexibleOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Create Evaluation"
+      }
+    },
+    "/v1/evaluations/{evaluation_id}": {
+      "get": {
+        "operationId": "get_evaluation_v1_evaluations__evaluation_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "evaluation_id",
+            "required": true,
+            "schema": {
+              "title": "Evaluation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FlexibleOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Get Evaluation"
+      }
+    },
+    "/v1/evaluations/{evaluation_id}/cases": {
+      "get": {
+        "operationId": "list_evaluation_cases_v1_evaluations__evaluation_id__cases_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "evaluation_id",
+            "required": true,
+            "schema": {
+              "title": "Evaluation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "List Evaluation Cases"
+      }
+    },
+    "/v1/evaluations/{evaluation_id}/cases/{case_id}": {
+      "get": {
+        "operationId": "get_evaluation_case_v1_evaluations__evaluation_id__cases__case_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "evaluation_id",
+            "required": true,
+            "schema": {
+              "title": "Evaluation Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "case_id",
+            "required": true,
+            "schema": {
+              "title": "Case Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FlexibleOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Get Evaluation Case"
+      }
+    },
+    "/v1/evaluations/{evaluation_id}/cases/{case_id}/review": {
+      "post": {
+        "operationId": "review_evaluation_case_v1_evaluations__evaluation_id__cases__case_id__review_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "evaluation_id",
+            "required": true,
+            "schema": {
+              "title": "Evaluation Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "case_id",
+            "required": true,
+            "schema": {
+              "title": "Case Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EvaluationReviewIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FlexibleOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Review Evaluation Case"
+      }
+    },
+    "/v1/evaluations/{evaluation_id}/finalize": {
+      "post": {
+        "operationId": "finalize_evaluation_v1_evaluations__evaluation_id__finalize_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "evaluation_id",
+            "required": true,
+            "schema": {
+              "title": "Evaluation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FlexibleOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Finalize Evaluation"
       }
     },
     "/v1/evidence/events": {
@@ -1810,9 +3282,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Post Evidence Batch V1 Evidence Events Batch Post",
-                  "type": "object"
+                  "$ref": "#/components/schemas/BatchOut"
                 }
               }
             },
@@ -1845,11 +3315,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "title": "Response Export Data V1 Export Post",
-                  "type": "object"
+                  "$ref": "#/components/schemas/JobQueuedOut"
                 }
               }
             },
@@ -1925,9 +3391,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response List Jobs V1 Jobs Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/CursorPageOut"
                 }
               }
             },
@@ -1971,9 +3435,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Get Job V1 Jobs  Job Id  Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/JobOut"
                 }
               }
             },
@@ -2017,11 +3479,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "title": "Response Cancel Job V1 Jobs  Job Id  Cancel Post",
-                  "type": "object"
+                  "$ref": "#/components/schemas/JobQueuedOut"
                 }
               }
             },
@@ -2116,9 +3574,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response List Memories V1 Memories Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/CursorPageOut"
                 }
               }
             },
@@ -2159,9 +3615,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Post Memory V1 Memories Post",
-                  "type": "object"
+                  "$ref": "#/components/schemas/MemoryCreatedOut"
                 }
               }
             },
@@ -2204,9 +3658,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Search Memories V1 Memories Search Post",
-                  "type": "object"
+                  "$ref": "#/components/schemas/MemorySearchOut"
                 }
               }
             },
@@ -2250,9 +3702,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Delete Memory V1 Memories  Memory Id  Delete",
-                  "type": "object"
+                  "$ref": "#/components/schemas/EntityOut"
                 }
               }
             },
@@ -2304,9 +3754,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Patch Memory V1 Memories  Memory Id  Patch",
-                  "type": "object"
+                  "$ref": "#/components/schemas/EntityOut"
                 }
               }
             },
@@ -2350,9 +3798,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Memory History V1 Memories  Memory Id  History Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/MemoryHistoryOut"
                 }
               }
             },
@@ -2396,9 +3842,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Memory Sources V1 Memories  Memory Id  Sources Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/MemorySourcesOut"
                 }
               }
             },
@@ -2431,9 +3875,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response List Namespaces V1 Namespaces Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/ItemsOut"
                 }
               }
             },
@@ -2464,9 +3906,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Create Namespace V1 Namespaces Post",
-                  "type": "object"
+                  "$ref": "#/components/schemas/EntityOut"
                 }
               }
             },
@@ -2510,9 +3950,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response List Collections V1 Namespaces  Namespace  Collections Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/ItemsOut"
                 }
               }
             },
@@ -2564,9 +4002,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Create Collection V1 Namespaces  Namespace  Collections Post",
-                  "type": "object"
+                  "$ref": "#/components/schemas/EntityOut"
                 }
               }
             },
@@ -2610,9 +4046,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response List Links V1 Namespaces  Namespace  Links Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/ItemsOut"
                 }
               }
             },
@@ -2664,9 +4098,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Create Link V1 Namespaces  Namespace  Links Post",
-                  "type": "object"
+                  "$ref": "#/components/schemas/EntityOut"
                 }
               }
             },
@@ -2717,9 +4149,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response List Policies V1 Policies Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/ItemsOut"
                 }
               }
             },
@@ -2760,9 +4190,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Create Policy V1 Policies Post",
-                  "type": "object"
+                  "$ref": "#/components/schemas/EntityOut"
                 }
               }
             },
@@ -2805,9 +4233,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Render Profile V1 Profiles Render Post",
-                  "type": "object"
+                  "$ref": "#/components/schemas/ProfileOut"
                 }
               }
             },
@@ -2832,6 +4258,430 @@
         "summary": "Render Profile"
       }
     },
+    "/v1/replay-batches": {
+      "get": {
+        "operationId": "list_replay_batches_v1_replay_batches_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "List Replay Batches"
+      }
+    },
+    "/v1/replay-batches/{batch_id}": {
+      "get": {
+        "operationId": "replay_batch_v1_replay_batches__batch_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "batch_id",
+            "required": true,
+            "schema": {
+              "title": "Batch Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FlexibleOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Replay Batch"
+      }
+    },
+    "/v1/replay-batches/{batch_id}/approve": {
+      "post": {
+        "operationId": "approve_replay_batch_v1_replay_batches__batch_id__approve_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "batch_id",
+            "required": true,
+            "schema": {
+              "title": "Batch Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChecksumIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FlexibleOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Approve Replay Batch"
+      }
+    },
+    "/v1/replay-batches/{batch_id}/export": {
+      "post": {
+        "operationId": "export_replay_batch_v1_replay_batches__batch_id__export_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "batch_id",
+            "required": true,
+            "schema": {
+              "title": "Batch Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FlexibleOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Export Replay Batch"
+      }
+    },
+    "/v1/replay-batches/{batch_id}/items": {
+      "get": {
+        "operationId": "replay_batch_items_v1_replay_batches__batch_id__items_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "batch_id",
+            "required": true,
+            "schema": {
+              "title": "Batch Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Replay Batch Items"
+      }
+    },
+    "/v1/replay-batches/{batch_id}/items/{item_id}/review": {
+      "patch": {
+        "operationId": "review_replay_item_v1_replay_batches__batch_id__items__item_id__review_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "batch_id",
+            "required": true,
+            "schema": {
+              "title": "Batch Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "title": "Item Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReplayReviewIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FlexibleOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Review Replay Item"
+      }
+    },
+    "/v1/replay-batches/{batch_id}/promote": {
+      "post": {
+        "operationId": "promote_replay_batch_v1_replay_batches__batch_id__promote_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "batch_id",
+            "required": true,
+            "schema": {
+              "title": "Batch Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PromotionIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FlexibleOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Promote Replay Batch"
+      }
+    },
+    "/v1/replay-batches/{batch_id}/promotion-gates": {
+      "post": {
+        "operationId": "replay_promotion_gates_v1_replay_batches__batch_id__promotion_gates_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "batch_id",
+            "required": true,
+            "schema": {
+              "title": "Batch Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChecksumIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FlexibleOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Replay Promotion Gates"
+      }
+    },
+    "/v1/replay-batches/{batch_id}/validate": {
+      "post": {
+        "operationId": "validate_replay_batch_v1_replay_batches__batch_id__validate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "batch_id",
+            "required": true,
+            "schema": {
+              "title": "Batch Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FlexibleOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Validate Replay Batch"
+      }
+    },
     "/v1/retrieval-feedback": {
       "post": {
         "operationId": "retrieval_feedback_v1_retrieval_feedback_post",
@@ -2850,11 +4700,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": {
-                    "type": "boolean"
-                  },
-                  "title": "Response Retrieval Feedback V1 Retrieval Feedback Post",
-                  "type": "object"
+                  "$ref": "#/components/schemas/FeedbackOut"
                 }
               }
             },
@@ -2879,6 +4725,107 @@
         "summary": "Retrieval Feedback"
       }
     },
+    "/v1/retrieval-runs": {
+      "get": {
+        "operationId": "recent_retrieval_runs_v1_retrieval_runs_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Recent Retrieval Runs"
+      }
+    },
+    "/v1/retrieval-runs/{retrieval_id}/feedback": {
+      "post": {
+        "operationId": "retrieval_run_feedback_v1_retrieval_runs__retrieval_id__feedback_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "retrieval_id",
+            "required": true,
+            "schema": {
+              "title": "Retrieval Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RetrievalRunFeedbackIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedbackOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Retrieval Run Feedback"
+      }
+    },
     "/v1/sessions/{session_id}/close": {
       "post": {
         "operationId": "close_session_v1_sessions__session_id__close_post",
@@ -2898,9 +4845,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Close Session V1 Sessions  Session Id  Close Post",
-                  "type": "object"
+                  "$ref": "#/components/schemas/JobQueuedOut"
                 }
               }
             },

@@ -5,31 +5,46 @@ import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
-from ...models.start_replay_report_v1_admin_reextract_post_response_start_replay_report_v1_admin_reextract_post import (
-    StartReplayReportV1AdminReextractPostResponseStartReplayReportV1AdminReextractPost,
-)
-from ...types import Response
+from ...models.http_validation_error import HTTPValidationError
+from ...models.job_queued_out import JobQueuedOut
+from ...models.replay_in import ReplayIn
+from ...types import UNSET, Response, Unset
 
 
-def _get_kwargs() -> dict[str, Any]:
+def _get_kwargs(
+    *,
+    body: None | ReplayIn | Unset = UNSET,
+) -> dict[str, Any]:
+    headers: dict[str, Any] = {}
 
     _kwargs: dict[str, Any] = {
         "method": "post",
         "url": "/v1/admin/reextract",
     }
 
+    if isinstance(body, ReplayIn):
+        _kwargs["json"] = body.to_dict()
+    else:
+        _kwargs["json"] = body
+
+    headers["Content-Type"] = "application/json"
+
+    _kwargs["headers"] = headers
     return _kwargs
 
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> StartReplayReportV1AdminReextractPostResponseStartReplayReportV1AdminReextractPost | None:
+) -> HTTPValidationError | JobQueuedOut | None:
     if response.status_code == 202:
-        response_202 = StartReplayReportV1AdminReextractPostResponseStartReplayReportV1AdminReextractPost.from_dict(
-            response.json()
-        )
+        response_202 = JobQueuedOut.from_dict(response.json())
 
         return response_202
+
+    if response.status_code == 422:
+        response_422 = HTTPValidationError.from_dict(response.json())
+
+        return response_422
 
     if client.raise_on_unexpected_status:
         raise errors.UnexpectedStatus(response.status_code, response.content)
@@ -39,7 +54,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[StartReplayReportV1AdminReextractPostResponseStartReplayReportV1AdminReextractPost]:
+) -> Response[HTTPValidationError | JobQueuedOut]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -51,18 +66,24 @@ def _build_response(
 def sync_detailed(
     *,
     client: AuthenticatedClient,
-) -> Response[StartReplayReportV1AdminReextractPostResponseStartReplayReportV1AdminReextractPost]:
+    body: None | ReplayIn | Unset = UNSET,
+) -> Response[HTTPValidationError | JobQueuedOut]:
     """Start Replay Report
+
+    Args:
+        body (None | ReplayIn | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[StartReplayReportV1AdminReextractPostResponseStartReplayReportV1AdminReextractPost]
+        Response[HTTPValidationError | JobQueuedOut]
     """
 
-    kwargs = _get_kwargs()
+    kwargs = _get_kwargs(
+        body=body,
+    )
 
     response = client.get_httpx_client().request(
         **kwargs,
@@ -74,37 +95,48 @@ def sync_detailed(
 def sync(
     *,
     client: AuthenticatedClient,
-) -> StartReplayReportV1AdminReextractPostResponseStartReplayReportV1AdminReextractPost | None:
+    body: None | ReplayIn | Unset = UNSET,
+) -> HTTPValidationError | JobQueuedOut | None:
     """Start Replay Report
+
+    Args:
+        body (None | ReplayIn | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        StartReplayReportV1AdminReextractPostResponseStartReplayReportV1AdminReextractPost
+        HTTPValidationError | JobQueuedOut
     """
 
     return sync_detailed(
         client=client,
+        body=body,
     ).parsed
 
 
 async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
-) -> Response[StartReplayReportV1AdminReextractPostResponseStartReplayReportV1AdminReextractPost]:
+    body: None | ReplayIn | Unset = UNSET,
+) -> Response[HTTPValidationError | JobQueuedOut]:
     """Start Replay Report
+
+    Args:
+        body (None | ReplayIn | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[StartReplayReportV1AdminReextractPostResponseStartReplayReportV1AdminReextractPost]
+        Response[HTTPValidationError | JobQueuedOut]
     """
 
-    kwargs = _get_kwargs()
+    kwargs = _get_kwargs(
+        body=body,
+    )
 
     response = await client.get_async_httpx_client().request(**kwargs)
 
@@ -114,19 +146,24 @@ async def asyncio_detailed(
 async def asyncio(
     *,
     client: AuthenticatedClient,
-) -> StartReplayReportV1AdminReextractPostResponseStartReplayReportV1AdminReextractPost | None:
+    body: None | ReplayIn | Unset = UNSET,
+) -> HTTPValidationError | JobQueuedOut | None:
     """Start Replay Report
+
+    Args:
+        body (None | ReplayIn | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        StartReplayReportV1AdminReextractPostResponseStartReplayReportV1AdminReextractPost
+        HTTPValidationError | JobQueuedOut
     """
 
     return (
         await asyncio_detailed(
             client=client,
+            body=body,
         )
     ).parsed

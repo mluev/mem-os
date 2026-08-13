@@ -18,9 +18,7 @@
 #                          searching your own transcript -- but not memory's job.
 #   (omitted)              answerable by both; this is the honest head-to-head.
 #
-# A question about one codebase must also carry `project:`, or the read path
-# drops it: docs/05-retrieval.md excludes other projects' facts before ranking.
-# Against raw that was unnecessary, which is why several cases lacked it.
+# A workspace-bound question carries an explicit neutral context filter.
 
 # --- identity and contact -------------------------------------------------
 - id: github-username
@@ -61,7 +59,7 @@
 
 - id: enbek-module
   query: enbek module work
-  project: frontend-second
+  context: {workspace: frontend-second}
   expect_any: ["enbek"]
   reject: ["portfolio", "built by hand"]
 
@@ -155,7 +153,7 @@
 # the model choice is not earning its cost.
 - id: xling-signing-buttons
   query: unify the buttons that trigger signing and sending
-  project: frontend-second
+  context: {workspace: frontend-second}
   expect_any: ["подписан", "кнопк", "sign.*button", "button.*sign"]
 
 - id: xling-brief-summary
@@ -178,12 +176,12 @@
 - id: project-scoped-portfolio
   query: profile photo and layout
   answerable_by: [raw]
-  project: portfolio
+  context: {workspace: portfolio}
   expect_any: ["photo", "profile", "portfolio"]
 
 - id: project-scoped-frontend
   query: module refactor and cleanup
-  project: frontend-second
+  context: {workspace: frontend-second}
   expect_any: ["refactor", "clean", "module"]
 
 # --- memory-shaped questions ----------------------------------------------
@@ -249,7 +247,7 @@
 
 - id: mem-notiky-login
   query: how does signing in work in notiky
-  project: notiky
+  context: {workspace: notiky}
   expect_any: ["otp", "email"]
 
 - id: mem-migration-style
@@ -259,13 +257,13 @@
 - id: mem-attendance-decision
   query: what did we decide about attendance report templates
   expect_any: ["template"]
-  project: frontend
+  context: {workspace: frontend}
 
 # Scope plumbing against facts: the same question inside one project must not
 # return another project's answer. project-scoped-portfolio above is raw-only
 # because it asks about a ticket; this asks about a durable portfolio preference.
 - id: mem-project-scoped-portfolio
   query: how should animations and page transitions behave here
-  project: portfolio
+  context: {workspace: portfolio}
   expect_any: ["animat", "transition", "scroll"]
   reject: ["attendance", "enbek"]
