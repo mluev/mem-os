@@ -248,16 +248,22 @@ disagrees with the source of truth and a `POST /v1/admin/reindex` is due.
 
 ## Tests
 
-<!-- measured: 2026-07-31 · .venv/bin/python -m unittest discover -s tests -t . ; pnpm --dir web test -->
+<!-- measured: 2026-09-03 · uv run pytest -q --cov=memkit --cov-fail-under=75 ; pnpm --dir web test -->
 
-| suite | runner | tests | wall clock |
-|---|---|---|---|
-| `tests/` | stdlib `unittest` | 399 | ~3 s |
-| `web/` | vitest | 6 | ~3 s |
+| suite | runner | tests | coverage | wall clock |
+|---|---|---|---|---|
+| `tests/` | pytest | 243 (+1 skipped) | 79.6% | ~14 s |
+| `web/` | vitest | 6 | — | ~3 s |
 
-No pytest: it is not a declared dependency and the suite does not need it. What
-each layer covers, and what it deliberately does not, is in
-[`08-testing.md`](08-testing.md).
+The skipped test is `test_qdrant_integration.py`, which needs a real Qdrant and
+runs only with `MEMKIT_QDRANT_INTEGRATION=1`.
+
+pytest is the runner: four suites use `parametrize`, `raises`, `monkeypatch`, or
+module-level test functions, which `unittest discover` cannot collect. The
+previous entry here claimed 399 tests under `unittest` and that pytest was not a
+dependency; both were wrong, and the count could not have been produced by the
+command it cited. What each layer covers, and what it deliberately does not, is
+in [`08-testing.md`](08-testing.md).
 
 The Python suite runs entirely offline. `tests/httpharness.py` asserts on every
 setUp that no judge credential survived into the test settings, because the first

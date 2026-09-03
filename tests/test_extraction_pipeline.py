@@ -9,6 +9,7 @@ messages is ever finished, and whether a leased window can wedge a loop.
 
 from __future__ import annotations
 
+import pathlib
 import unittest
 from datetime import UTC, datetime, timedelta
 
@@ -306,6 +307,65 @@ class SessionDrainTest(unittest.TestCase):
                 job_id=job_id,
                 cancelled=lambda: False,
             )
+
+
+class WindowClaimConcurrencyTest(unittest.TestCase):
+    """Two workers must never process the same messages.
+
+    The lease exists so a provider call is never paid for twice, and the only
+    existing test claimed sequentially. A window is claimed under BEGIN
+    IMMEDIATE, so a race should leave exactly one winner.
+    """
+
+    def test_only_one_of_many_racing_claims_wins(self) -> None:
+        import threading
+
+        from memkit.db import connect
+
+        conn = make_db()
+        add_messages(conn, n=10)
+        db_path = pathlib.Path(
+            conn.execute("SELECT file FROM pragma_database_list WHERE name='main'").fetchone()[
+                "file"
+            ]
+        )
+        conn.close()
+
+        results: list[int] = []
+        errors: list[BaseException] = []
+        barrier = threading.Barrier(8)
+
+        def claim(index: int) -> None:
+            worker = connect(db_path)
+            try:
+                barrier.wait(timeout=5)
+                window = extract.claim_window(worker, session_id="s-1", job_id=f"job-{index}")
+                results.append(len(window))
+            except BaseException as exc:
+                errors.append(exc)
+            finally:
+                worker.close()
+
+        threads = [threading.Thread(target=claim, args=(i,)) for i in range(8)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=10)
+
+        self.assertEqual(errors, [])
+        self.assertEqual(sorted(results, reverse=True)[0], 10)
+        self.assertEqual([count for count in results if count], [10], "a window was claimed twice")
+
+    def test_an_expired_lease_can_be_reclaimed(self) -> None:
+        conn = make_db()
+        add_messages(conn, n=10)
+        conn.execute(
+            "UPDATE messages SET claim_token='dead-job', claim_expires_at='2020-01-01T00:00:00Z'"
+        )
+        conn.commit()
+        window = extract.claim_window(conn, session_id="s-1", job_id="fresh")
+        self.assertEqual(len(window), 10)
+        conn.close()
 
 
 if __name__ == "__main__":
