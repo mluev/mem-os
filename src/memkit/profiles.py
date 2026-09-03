@@ -21,11 +21,18 @@ def render(
 ) -> dict[str, Any]:
     now = datetime.now(UTC)
     cutoff = now - timedelta(days=dynamic_days)
+    # Timestamps are stored as ISO-8601 UTC text (db.utcnow), so a cutoff in the
+    # same shape compares lexicographically. Filtering in SQL bounds the scan to
+    # rows that can appear in either block; the store is otherwise read whole.
+    cutoff_text = cutoff.isoformat(timespec="seconds").replace("+00:00", "Z")
+    kinds = list(dict.fromkeys(stable_kinds))
+    kind_clause = ",".join("?" for _ in kinds) or "NULL"
     rows = conn.execute(
-        """SELECT * FROM memories
+        f"""SELECT * FROM memories
             WHERE owner_id=? AND status='active'
+              AND (kind IN ({kind_clause}) OR updated_at >= ?)
             ORDER BY importance DESC,updated_at DESC,id""",
-        (owner_id,),
+        (owner_id, *kinds, cutoff_text),
     ).fetchall()
     stable: list[dict[str, Any]] = []
     dynamic: list[dict[str, Any]] = []
@@ -44,7 +51,7 @@ def render(
             "kind": row["kind"],
             "source_role": row["source_role"],
         }
-        if row["kind"] in stable_kinds:
+        if row["kind"] in kinds:
             stable.append(item)
         else:
             try:

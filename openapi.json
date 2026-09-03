@@ -765,6 +765,21 @@
         "title": "MemoryIn",
         "type": "object"
       },
+      "MemoryOut": {
+        "additionalProperties": false,
+        "properties": {
+          "memory": {
+            "additionalProperties": true,
+            "title": "Memory",
+            "type": "object"
+          }
+        },
+        "required": [
+          "memory"
+        ],
+        "title": "MemoryOut",
+        "type": "object"
+      },
       "MemoryPatch": {
         "additionalProperties": false,
         "properties": {
@@ -3735,6 +3750,49 @@
           }
         ],
         "summary": "Delete Memory"
+      },
+      "get": {
+        "description": "One memory, including `revision`.\n\nA correction is a PATCH carrying `expected_revision`, so an agent needs a\nway to read the current revision of a single fact. Search results carry it\ntoo, but an id learned from a profile block or an earlier turn has nowhere\nelse to come from.",
+        "operationId": "get_memory_v1_memories__memory_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "memory_id",
+            "required": true,
+            "schema": {
+              "title": "Memory Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Get Memory"
       },
       "patch": {
         "operationId": "patch_memory_v1_memories__memory_id__patch",

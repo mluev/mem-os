@@ -592,7 +592,16 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * Get Memory
+         * @description One memory, including `revision`.
+         *
+         *     A correction is a PATCH carrying `expected_revision`, so an agent needs a
+         *     way to read the current revision of a single fact. Search results carry it
+         *     too, but an id learned from a profile block or an earlier turn has nowhere
+         *     else to come from.
+         */
+        get: operations["get_memory_v1_memories__memory_id__get"];
         put?: never;
         post?: never;
         /** Delete Memory */
@@ -1241,6 +1250,13 @@ export interface components {
             text: string;
             /** Valid Until */
             valid_until?: string | null;
+        };
+        /** MemoryOut */
+        MemoryOut: {
+            /** Memory */
+            memory: {
+                [key: string]: unknown;
+            };
         };
         /** MemoryPatch */
         MemoryPatch: {
@@ -2777,6 +2793,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MemorySearchOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_memory_v1_memories__memory_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                memory_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryOut"];
                 };
             };
             /** @description Validation Error */

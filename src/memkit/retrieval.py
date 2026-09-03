@@ -72,6 +72,7 @@ class Scored:
     recency: float
     score: float
     updated_at: str
+    revision: int = 1
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -81,6 +82,9 @@ class Scored:
             "context": self.context,
             "tags": self.tags,
             "source_role": self.source_role,
+            # A correction is a PATCH with `expected_revision`; without this an
+            # agent that found a wrong fact by searching cannot fix it.
+            "revision": self.revision,
             "score": round(self.score, 4),
             "similarity": round(self.similarity, 4),
             "lexical": round(self.lexical, 4),
@@ -388,6 +392,7 @@ def explain(
                 recency=recency,
                 score=score,
                 updated_at=row["updated_at"],
+                revision=int(row["revision"]),
             )
         )
     scored.sort(key=lambda item: (-item.score, item.id))

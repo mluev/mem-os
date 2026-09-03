@@ -49,6 +49,8 @@ from .memory_history_out_successor_type_0 import MemoryHistoryOutSuccessorType0
 from .memory_in import MemoryIn
 from .memory_in_context import MemoryInContext
 from .memory_in_source_role import MemoryInSourceRole
+from .memory_out import MemoryOut
+from .memory_out_memory import MemoryOutMemory
 from .memory_patch import MemoryPatch
 from .memory_patch_context_type_0 import MemoryPatchContextType0
 from .memory_search_out import MemorySearchOut
@@ -152,6 +154,8 @@ __all__ = (
     "MemoryIn",
     "MemoryInContext",
     "MemoryInSourceRole",
+    "MemoryOut",
+    "MemoryOutMemory",
     "MemoryPatch",
     "MemoryPatchContextType0",
     "MemorySearchOut",

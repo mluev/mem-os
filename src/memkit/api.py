@@ -172,7 +172,7 @@ class RecordSearchIn(StrictModel):
 
 
 class ProfileIn(StrictModel):
-    stable_kinds: list[Kind] = Field(default_factory=lambda: ["identity", "preference"])
+    stable_kinds: list[Kind] = Field(default_factory=lambda: ["fact", "preference"])
     dynamic_days: int = Field(default=30, ge=1, le=3650)
     budget_tokens: int = Field(default=800, ge=1, le=20_000)
     include_untrusted: bool = False
@@ -308,6 +308,10 @@ class OffsetPageOut(ItemsOut):
     total: int
     limit: int
     offset: int
+
+
+class MemoryOut(StrictModel):
+    memory: dict[str, Any]
 
 
 class MemorySourcesOut(StrictModel):
@@ -907,6 +911,28 @@ def list_memories(
         item["context"] = json.loads(item.pop("context_json"))
         item["tags"] = json.loads(item.pop("tags_json"))
     return {"items": items, "next_cursor": items[-1]["id"] if has_more else None}
+
+
+@app.get("/v1/memories/{memory_id}", dependencies=[Depends(require_key)])
+def get_memory(memory_id: str) -> MemoryOut:
+    """One memory, including `revision`.
+
+    A correction is a PATCH carrying `expected_revision`, so an agent needs a
+    way to read the current revision of a single fact. Search results carry it
+    too, but an id learned from a profile block or an earlier turn has nowhere
+    else to come from.
+    """
+    conn = app.state.db()
+    row = conn.execute(
+        "SELECT * FROM memories WHERE id=? AND owner_id=?",
+        (memory_id, get_settings().owner_id),
+    ).fetchone()
+    if row is None:
+        raise HTTPException(404, "unknown memory")
+    memory = dict(row)
+    memory["context"] = json.loads(memory.pop("context_json"))
+    memory["tags"] = json.loads(memory.pop("tags_json"))
+    return {"memory": memory}
 
 
 @app.get("/v1/memories/{memory_id}/sources", dependencies=[Depends(require_key)])

@@ -119,7 +119,21 @@ at the start of work that benefits from knowing the user.
 
 ## Corrections
 
-If the user says a remembered fact is wrong, find it via search, then archive
-it: `DELETE "$BASE/v1/memories/<id>"` (archives, reversible), or update text
-with `PATCH /v1/memories/<id>` passing `expected_updated_at` from the fetched
-memory. Never bulk-delete.
+If the user says a remembered fact is wrong, find it (search results carry
+`revision`, or read one fact with `GET "$BASE/v1/memories/<id>"`), then either
+archive it, reversibly:
+
+```bash
+curl -sf -X DELETE "$BASE/v1/memories/<id>" -H "X-API-Key: $KEY"
+```
+
+or correct the text, passing the `revision` you just read as
+`expected_revision`. A stale precondition returns 409 rather than overwriting
+someone else's edit:
+
+```bash
+curl -sf -X PATCH "$BASE/v1/memories/<id>" -H "X-API-Key: $KEY" -H 'Content-Type: application/json' \
+  -d '{"expected_revision": 1, "text": "Prefers pnpm over npm on every project"}'
+```
+
+Never bulk-delete.

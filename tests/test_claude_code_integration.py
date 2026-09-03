@@ -84,6 +84,48 @@ class SkillContractTest(unittest.TestCase):
             route = re.sub(r"<[^>]+>", "{", path).split("{")[0].rstrip("/")
             self.assertIn(route, api_source, f"SKILL.md names a dead endpoint: {path}")
 
+    def test_every_json_field_the_skill_sends_exists_in_the_model(self) -> None:
+        """The endpoint-existence check above cannot catch a wrong field name.
+
+        SKILL.md once told the model to PATCH with `expected_updated_at` while
+        the API required `expected_revision` and forbade extra fields, so every
+        correction the skill described returned 422 twice over. Field names are
+        as much of a contract as paths.
+        """
+        from memkit import api
+
+        models = {
+            ("POST", "/v1/memories"): api.MemoryIn,
+            ("PATCH", "/v1/memories/{}"): api.MemoryPatch,
+            ("POST", "/v1/memories/search"): api.SearchIn,
+            ("POST", "/v1/profiles/render"): api.ProfileIn,
+            ("POST", "/v1/evidence/events:batch"): api.EvidenceBatchIn,
+        }
+        skill = (INTEGRATION / "skills" / "mem-os" / "SKILL.md").read_text()
+        # Each curl block may continue over escaped newlines; join them first.
+        joined = skill.replace("\\\n", " ")
+        calls = re.findall(
+            r"curl[^\n]*?-X (GET|POST|PATCH|DELETE) \"\$BASE([^\"]+)\"[^\n]*?-d '(\{.*?\})'",
+            joined,
+            re.DOTALL,
+        )
+        self.assertTrue(calls, "the skill should show request bodies")
+        checked = 0
+        for method, path, body in calls:
+            route = re.sub(r"<[^>]+>", "{}", path)
+            model = models.get((method, route))
+            self.assertIsNotNone(model, f"no model mapped for {method} {route}")
+            payload = json.loads(body)
+            for field in payload:
+                self.assertIn(
+                    field,
+                    model.model_fields,
+                    f"SKILL.md sends {field!r} to {method} {route}, which {model.__name__} "
+                    "forbids (StrictModel rejects unknown fields)",
+                )
+            checked += 1
+        self.assertGreaterEqual(checked, 4)
+
     def test_skill_teaches_honest_provenance(self) -> None:
         skill = (INTEGRATION / "skills" / "mem-os" / "SKILL.md").read_text()
         self.assertIn('"source_role": "manual"', skill)

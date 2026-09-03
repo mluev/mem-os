@@ -12,6 +12,45 @@ class TestV4Contract(ApiTestCase):
         )
         self.assertEqual(response.status_code, 422, response.text)
 
+    def test_a_correction_can_be_driven_from_a_read_or_a_search(self) -> None:
+        """An agent needs the current revision before it can PATCH.
+
+        Both routes to it are contract: reading one memory, and finding it by
+        search. Without either, `expected_revision` is unobtainable and every
+        correction fails the precondition.
+        """
+        memory_id = self.seed_memory(text="Prefers npm over pnpm", kind="preference")
+
+        read = self.client.get(f"/v1/memories/{memory_id}", headers=self.auth)
+        self.assertEqual(read.status_code, 200, read.text)
+        self.assertEqual(read.json()["memory"]["id"], memory_id)
+        self.assertEqual(read.json()["memory"]["revision"], 1)
+        self.assertIsInstance(read.json()["memory"]["context"], dict)
+
+        found = self.client.post("/v1/memories/search", headers=self.auth, json={"query": "npm"})
+        self.assertEqual(found.status_code, 200, found.text)
+        hit = next(m for m in found.json()["memories"] if m["id"] == memory_id)
+        self.assertEqual(hit["revision"], 1)
+
+        corrected = self.client.patch(
+            f"/v1/memories/{memory_id}",
+            headers=self.auth,
+            json={"expected_revision": hit["revision"], "text": "Prefers pnpm over npm"},
+        )
+        self.assertEqual(corrected.status_code, 200, corrected.text)
+        self.assertEqual(corrected.json()["revision"], 2)
+
+        stale = self.client.patch(
+            f"/v1/memories/{memory_id}",
+            headers=self.auth,
+            json={"expected_revision": 1, "text": "something else"},
+        )
+        self.assertEqual(stale.status_code, 409, stale.text)
+
+        self.assertEqual(
+            self.client.get("/v1/memories/does-not-exist", headers=self.auth).status_code, 404
+        )
+
     def test_single_owner_strict_memory_contract(self) -> None:
         rejected = self.client.post(
             "/v1/memories",
