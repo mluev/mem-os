@@ -1512,6 +1512,7 @@ def _run_consolidation(job_id: str) -> None:
                 owner_id=settings.owner_id,
                 stale_days=settings.consolidate_stale_days,
                 demotion=settings.consolidate_demotion,
+                importance_floor=settings.consolidate_importance_floor,
                 dry_run=bool(data.get("dry_run", True)),
                 embedder=app.state.embedder,
                 consolidate_cosine=settings.consolidate_cosine,

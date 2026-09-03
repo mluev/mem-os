@@ -39,6 +39,32 @@ class ScoredStub(StubQdrant):
         )
 
 
+class RankedStub(StubQdrant):
+    """Returns stored points in a fixed order, honouring limit and exclude_ids.
+
+    ScoredStub gives every point the same score and ignores both, which cannot
+    express "the dense arm filled every slot with other contexts".
+    """
+
+    def __init__(self, order: list[str], score: float = 0.95) -> None:
+        super().__init__()
+        self.order = order
+        self.score = score
+
+    def query_points(self, collection_name, **kwargs):
+        excluded: set[str] = set()
+        flt = kwargs.get("query_filter")
+        for condition in getattr(flt, "must_not", None) or []:
+            excluded.update(str(pid) for pid in getattr(condition, "has_id", []) or [])
+        col = self._col(collection_name)
+        points = [
+            SimpleNamespace(id=pid, score=self.score, payload=col[pid])
+            for pid in self.order
+            if pid in col and pid not in excluded
+        ]
+        return SimpleNamespace(points=points[: kwargs.get("limit") or len(points)])
+
+
 class FindCandidatesTest(unittest.TestCase):
     def setUp(self) -> None:
         self.conn = make_db()
@@ -191,6 +217,58 @@ class JudgeRemapEndToEndTest(unittest.TestCase):
         self.assertEqual(result.unknown_candidates, [{"op": "DELETE", "id": "42"}])
         run = conn.execute("SELECT input_json FROM judge_runs").fetchone()
         self.assertIn("candidate_map", run["input_json"])
+        conn.close()
+
+
+class CandidateSlotTest(unittest.TestCase):
+    """Same-context candidates must survive a crowded dense arm.
+
+    Dense hits were merged in first and could occupy every slot, leaving the
+    model no candidate it was permitted to UPDATE or DELETE while apply_ops
+    rejected anything else. A ten-slot block full of other contexts is a block
+    that can only produce duplicates.
+    """
+
+    def test_recency_keeps_its_slots_when_dense_hits_are_plentiful(self) -> None:
+        conn = make_db()
+        context = {"source_workspace": "mem-os"}
+        scoped = store.add_memory(
+            conn,
+            owner_id=OWNER,
+            text="mem-os stores memories in SQLite",
+            kind="project",
+            context=context,
+            source_role="user",
+        )
+        elsewhere = [
+            store.add_memory(
+                conn,
+                owner_id=OWNER,
+                text=f"unrelated fact number {i}",
+                kind="fact",
+                context={"source_workspace": f"other-{i}"},
+                source_role="user",
+            )
+            for i in range(12)
+        ]
+        conn.commit()
+
+        # A stub that ranks the other contexts above the in-context memory and
+        # honours `limit`/`exclude_ids`, which is how Qdrant behaves and what
+        # makes crowding possible at all.
+        client = RankedStub(order=[*elsewhere, scoped])
+        found = extract.find_candidates(
+            conn,
+            owner_id=OWNER,
+            context=context,
+            client=client,
+            embedder=HashEmbedder(),
+            window_text="what does mem-os store",
+        )
+        ids = [item["id"] for item in found]
+        self.assertIn(scoped, ids, "the only updatable candidate was crowded out")
+        self.assertLessEqual(len(ids), 10)
+        self.assertEqual(len(ids), len(set(ids)))
         conn.close()
 
 

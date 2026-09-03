@@ -18,6 +18,13 @@ from .db import transaction
 
 logger = logging.getLogger(__name__)
 
+# ADR 0032 chose connected components and stated a six-member cap; the cap was
+# never implemented. It matters because a transitive chain at the threshold can
+# link facts that are not pairwise similar, and the whole cluster is then
+# serialised into a prompt whose answer must fit 200 characters. Oversized
+# clusters are reported instead of merged, so nothing is silently rewritten.
+MAX_CLUSTER_MEMBERS = 6
+
 
 def _normalise(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip().casefold()
@@ -50,6 +57,8 @@ class Outcome:
     # Same-context clusters at or above the semantic threshold, newest first.
     # Reported by every plan that had an embedder; rewritten only under --merge.
     semantic_groups: list[list[str]] = field(default_factory=list)
+    # Clusters above MAX_CLUSTER_MEMBERS: reported for review, never merged.
+    oversized_groups: list[list[str]] = field(default_factory=list)
     merged: list[dict[str, Any]] = field(default_factory=list)
     merge_skipped: list[dict[str, Any]] = field(default_factory=list)
 
@@ -60,6 +69,7 @@ class Outcome:
             "superseded": self.superseded,
             "candidate_groups": self.candidate_groups,
             "semantic_groups": self.semantic_groups,
+            "oversized_groups": self.oversized_groups,
             "merged": self.merged,
             "merge_skipped": self.merge_skipped,
         }
@@ -72,6 +82,7 @@ def plan(
     stale_days: int,
     embedder: Any = None,
     consolidate_cosine: float | None = None,
+    importance_floor: float = 0.0,
 ) -> Outcome:
     outcome = Outcome()
     outcome.expired = [
@@ -87,10 +98,11 @@ def plan(
         row["id"]
         for row in conn.execute(
             """SELECT id FROM memories WHERE owner_id=? AND status='active'
-                AND importance>0
+                AND importance>?
                 AND COALESCE(last_retrieved_at,created_at)
-                    <=strftime('%Y-%m-%dT%H:%M:%SZ','now',?)""",
-            (owner_id, f"-{stale_days} days"),
+                    <=strftime('%Y-%m-%dT%H:%M:%SZ','now',?)
+                AND updated_at<=strftime('%Y-%m-%dT%H:%M:%SZ','now',?)""",
+            (owner_id, importance_floor, f"-{stale_days} days", f"-{stale_days} days"),
         )
     ]
     groups: dict[tuple[str, str, str], list[str]] = defaultdict(list)
@@ -103,7 +115,7 @@ def plan(
     outcome.candidate_groups = [ids for ids in groups.values() if len(ids) > 1]
 
     if embedder is not None and consolidate_cosine is not None:
-        outcome.semantic_groups = _semantic_groups(
+        outcome.semantic_groups, outcome.oversized_groups = _semantic_groups(
             conn,
             owner_id=owner_id,
             embedder=embedder,
@@ -120,12 +132,13 @@ def _semantic_groups(
     embedder: Any,
     threshold: float,
     exact_groups: list[list[str]],
-) -> list[list[str]]:
-    """Same-context near-duplicate clusters the exact grouping cannot see.
+) -> tuple[list[list[str]], list[list[str]]]:
+    """Same-context near-duplicate clusters, and the ones too big to merge.
 
     Contexts are never crossed — by this repo's model a fact duplicated across
     contexts is two facts — and a cluster identical to an exact group is
-    omitted: the cheap path already owns it.
+    omitted: the cheap path already owns it. Clusters above
+    MAX_CLUSTER_MEMBERS are returned separately and never merged.
     """
     by_context: dict[str, list[sqlite3.Row]] = defaultdict(list)
     for row in conn.execute(
@@ -137,6 +150,7 @@ def _semantic_groups(
 
     exact_sets = [set(group) for group in exact_groups]
     clusters: list[list[str]] = []
+    oversized: list[list[str]] = []
     for rows in by_context.values():
         if len(rows) < 2:
             continue
@@ -148,9 +162,13 @@ def _semantic_groups(
                 if cosine >= threshold:
                     edges.add((rows[i]["id"], rows[j]["id"]))
         for component in _connected_components([row["id"] for row in rows], edges):
-            if set(component) not in exact_sets:
-                clusters.append(component)
-    return clusters
+            if set(component) in exact_sets:
+                continue
+            if len(component) > MAX_CLUSTER_MEMBERS:
+                oversized.append(component)
+                continue
+            clusters.append(component)
+    return clusters, oversized
 
 
 def run(
@@ -160,6 +178,12 @@ def run(
     stale_days: int,
     demotion: float,
     dry_run: bool,
+    # Decay has a floor: an untouched fact used to lose 0.1 per pass with no
+    # lower bound, so ten passes drove importance to zero. That removes it from
+    # the top of the profile's importance ordering and zeroes its retrieval
+    # bonus -- silent deletion by attrition, for a fact nobody happened to
+    # search for.
+    importance_floor: float = 0.0,
     embedder: Any = None,
     consolidate_cosine: float | None = None,
     merge: bool = False,
@@ -177,6 +201,7 @@ def run(
         stale_days=stale_days,
         embedder=embedder,
         consolidate_cosine=consolidate_cosine,
+        importance_floor=importance_floor,
     )
     if dry_run:
         return outcome
@@ -199,7 +224,7 @@ def run(
                 kind=row["kind"],
                 context=json.loads(row["context_json"]),
                 tags=json.loads(row["tags_json"]),
-                importance=max(0, float(row["importance"]) - demotion),
+                importance=max(importance_floor, float(row["importance"]) - demotion),
                 confidence=float(row["confidence"]),
                 valid_until=row["valid_until"],
             )

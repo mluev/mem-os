@@ -102,6 +102,11 @@ class Settings(BaseSettings):
     # Facts not retrieved in this long lose importance on the nightly pass.
     consolidate_stale_days: int = 90
     consolidate_demotion: float = 0.1
+    # Decay stops here. Without a floor, a fact nobody happened to retrieve lost
+    # 0.1 per nightly pass until it reached zero, which drops it below every
+    # other memory in the profile's importance ordering and removes its
+    # retrieval bonus entirely. Ageing should discount a fact, not erase it.
+    consolidate_importance_floor: float = 0.3
 
     @model_validator(mode="after")
     def load_secret_files(self) -> Settings:

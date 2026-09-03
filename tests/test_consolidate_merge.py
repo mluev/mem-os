@@ -246,5 +246,242 @@ class MergeApplyTest(unittest.TestCase):
         self.assertEqual(set(self.actives()), {self.a, self.b})
 
 
+class ClusterCapTest(unittest.TestCase):
+    """ADR 0032 stated a six-member cap; nothing enforced it.
+
+    Connected components link facts transitively, so a chain of pairwise-similar
+    texts can gather members that are not similar to each other at all. The
+    whole cluster is then serialised into a prompt whose answer must fit 200
+    characters, which is how a merge produces nonsense. `merge_cap` bounded the
+    number of clusters, never their size.
+    """
+
+    def setUp(self) -> None:
+        self.conn = make_db()
+
+    def tearDown(self) -> None:
+        self.conn.close()
+
+    def _add(self, text: str) -> str:
+        with transaction(self.conn):
+            return store.add_memory(
+                self.conn,
+                owner_id=OWNER,
+                text=text,
+                kind="fact",
+                context={},
+                source_role="user",
+            )
+
+    def test_an_oversized_cluster_is_reported_and_never_merged(self) -> None:
+        texts = [f"variation {i} of one crowded claim" for i in range(7)]
+        ids = [self._add(text) for text in texts]
+        embedder = PairedEmbedder({frozenset(texts)})
+
+        calls: list[str] = []
+
+        def never_called(**kwargs):
+            calls.append(kwargs["prompt"])
+            raise AssertionError("an oversized cluster reached the provider")
+
+        with mock.patch.object(providers, "call_merge", side_effect=never_called):
+            outcome = consolidate.run(
+                self.conn,
+                owner_id=OWNER,
+                stale_days=90,
+                demotion=0.1,
+                dry_run=False,
+                embedder=embedder,
+                consolidate_cosine=0.9,
+                merge=True,
+                merge_model="gemini-3.5-flash-lite",
+                monthly_limit_usd=10.0,
+                gemini_api_key="k",
+            )
+
+        self.assertEqual(calls, [])
+        self.assertEqual(outcome.semantic_groups, [])
+        self.assertEqual(len(outcome.oversized_groups), 1)
+        self.assertEqual(sorted(outcome.oversized_groups[0]), sorted(ids))
+        still_active = self.conn.execute(
+            "SELECT COUNT(*) FROM memories WHERE status='active'"
+        ).fetchone()[0]
+        self.assertEqual(still_active, 7)
+
+    def test_a_cluster_at_the_cap_still_merges(self) -> None:
+        texts = [
+            f"variation {i} of one crowded claim" for i in range(consolidate.MAX_CLUSTER_MEMBERS)
+        ]
+        for text in texts:
+            self._add(text)
+        embedder = PairedEmbedder({frozenset(texts)})
+        outcome = consolidate.plan(
+            self.conn,
+            owner_id=OWNER,
+            stale_days=90,
+            embedder=embedder,
+            consolidate_cosine=0.9,
+        )
+        self.assertEqual(len(outcome.semantic_groups), 1)
+        self.assertEqual(outcome.oversized_groups, [])
+
+
+class MergeCapTest(unittest.TestCase):
+    """The per-run cluster budget, which had no test."""
+
+    def setUp(self) -> None:
+        self.conn = make_db()
+
+    def tearDown(self) -> None:
+        self.conn.close()
+
+    def test_clusters_beyond_the_cap_are_skipped_with_a_reason(self) -> None:
+        twins = set()
+        with transaction(self.conn):
+            for i in range(3):
+                pair = {f"claim {i} stated one way", f"claim {i} stated another way"}
+                twins.add(frozenset(pair))
+                for text in sorted(pair):
+                    store.add_memory(
+                        self.conn,
+                        owner_id=OWNER,
+                        text=text,
+                        kind="fact",
+                        context={},
+                        source_role="user",
+                    )
+
+        merges: list[str] = []
+
+        def confirm(**kwargs):
+            merges.append(kwargs["prompt"])
+            return providers.ProviderResult(raw={"text": "one merged claim"})
+
+        with mock.patch.object(providers, "call_merge", side_effect=confirm):
+            outcome = consolidate.run(
+                self.conn,
+                owner_id=OWNER,
+                stale_days=90,
+                demotion=0.1,
+                dry_run=False,
+                embedder=PairedEmbedder(twins),
+                consolidate_cosine=0.9,
+                merge=True,
+                merge_model="gemini-3.5-flash-lite",
+                monthly_limit_usd=10.0,
+                gemini_api_key="k",
+                merge_cap=2,
+            )
+
+        self.assertEqual(len(merges), 2, "the cap did not bound provider calls")
+        self.assertEqual(len(outcome.merged), 2)
+        self.assertIn(
+            {"reason": "merge_cap", "groups_beyond_cap": 1},
+            outcome.merge_skipped,
+        )
+
+
+class DecayFloorTest(unittest.TestCase):
+    """Ageing discounts a fact; it must not erase one.
+
+    Demotion subtracted 0.1 per pass with no lower bound, so ten nightly passes
+    took an unretrieved fact to zero importance: last in the profile's ordering
+    and no retrieval bonus at all.
+    """
+
+    def setUp(self) -> None:
+        self.conn = make_db()
+
+    def tearDown(self) -> None:
+        self.conn.close()
+
+    def _stale(self, importance: float) -> str:
+        with transaction(self.conn):
+            memory_id = store.add_memory(
+                self.conn,
+                owner_id=OWNER,
+                text=f"a fact nobody searches for, at {importance}",
+                kind="fact",
+                importance=importance,
+                source_role="user",
+            )
+        self.conn.execute(
+            "UPDATE memories SET created_at='2020-01-01T00:00:00Z',"
+            "updated_at='2020-01-01T00:00:00Z' WHERE id=?",
+            (memory_id,),
+        )
+        self.conn.commit()
+        return memory_id
+
+    def _run(self) -> None:
+        consolidate.run(
+            self.conn,
+            owner_id=OWNER,
+            stale_days=90,
+            demotion=0.1,
+            dry_run=False,
+            importance_floor=0.3,
+        )
+
+    def _importance(self, memory_id: str) -> float:
+        return float(
+            self.conn.execute(
+                "SELECT importance FROM memories WHERE id=?", (memory_id,)
+            ).fetchone()["importance"]
+        )
+
+    def test_demotion_stops_at_the_floor(self) -> None:
+        memory_id = self._stale(0.35)
+        self._run()
+        self.assertAlmostEqual(self._importance(memory_id), 0.3, places=6)
+
+    def test_a_fact_at_the_floor_is_left_alone(self) -> None:
+        memory_id = self._stale(0.3)
+        self._run()
+        self.assertAlmostEqual(self._importance(memory_id), 0.3, places=6)
+        self.assertEqual(
+            int(
+                self.conn.execute(
+                    "SELECT revision FROM memories WHERE id=?", (memory_id,)
+                ).fetchone()["revision"]
+            ),
+            1,
+            "an unchanged fact should not gain a revision",
+        )
+
+    def test_demotion_happens_once_per_idle_period(self) -> None:
+        """A second pass in the same period must not compound the discount."""
+        memory_id = self._stale(0.6)
+        self._run()
+        after_first = self._importance(memory_id)
+        self.assertAlmostEqual(after_first, 0.5, places=6)
+        self._run()
+        self.assertAlmostEqual(self._importance(memory_id), after_first, places=6)
+
+
+class MergeProviderTest(unittest.TestCase):
+    """Every provider call needs a deadline.
+
+    The merge path built its own Gemini client without one, so a hung call
+    blocked the single worker thread with no bound, for up to twenty clusters
+    in a row. The extraction path had always set it.
+    """
+
+    def test_the_merge_client_gets_the_provider_timeout(self) -> None:
+        from unittest.mock import MagicMock, patch
+
+        from memkit import providers
+
+        with patch("google.genai.Client") as client_cls:
+            client_cls.return_value = MagicMock()
+            client_cls.return_value.models.generate_content.return_value = MagicMock(
+                text='{"merged_text": null}', usage_metadata=None
+            )
+            providers.call_merge(model="gemini-3.5-flash-lite", prompt="p", gemini_api_key="k")
+
+        options = client_cls.call_args.kwargs["http_options"]
+        self.assertEqual(options.timeout, int(providers.PROVIDER_TIMEOUT_SECONDS * 1000))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -254,22 +254,9 @@ def call_vertex(
     it to ``aiplatform.googleapis.com`` and restricted keys fail with
     ``API_KEY_SERVICE_BLOCKED`` even though the same key is valid for Gemini.
     """
-    from google import genai
     from google.genai import types
 
-    if project:
-        client = genai.Client(
-            vertexai=True,
-            project=project,
-            location=location or "global",
-            api_key=api_key or None,
-            http_options=types.HttpOptions(timeout=int(PROVIDER_TIMEOUT_SECONDS * 1000)),
-        )
-    else:
-        client = genai.Client(
-            api_key=api_key,
-            http_options=types.HttpOptions(timeout=int(PROVIDER_TIMEOUT_SECONDS * 1000)),
-        )
+    client = _gemini_client(api_key=api_key, project=project, location=location)
     response = client.models.generate_content(
         model=model,
         contents=prompt,
@@ -367,19 +354,9 @@ def call_merge(
     if which == "gemini":
         if not (gemini_api_key or project):
             return ProviderResult(error="no GEMINI_API_KEY and no VERTEX_PROJECT")
-        from google import genai
         from google.genai import types
 
-        client = (
-            genai.Client(
-                vertexai=True,
-                project=project,
-                location=location or "global",
-                api_key=gemini_api_key or None,
-            )
-            if project
-            else genai.Client(api_key=gemini_api_key)
-        )
+        client = _gemini_client(api_key=gemini_api_key, project=project, location=location)
         response = client.models.generate_content(
             model=model,
             contents=prompt,
@@ -466,6 +443,29 @@ UNBILLED_EXCEPTIONS = frozenset(
         "ClientError",
     }
 )
+
+
+def _gemini_client(*, api_key: str, project: str, location: str):
+    """One Gemini client builder for every call path.
+
+    The merge path used to build its own client with no timeout, so a hung
+    consolidation call blocked the single worker thread indefinitely -- for up
+    to twenty clusters in a row. Sharing the constructor makes forgetting the
+    timeout impossible.
+    """
+    from google import genai
+    from google.genai import types
+
+    http_options = types.HttpOptions(timeout=int(PROVIDER_TIMEOUT_SECONDS * 1000))
+    if project:
+        return genai.Client(
+            vertexai=True,
+            project=project,
+            location=location or "global",
+            api_key=api_key or None,
+            http_options=http_options,
+        )
+    return genai.Client(api_key=api_key, http_options=http_options)
 
 
 def is_unbilled(error: str) -> bool:

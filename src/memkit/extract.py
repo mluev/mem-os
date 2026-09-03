@@ -16,6 +16,10 @@ from .db import transaction, utcnow
 
 logger = logging.getLogger(__name__)
 WINDOW_SIZE = 10
+# Candidate slots reserved for same-context recency, out of `find_candidates`'
+# limit. The remainder goes to the cross-context dense arm, which informs dedup
+# but can never be an UPDATE target.
+RECENCY_SLOTS = 6
 
 
 @dataclass
@@ -192,14 +196,15 @@ def find_candidates(
 ) -> list[dict[str, Any]]:
     """Candidates the judge may UPDATE/DELETE — and must not re-ADD.
 
-    Two arms. Recency in the exact session context (the original behaviour, and
-    all there is when no index is available). Plus, when a Qdrant client and
-    embedder are supplied, a dense search over the window's user text across
-    *all* contexts: the near-duplicate the judge should notice usually lives
+    Two arms, and the order between them is load-bearing. Recency in the exact
+    session context comes first and keeps RECENCY_SLOTS of the limit: those are
+    the only candidates an operation may legally target, since apply_ops rejects
+    any UPDATE/DELETE whose target context differs from the op's. The dense arm
+    then fills what is left with a search over the window's user text across
+    *all* contexts, because the near-duplicate worth noticing usually lives
     under a different or empty context, which exact-context recency can never
     surface — measured on this corpus as a 0.9821-cosine pair that never merged.
-    Cross-context candidates inform dedup only; apply_ops still rejects any
-    UPDATE/DELETE whose target context differs from the op's.
+    Cross-context candidates inform dedup only.
 
     SQLite stays authoritative: a dense hit is used only after its row is
     re-read and confirmed active.
@@ -215,18 +220,33 @@ def find_candidates(
         }
 
     merged: dict[str, dict[str, Any]] = {}
-    if client is not None and embedder is not None and window_text.strip():
+
+    # Same-context recency first, and it keeps its slots. Dense hits used to be
+    # inserted ahead of these and could fill every slot on their own, which left
+    # the model with nothing it was allowed to UPDATE or DELETE: apply_ops
+    # rejects any operation whose target context differs from the op's.
+    rows = conn.execute(
+        """SELECT * FROM memories
+            WHERE owner_id=? AND status='active' AND context_json=?
+            ORDER BY updated_at DESC,id LIMIT ?""",
+        (owner_id, json.dumps(context, ensure_ascii=False, sort_keys=True), RECENCY_SLOTS),
+    ).fetchall()
+    for row in rows:
+        merged[row["id"]] = _shape(row)
+
+    if client is not None and embedder is not None and window_text.strip() and len(merged) < limit:
         from . import vectors
 
         hits = vectors.search(
             client,
             vectors.MEMORIES,
             embedder.encode_one(window_text),
-            limit=limit,
+            limit=limit - len(merged),
             must=[
                 vectors.keyword("owner_id", owner_id),
                 vectors.keyword("status", "active"),
             ],
+            exclude_ids=list(merged),
         )
         for hit in hits:
             row = conn.execute(
@@ -234,16 +254,7 @@ def find_candidates(
                 (str(hit.id), owner_id),
             ).fetchone()
             if row is not None:
-                merged[row["id"]] = _shape(row)
-
-    rows = conn.execute(
-        """SELECT * FROM memories
-            WHERE owner_id=? AND status='active' AND context_json=?
-            ORDER BY updated_at DESC,id LIMIT 8""",
-        (owner_id, json.dumps(context, ensure_ascii=False, sort_keys=True)),
-    ).fetchall()
-    for row in rows:
-        merged.setdefault(row["id"], _shape(row))
+                merged.setdefault(row["id"], _shape(row))
     return list(merged.values())[:limit]
 
 

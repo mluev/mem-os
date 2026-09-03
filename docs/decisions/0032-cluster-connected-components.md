@@ -1,11 +1,11 @@
 # 0032 — Clusters are connected components, capped at six, partitioned by type
 
-    Status:        accepted
+    Status:        accepted; the type partition is superseded by 0056
     Date:          2026-07-31
     Supersedes:    —
-    Superseded by: —
+    Superseded by: 0056 (type partition dropped)
     Evidence:      ../measurements.md#consolidation
-    Code:          src/memkit/consolidate.py (`find_clusters`)
+    Code:          src/memkit/consolidate.py (`_semantic_groups`, `MAX_CLUSTER_MEMBERS`)
     Contract:      ../04-judge.md#the-consolidator
 
 ## Decision
@@ -43,6 +43,20 @@ is harder to see: allowing cross-type merges makes the survivor's type arbitrary
 and the type determines decay. A better fix is upstream — the same claim should
 not receive two types — which is [0006](0006-source-role-and-may-write.md)'s
 territory, since both writes came from the model's own path.
+
+## What shipped, and when
+
+The size cap was stated here in 2026-07 and not implemented: `_connected_components`
+returned components of any size, and `merge_cap` bounded the *number* of clusters
+per run, not the members of one. Until 2026-09 a transitive chain could therefore
+serialise arbitrarily many facts into a prompt whose answer must fit 200
+characters. It is now `consolidate.MAX_CLUSTER_MEMBERS = 6`; oversized components
+are reported as `oversized_groups` and never sent to a provider.
+
+The type partition described below was dropped by
+[0056](0056-semantic-consolidation-merge.md), which clusters within a context
+instead. The 0.9821 pair cited here is the measurement that motivated that
+change.
 
 ## Revisit when
 
