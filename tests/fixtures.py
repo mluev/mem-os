@@ -258,13 +258,21 @@ class CountingEmbedder(HashEmbedder):
     def __init__(self) -> None:
         self.encode_calls: list[int] = []
         self.encode_one_calls = 0
+        # HashEmbedder.encode delegates to encode_one, so a naive counter would
+        # charge a batch call for every text in it. Only direct calls count.
+        self._in_batch = False
 
     def encode(self, texts):
         self.encode_calls.append(len(texts))
-        return super().encode(texts)
+        self._in_batch = True
+        try:
+            return super().encode(texts)
+        finally:
+            self._in_batch = False
 
     def encode_one(self, text):
-        self.encode_one_calls += 1
+        if not self._in_batch:
+            self.encode_one_calls += 1
         return super().encode_one(text)
 
 

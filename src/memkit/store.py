@@ -181,8 +181,11 @@ def search_raw(
     query: str,
     owner_id: str,
     limit: int = 30,
+    vector: list[float] | None = None,
 ) -> list[dict[str, Any]]:
-    vector = embedder.encode_one(query)
+    # The memory search on the same request already embedded this query; pass
+    # its vector rather than paying for the identical encode twice.
+    vector = vector if vector is not None else embedder.encode_one(query)
     hits = vectors.search(
         client,
         vectors.RAW,

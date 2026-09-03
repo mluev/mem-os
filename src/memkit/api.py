@@ -746,7 +746,11 @@ def post_message(body: MessageIn) -> MessageOut:
             )
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
-    _drain()
+    # Indexing is the worker's job. Draining inline made the response wait for
+    # one embedding per queued row, so a hundred-event hook batch blocked the
+    # request for seconds. The response already reports `indexed` separately
+    # from `stored`, which is what that distinction is for.
+    _wake_worker()
     indexed, index_job_id = _outbox_state(conn, vectors.RAW, message_id)
     applicable = body.role == "user" and len(body.content) >= store.MIN_INDEX_CHARS
     extraction_job_id = None
@@ -798,7 +802,7 @@ def post_evidence_batch(body: EvidenceBatchIn) -> BatchOut:
                 stored.append((event, message_id, duplicate, redacted))
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
-    _drain()
+    _wake_worker()
     results: list[dict[str, Any]] = []
     queued_sessions: set[tuple[str, str]] = set()
     for event, message_id, duplicate, redacted in stored:
@@ -1108,6 +1112,7 @@ def search_memories(body: SearchIn) -> MemorySearchOut:
             query=body.query,
             owner_id=get_settings().owner_id,
             limit=body.limit,
+            vector=result.query_vector,
         )
         if body.include_raw
         else []

@@ -115,6 +115,10 @@ class Explain:
     policy_id: str = "neutral-v1"
     embed_ms: float = 0.0
     timings: dict[str, float] = field(default_factory=dict)
+    # The query vector, so a caller that also searches raw turns does not pay to
+    # embed the same string twice. Excluded from as_dict: it is 1024 floats of
+    # internal detail, not part of the API response.
+    query_vector: list[float] | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -403,6 +407,7 @@ def explain(
     return Explain(
         chosen=chosen,
         used_tokens=used,
+        query_vector=dense_vector,
         dropped_trust=dropped_trust,
         dropped_validity=dropped_validity,
         dropped_filter=dropped_filter,

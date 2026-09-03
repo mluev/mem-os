@@ -329,14 +329,20 @@ def plan_dedup(
     from . import vectors
 
     planned: dict[int, str] = {}
-    for index, op in enumerate(ops):
-        if op.op != "ADD" or not (op.text or "").strip():
-            continue
+    adds = [
+        (index, op) for index, op in enumerate(ops) if op.op == "ADD" and (op.text or "").strip()
+    ]
+    if not adds:
+        return {}
+    # One embedding call for the whole set: each acquires the embedder lock, and
+    # a window can carry several ADDs.
+    embedded = embedder.encode([str(op.text) for _, op in adds])
+    for (index, op), op_vector in zip(adds, embedded, strict=True):
         op_context = json.dumps(op.context or {}, ensure_ascii=False, sort_keys=True)
         hits = vectors.search(
             client,
             vectors.MEMORIES,
-            embedder.encode_one(op.text),
+            op_vector,
             limit=3,
             must=[
                 vectors.keyword("owner_id", owner_id),
