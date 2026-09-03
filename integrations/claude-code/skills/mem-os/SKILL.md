@@ -21,14 +21,16 @@ never block on it, never retry in a loop.
 Resolve the endpoint and key once per session, in this order:
 
 ```bash
+[ -f ~/.config/memkit/client.env ] && . ~/.config/memkit/client.env
 [ -f ~/.memkit ] && . ~/.memkit
 BASE="${MEMKIT_BASE_URL:-http://127.0.0.1:8077}"
 KEY="$MEMKIT_API_KEY"
 ```
 
-`~/.memkit` is a plain `KEY=VALUE` file (`MEMKIT_API_KEY=...`, optionally
-`MEMKIT_BASE_URL=...`). If no key is found, tell the user to create it —
-never guess or invent one.
+`~/.config/memkit/client.env` is written by `memkit setup` and is a plain
+`KEY=VALUE` file (`MEMKIT_API_KEY=...`, optionally `MEMKIT_BASE_URL=...`).
+`~/.memkit` is the deprecated location, still read for older installs. If no
+key is found, tell the user to run `memkit setup` — never guess or invent one.
 
 Health preamble before the first call of a session:
 

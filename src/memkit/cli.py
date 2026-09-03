@@ -395,10 +395,15 @@ def cmd_install_claude_code(args: argparse.Namespace) -> int:
     }
     print("\nAdd to ~/.claude/settings.json (merge with existing hooks):")
     print(json.dumps(snippet, indent=2))
-    print(
-        "\nConfig: put MEMKIT_API_KEY=<your key> in ~/.memkit "
-        "(and MEMKIT_BASE_URL if not the default)."
-    )
+    client_env = Path("~/.config/memkit/client.env").expanduser()
+    if client_env.is_file():
+        print(f"\nConfig: hooks and the skill will read {client_env}.")
+    else:
+        print(
+            f"\nConfig: run `memkit setup` to write {client_env}, or create it "
+            "yourself with MEMKIT_API_KEY=<your key> (and MEMKIT_BASE_URL if "
+            "the service is not on the default address)."
+        )
     return 0
 
 

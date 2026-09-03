@@ -16,7 +16,9 @@ from __future__ import annotations
 import argparse
 import contextlib
 import importlib.util
+import io
 import json
+import os
 import re
 import tempfile
 import unittest
@@ -131,6 +133,68 @@ class SkillContractTest(unittest.TestCase):
         self.assertIn('"source_role": "manual"', skill)
         self.assertIn("agent", skill)
         self.assertIn("include_untrusted", skill)
+
+
+class ConfigResolutionTest(unittest.TestCase):
+    """Where a hook looks for its key.
+
+    `memkit setup` writes the key under ~/.config/memkit; the hooks used to read
+    only ~/.memkit, which nothing ever created. Because every hook path fails
+    open, the result was a silently inert integration on a correctly set up
+    machine, so the precedence chain is worth pinning.
+    """
+
+    def setUp(self) -> None:
+        self.hooks = load_hooks_module()
+        self.tmp = Path(tempfile.mkdtemp())
+        self.hooks.CLIENT_ENV = self.tmp / "client.env"
+        self.hooks.LEGACY_ENV = self.tmp / "legacy"
+        for name in ("MEMKIT_BASE_URL", "MEMKIT_API_KEY"):
+            os.environ.pop(name, None)
+
+    def tearDown(self) -> None:
+        for name in ("MEMKIT_BASE_URL", "MEMKIT_API_KEY"):
+            os.environ.pop(name, None)
+
+    def test_client_env_is_read(self) -> None:
+        self.hooks.CLIENT_ENV.write_text(
+            "MEMKIT_BASE_URL=http://127.0.0.1:9000\nMEMKIT_API_KEY='from-client-env'\n"
+        )
+        self.assertEqual(self.hooks._config(), ("http://127.0.0.1:9000", "from-client-env"))
+
+    def test_environment_wins_over_files(self) -> None:
+        self.hooks.CLIENT_ENV.write_text("MEMKIT_API_KEY=from-file\n")
+        os.environ["MEMKIT_API_KEY"] = "from-env"
+        self.assertEqual(self.hooks._config()[1], "from-env")
+
+    def test_legacy_file_still_works_and_warns(self) -> None:
+        self.hooks.LEGACY_ENV.write_text("MEMKIT_API_KEY=legacy-key\n")
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            base, key = self.hooks._config()
+        self.assertEqual(key, "legacy-key")
+        self.assertEqual(base, "http://127.0.0.1:8077")
+        self.assertIn("deprecated", stderr.getvalue())
+
+    def test_client_env_takes_precedence_over_legacy(self) -> None:
+        self.hooks.CLIENT_ENV.write_text("MEMKIT_API_KEY=new\n")
+        self.hooks.LEGACY_ENV.write_text("MEMKIT_API_KEY=old\n")
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(self.hooks._config()[1], "new")
+
+    def test_no_config_yields_no_key(self) -> None:
+        self.assertEqual(self.hooks._config(), ("http://127.0.0.1:8077", ""))
+
+    def test_setup_writes_the_file_the_hooks_read(self) -> None:
+        """The two halves of onboarding must name the same path."""
+        from memkit import operations
+
+        source = (ROOT / "src" / "memkit" / "operations.py").read_text()
+        self.assertIn('DEFAULT_CONFIG_DIR / "client.env"', source)
+        self.assertEqual(
+            operations.DEFAULT_CONFIG_DIR / "client.env",
+            Path("~/.config/memkit/client.env").expanduser(),
+        )
 
 
 class CaptureTest(unittest.TestCase):

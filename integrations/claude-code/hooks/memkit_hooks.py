@@ -40,21 +40,50 @@ STATE_DIR = (
 )
 
 
+CLIENT_ENV = Path("~/.config/memkit/client.env").expanduser()
+LEGACY_ENV = Path("~/.memkit").expanduser()
+
+
+def _read_env_file(path: Path) -> dict[str, str]:
+    values: dict[str, str] = {}
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return values
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        name, _, value = line.partition("=")
+        values[name.strip()] = value.strip().strip("'\"")
+    return values
+
+
 def _config() -> tuple[str, str]:
+    """Resolve the service URL and this user's key.
+
+    Precedence: the environment, then ~/.config/memkit/client.env (written by
+    `memkit setup`, beside the rest of the memkit config), then ~/.memkit.
+    The legacy path is still read because installs predating client.env used it,
+    but it warns: onboarding used to tell people to hand-copy a key into a file
+    nothing created, so hooks failed open and silently did nothing.
+    """
     base = os.environ.get("MEMKIT_BASE_URL", "")
     key = os.environ.get("MEMKIT_API_KEY", "")
-    rc = Path("~/.memkit").expanduser()
-    if (not base or not key) and rc.is_file():
-        for line in rc.read_text().splitlines():
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
+    if not base or not key:
+        for path in (CLIENT_ENV, LEGACY_ENV):
+            if not path.is_file():
                 continue
-            name, _, value = line.partition("=")
-            name, value = name.strip(), value.strip().strip("'\"")
-            if name == "MEMKIT_BASE_URL" and not base:
-                base = value
-            if name == "MEMKIT_API_KEY" and not key:
-                key = value
+            values = _read_env_file(path)
+            base = base or values.get("MEMKIT_BASE_URL", "")
+            key = key or values.get("MEMKIT_API_KEY", "")
+            if path is LEGACY_ENV and values:
+                print(
+                    f"mem-os: {LEGACY_ENV} is deprecated; move it to {CLIENT_ENV}",
+                    file=sys.stderr,
+                )
+            if base and key:
+                break
     return (base or "http://127.0.0.1:8077").rstrip("/"), key
 
 

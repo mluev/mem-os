@@ -565,6 +565,25 @@ def setup(settings: Settings, *, install_hermes: Any) -> dict[str, Any]:
             encoding="utf-8",
         )
     os.chmod(config_path, 0o600)
+    # The service reads config.env; agents and hooks read client.env. They are
+    # separate files because the first holds provider secrets and a path to the
+    # key, while the second holds the key value itself and is what a client
+    # needs. Onboarding used to stop after config.env and tell people to
+    # hand-copy a key into ~/.memkit, which nothing created, so every hook
+    # failed open and stayed silent.
+    client_path = DEFAULT_CONFIG_DIR / "client.env"
+    if not client_path.exists():
+        client_path.write_text(
+            "\n".join(
+                [
+                    f"MEMKIT_BASE_URL=http://{settings.host}:{settings.port}",
+                    f"MEMKIT_API_KEY={key_path.read_text(encoding='utf-8').strip()}",
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
+    os.chmod(client_path, 0o600)
     production = Settings(_env_file=config_path)
     qdrant = ensure_qdrant(production)
     init_db(production.db_path)
