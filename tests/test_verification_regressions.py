@@ -294,7 +294,10 @@ def test_replay_resume_keeps_its_persistent_message_cursor() -> None:
         ).fetchone()
         connection.execute("UPDATE messages SET processed=1 WHERE id=?", (row["id"],))
         connection.commit()
-        return extract.ExtractionOutcome(added=1)
+        # `claimed` is how a window reports that it consumed messages; the
+        # drain loop stops when a call claims nothing, because unprocessed
+        # rows that cannot be claimed are held by another job's live lease.
+        return extract.ExtractionOutcome(added=1, claimed=1, windows=1)
 
     with patch("memkit.reextract.extract.run_extraction", side_effect=process_one) as mocked:
         resumed = reextract.apply_replay(

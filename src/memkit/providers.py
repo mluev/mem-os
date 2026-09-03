@@ -441,6 +441,47 @@ def call_merge(
     return result
 
 
+# Errors that prove nothing was billed: the request never reached a model, or
+# it was refused before inference. A failed call must not be charged against the
+# monthly ceiling as if it had run -- see judge.extract.
+UNBILLED_ERROR_PREFIXES = (
+    "no GEMINI_API_KEY",
+    "no ANTHROPIC_API_KEY",
+)
+UNBILLED_EXCEPTIONS = frozenset(
+    {
+        # Never reached the provider.
+        "ConnectError",
+        "ConnectTimeout",
+        "ConnectionError",
+        "ConnectionRefusedError",
+        "APIConnectionError",
+        "SSLError",
+        # Refused before inference (4xx).
+        "AuthenticationError",
+        "PermissionDeniedError",
+        "BadRequestError",
+        "NotFoundError",
+        "RateLimitError",
+        "ClientError",
+    }
+)
+
+
+def is_unbilled(error: str) -> bool:
+    """True when this error means the provider certainly did not bill us.
+
+    Deliberately conservative: a timeout mid-inference or an unrecognised
+    exception is treated as possibly billed, because under-reporting spend is
+    worse than over-reporting it.
+    """
+    if not error:
+        return False
+    if error.startswith(UNBILLED_ERROR_PREFIXES):
+        return True
+    return error.partition(":")[0].strip() in UNBILLED_EXCEPTIONS
+
+
 def call(
     *,
     model: str,

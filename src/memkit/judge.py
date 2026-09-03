@@ -487,8 +487,20 @@ def extract(
     latency_ms = int((time.perf_counter() - t0) * 1000)
     cost = cost_of(in_tok, out_tok, model=model)
     if error and in_tok == 0 and out_tok == 0:
-        cost = maximum_cost
-        error = f"cost_unknown: {error}"
+        # No token counts came back, so the real cost is unknown. It used to be
+        # recorded as `maximum_cost` -- the reservation ceiling, which assumes a
+        # full 4096-token completion on top of a UTF-8-byte input estimate. Since
+        # reserve_budget sums judge_runs.cost_usd, a run of failures (a bad key,
+        # a Qdrant outage loop) exhausted the monthly ceiling on spend that was
+        # never billed, with no way to reconcile it.
+        if providers.is_unbilled(error):
+            cost = 0.0
+            error = f"unbilled: {error}"
+        else:
+            # Possibly billed for the prompt, certainly not for a completion
+            # that never arrived.
+            cost = cost_of(estimated_input, 0, model=model)
+            error = f"cost_unknown: {error}"
 
     conn.commit()
     conn.execute("BEGIN IMMEDIATE")

@@ -603,8 +603,10 @@ def _run_extraction(job_id: str) -> None:
                 jobs.finish(conn, job_id, status="cancelled")
                 return
             data = json.loads(job["input_json"])
-            outcome = extract.run_extraction(
+            outcome = extract.run_session_extraction(
                 conn,
+                max_windows=int(data.get("max_windows") or 1),
+                cancelled=lambda: jobs.cancel_requested(conn, job_id),
                 session_id=data["session_id"],
                 owner_id=settings.owner_id,
                 agent_id=data["agent_id"],
@@ -621,11 +623,30 @@ def _run_extraction(job_id: str) -> None:
                 dedup_cosine=settings.dedup_cosine,
             )
             _drain()
+            # A forced run (an explicit "remember this", or a closed session)
+            # must finish the session even when its backlog exceeded this job's
+            # window cap, so hand the remainder to a fresh job rather than
+            # leaving it for the next inbound event that may never come.
+            remaining = extract.messages_since_last(conn, data["session_id"])
+            continuation = None
+            if (
+                not outcome.error
+                and outcome.claimed
+                and remaining >= (1 if data.get("force") else extract.WINDOW_SIZE)
+            ):
+                continuation = _queue_extraction(
+                    conn,
+                    session_id=data["session_id"],
+                    agent_id=data["agent_id"],
+                    force=bool(data.get("force")),
+                    pending=remaining,
+                )
+                _wake_worker()
             jobs.finish(
                 conn,
                 job_id,
                 status="failed" if outcome.error else "complete",
-                result=outcome.as_dict(),
+                result={**outcome.as_dict(), "continuation_job_id": continuation},
                 error_code=outcome.error,
                 error=outcome.error,
             )
@@ -641,14 +662,38 @@ def _run_extraction(job_id: str) -> None:
             )
 
 
+# One window is one provider call, so this caps a single job's spend and the
+# time it holds the worker. Twenty-five windows is ~250 messages, well inside
+# the renewable job lease.
+MAX_WINDOWS_PER_JOB = 25
+
+
 def _queue_extraction(
-    conn: sqlite3.Connection, *, session_id: str, agent_id: str, force: bool
+    conn: sqlite3.Connection,
+    *,
+    session_id: str,
+    agent_id: str,
+    force: bool,
+    pending: int = 0,
 ) -> str:
+    """Queue extraction sized to the backlog it has to clear.
+
+    `call_limit` and `max_windows` move together: the limit is the hard stop
+    the job enforces per provider call, the window count is what the drain loop
+    attempts.
+    """
+    windows = max(1, -(-max(pending, 0) // extract.WINDOW_SIZE))
+    windows = min(windows, MAX_WINDOWS_PER_JOB)
     return jobs.create(
         conn,
         kind="extraction",
-        input_data={"session_id": session_id, "agent_id": agent_id, "force": force},
-        call_limit=1,
+        input_data={
+            "session_id": session_id,
+            "agent_id": agent_id,
+            "force": force,
+            "max_windows": windows,
+        },
+        call_limit=windows,
     )
 
 
@@ -712,7 +757,11 @@ def post_message(body: MessageIn) -> MessageOut:
         text=body.content,
     ):
         extraction_job_id = _queue_extraction(
-            conn, session_id=body.session_id, agent_id=body.agent_id, force=True
+            conn,
+            session_id=body.session_id,
+            agent_id=body.agent_id,
+            force=True,
+            pending=pending,
         )
         _wake_worker()
     return MessageOut(
@@ -770,7 +819,13 @@ def post_evidence_batch(body: EvidenceBatchIn) -> BatchOut:
         queued_sessions.add((event.session_id, event.agent_id))
     if judge_configured(settings):
         for session_id, agent_id in queued_sessions:
-            _queue_extraction(conn, session_id=session_id, agent_id=agent_id, force=False)
+            _queue_extraction(
+                conn,
+                session_id=session_id,
+                agent_id=agent_id,
+                force=False,
+                pending=extract.messages_since_last(conn, session_id),
+            )
             _wake_worker()
     return {"items": results, "count": len(results)}
 
@@ -792,7 +847,13 @@ def close_session(session_id: str) -> JobQueuedOut:
         )
     if not judge_configured(get_settings()):
         return {"job_id": None, "status": "complete", "reason": "judge_not_configured"}
-    job_id = _queue_extraction(conn, session_id=session_id, agent_id=row["agent_id"], force=True)
+    job_id = _queue_extraction(
+        conn,
+        session_id=session_id,
+        agent_id=row["agent_id"],
+        force=True,
+        pending=extract.messages_since_last(conn, session_id),
+    )
     _wake_worker()
     return {"job_id": job_id, "status": "queued"}
 

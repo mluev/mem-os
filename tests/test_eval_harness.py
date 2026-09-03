@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from eval.run import load_cases, score
 from memkit import outbox, store
-from tests.fixtures import OWNER, HashEmbedder, StubQdrant
+from tests.fixtures import OWNER, HashEmbedder, SearchableQdrant
 
 QUERIES_YAML = """\
 - id: pref
@@ -30,47 +30,6 @@ QUERIES_YAML = """\
   expect_any: ["billing service"]
   answerable_by: [raw]
 """
-
-
-class SearchableQdrant(StubQdrant):
-    """StubQdrant plus a real dense search over upserted vectors.
-
-    The shared stub deliberately returns no hits from query_points; the eval
-    exercises the read path end to end, so this test needs actual ranking.
-    Filters are ignored: the corpus is single-owner and fully active.
-    """
-
-    def __init__(self) -> None:
-        super().__init__()
-        self._vectors: dict[tuple[str, str], list[float]] = {}
-
-    def upsert(self, collection_name, points, wait=True):
-        col = self._col(collection_name)
-        for p in points:
-            col[str(p.id)] = p.payload
-            self._vectors[(collection_name, str(p.id))] = p.vector["dense"]
-
-    def query_points(
-        self,
-        collection_name,
-        query=None,
-        using="dense",
-        limit=10,
-        query_filter=None,
-        with_payload=True,
-        with_vectors=False,
-    ):
-        scored = [
-            SimpleNamespace(
-                id=pid,
-                score=sum(a * b for a, b in zip(query, vec, strict=True)),
-                payload=payload,
-            )
-            for pid, payload in self._col(collection_name).items()
-            if (vec := self._vectors.get((collection_name, pid))) is not None
-        ]
-        scored.sort(key=lambda hit: -hit.score)
-        return SimpleNamespace(points=scored[:limit])
 
 
 class EvalHarnessTest(unittest.TestCase):

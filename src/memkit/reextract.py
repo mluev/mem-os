@@ -175,11 +175,13 @@ def apply_replay(
         (owner_id,),
     ).fetchall()
     for session in sessions:
-        while extract.messages_since_last(conn, session["id"]):
+        while (remaining := extract.messages_since_last(conn, session["id"])) > 0:
             if cancelled():
                 return {**totals, "cancelled": True}
-            outcome = extract.run_extraction(
+            outcome = extract.run_session_extraction(
                 conn,
+                max_windows=max(1, -(-remaining // extract.WINDOW_SIZE)),
+                cancelled=cancelled,
                 session_id=session["id"],
                 owner_id=owner_id,
                 agent_id=session["agent_id"],
@@ -194,9 +196,15 @@ def apply_replay(
             )
             if outcome.error:
                 raise RuntimeError(f"replay stopped: {outcome.error}")
-            totals["windows"] += 1
+            totals["windows"] += outcome.windows
             totals["added"] += outcome.added
             totals["updated"] += outcome.updated
             totals["deleted"] += outcome.deleted
             totals["rejected"] += outcome.rejected
+            if outcome.claimed == 0:
+                # Unprocessed messages exist but nothing could be claimed, so
+                # another job holds a live lease on them. Looping would spin at
+                # full speed forever; the caller can retry once the lease
+                # expires.
+                raise RuntimeError("replay stalled: unprocessed messages are leased by another job")
     return {**totals, "cancelled": False, "prompt_version": judge.PROMPT_VERSION}

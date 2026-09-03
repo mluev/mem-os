@@ -13,6 +13,7 @@ Everything here runs offline: no model load, no container, no API key.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import struct
 import sys
@@ -22,7 +23,7 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from memkit import judge, vectors
+from memkit import judge, providers, vectors
 from memkit.db import connect, ensure_owner, ensure_session, init_db
 
 OWNER = "u-test"
@@ -142,6 +143,151 @@ class StubQdrant:
 
     def close(self):
         pass
+
+
+class SearchableQdrant(StubQdrant):
+    """StubQdrant plus a real dense search over upserted vectors.
+
+    The plain stub returns no hits, which makes the 0.60-weight dense arm --
+    the dominant term in the ranking formula -- invisible to every deterministic
+    test. Use this wherever a test's claim depends on real similarity, notably
+    abstention: a floor that is never reached cannot be proved to work against
+    an empty index.
+
+    Filters are honoured only for the two keyword conditions the read path
+    actually sends (`owner_id`, `status`); anything else is ignored, and the
+    docstring is the contract.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._vectors: dict[tuple[str, str], list[float]] = {}
+
+    def upsert(self, collection_name, points, wait=True):
+        col = self._col(collection_name)
+        for p in points:
+            col[str(p.id)] = p.payload
+            vector = p.vector["dense"] if isinstance(p.vector, dict) else p.vector
+            self._vectors[(collection_name, str(p.id))] = vector
+
+    def delete(self, collection_name, points_selector, wait=True):
+        for pid in points_selector:
+            self._vectors.pop((collection_name, str(pid)), None)
+        super().delete(collection_name, points_selector, wait=wait)
+
+    @staticmethod
+    def _matches(payload: dict, query_filter) -> bool:
+        for condition in getattr(query_filter, "must", None) or []:
+            key = getattr(condition, "key", None)
+            match = getattr(condition, "match", None)
+            if key is None or match is None:
+                continue
+            wanted = getattr(match, "value", None)
+            allowed = getattr(match, "any", None)
+            if wanted is not None and payload.get(key) != wanted:
+                return False
+            if allowed is not None and payload.get(key) not in allowed:
+                return False
+        return True
+
+    def query_points(
+        self,
+        collection_name,
+        query=None,
+        using="dense",
+        limit=10,
+        query_filter=None,
+        with_payload=True,
+        with_vectors=False,
+    ):
+        scored = []
+        for pid, payload in self._col(collection_name).items():
+            vec = self._vectors.get((collection_name, pid))
+            if vec is None or not self._matches(payload, query_filter):
+                continue
+            hit = SimpleNamespace(
+                id=pid,
+                score=sum(a * b for a, b in zip(query, vec, strict=True)),
+                payload=payload,
+            )
+            if with_vectors:
+                hit.vector = {"dense": vec}
+            scored.append(hit)
+        scored.sort(key=lambda hit: -hit.score)
+        return SimpleNamespace(points=scored[:limit])
+
+    def scroll(
+        self,
+        collection_name,
+        limit=100,
+        offset=None,
+        with_payload=True,
+        with_vectors=False,
+        scroll_filter=None,
+    ):
+        items = [
+            (pid, payload)
+            for pid, payload in self._col(collection_name).items()
+            if self._matches(payload, scroll_filter)
+        ]
+        items.sort()
+        start = (
+            0
+            if offset is None
+            else next((i for i, (pid, _) in enumerate(items) if pid == str(offset)), 0)
+        )
+        page = items[start : start + limit]
+        records = []
+        for pid, payload in page:
+            record = SimpleNamespace(id=pid, payload=payload)
+            if with_vectors:
+                record.vector = {"dense": self._vectors.get((collection_name, pid))}
+            records.append(record)
+        nxt = items[start + limit][0] if start + limit < len(items) else None
+        return records, nxt
+
+
+class CountingEmbedder(HashEmbedder):
+    """HashEmbedder that records how it was called.
+
+    Batching is a correctness claim about cost and latency, not a style
+    preference, so tests assert the shape of the calls: one `encode` for a
+    batch, never N calls of `encode_one`.
+    """
+
+    def __init__(self) -> None:
+        self.encode_calls: list[int] = []
+        self.encode_one_calls = 0
+
+    def encode(self, texts):
+        self.encode_calls.append(len(texts))
+        return super().encode(texts)
+
+    def encode_one(self, text):
+        self.encode_one_calls += 1
+        return super().encode_one(text)
+
+
+@contextlib.contextmanager
+def fake_provider(handler, *, family: str = "fake", prefix: str = "fake-"):
+    """Register a judge provider for the duration of a test, then remove it.
+
+    `providers.register_provider` mutates module state. Tests that registered a
+    provider and never removed it leaked it into every later test in the same
+    process, so registration belongs behind a context manager.
+
+    `handler` receives the same keywords as `providers.call` and returns a
+    `providers.ProviderResult`; raising from it exercises the failure paths.
+    """
+
+    def call(**kwargs):
+        return handler(**kwargs)
+
+    providers.register_provider(family, model_prefix=prefix, call=call)
+    try:
+        yield
+    finally:
+        providers._CUSTOM_PROVIDERS.pop(family, None)
 
 
 def make_db(owner: str = OWNER):

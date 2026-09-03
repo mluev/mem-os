@@ -37,10 +37,38 @@ class ExtractionOutcome:
     cost_usd: float = 0.0
     judge_run_id: int | None = None
     error: str | None = None
+    # Messages leased by this call. Zero means there was nothing left to claim,
+    # which is the only safe signal that a drain loop has finished: a window
+    # held by another job's live lease also yields zero, and retrying it would
+    # spin forever.
+    claimed: int = 0
+    # The gate refused this window and released it. Distinct from a clean empty
+    # result, because a refusal is not progress.
+    declined: bool = False
+    # Windows a single run consumed. One, unless run_session_extraction looped.
+    windows: int = 0
 
     @property
     def applied(self) -> int:
         return self.added + self.updated + self.deleted
+
+    def absorb(self, other: ExtractionOutcome) -> None:
+        """Fold one window's result into a running total."""
+        self.added += other.added
+        self.updated += other.updated
+        self.deleted += other.deleted
+        self.skipped += other.skipped
+        self.rejected += other.rejected
+        self.rejections.extend(other.rejections)
+        self.deduplicated += other.deduplicated
+        self.cost_usd += other.cost_usd
+        self.claimed += other.claimed
+        self.windows += other.windows
+        self.declined = other.declined
+        if other.judge_run_id is not None:
+            self.judge_run_id = other.judge_run_id
+        if other.error:
+            self.error = other.error
 
     def reject(self, op: Any, reason: str) -> None:
         self.rejected += 1
@@ -58,6 +86,8 @@ class ExtractionOutcome:
             "cost_usd": round(self.cost_usd, 6),
             "judge_run_id": self.judge_run_id,
             "error": self.error,
+            "claimed": self.claimed,
+            "windows": self.windows,
         }
 
 
@@ -503,11 +533,17 @@ def run_extraction(
     window = claim_window(conn, session_id=session_id, job_id=job_id or "inline")
     if not window:
         return ExtractionOutcome()
+    window_text = "\n".join(str(row["content"] or "") for row in window if row["role"] == "user")
     if not force and not judge.should_extract(
-        messages_since_last=len(window), session_closed=False, text=window[-1]["content"]
+        # Every user turn in the window, not just the last message: an explicit
+        # "remember this" in the middle of a batch was invisible whenever the
+        # final claimed message happened to be an assistant turn.
+        messages_since_last=len(window),
+        session_closed=False,
+        text=window_text,
     ):
         release_window(conn, window)
-        return ExtractionOutcome()
+        return ExtractionOutcome(claimed=len(window), declined=True, windows=1)
     if not any(row["role"] == "user" for row in window):
         with transaction(conn):
             conn.executemany(
@@ -515,9 +551,8 @@ def run_extraction(
                      WHERE id=? AND claim_token=?""",
                 [(row["id"], row["claim_token"]) for row in window],
             )
-        return ExtractionOutcome(skipped=len(window))
+        return ExtractionOutcome(skipped=len(window), claimed=len(window), windows=1)
     context = session_context(conn, session_id)
-    window_text = "\n".join(str(row["content"] or "") for row in window if row["role"] == "user")
     candidates = find_candidates(
         conn,
         owner_id=owner_id,
@@ -553,6 +588,8 @@ def run_extraction(
         judge_run_id=result.judge_run_id,
         cost_usd=result.cost_usd,
         error=result.error,
+        claimed=len(window),
+        windows=1,
     )
     if result.error or result.judge_run_id is None:
         release_window(conn, window)
@@ -588,4 +625,38 @@ def run_extraction(
         applied.rejected += 1
         applied.rejections.append({**dropped, "reason": "unknown_candidate"})
     applied.cost_usd = result.cost_usd
+    applied.judge_run_id = result.judge_run_id
+    applied.claimed = len(window)
+    applied.windows = 1
     return applied
+
+
+def run_session_extraction(
+    conn: sqlite3.Connection,
+    *,
+    max_windows: int = 1,
+    cancelled: Any = None,
+    **kwargs: Any,
+) -> ExtractionOutcome:
+    """Drain up to `max_windows` windows of one session, then stop.
+
+    One job used to process exactly one ten-message window and return, and
+    nothing re-queued it on success. The batch evidence endpoint queues one job
+    per session per request while the Claude Code hook posts in hundred-event
+    chunks, so a long session left almost all of its messages unextracted
+    indefinitely -- they were never claimed again.
+
+    Stops on the first window that makes no progress: nothing left to claim, a
+    refusal by the gate, a provider error, or cooperative cancellation. Each
+    window is a separate provider call, so `max_windows` must not exceed the
+    job's `call_limit`.
+    """
+    total = ExtractionOutcome()
+    for _ in range(max(1, max_windows)):
+        if cancelled is not None and cancelled():
+            break
+        outcome = run_extraction(conn, **kwargs)
+        total.absorb(outcome)
+        if outcome.claimed == 0 or outcome.declined or outcome.error:
+            break
+    return total

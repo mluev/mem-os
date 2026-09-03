@@ -20,7 +20,7 @@ from types import SimpleNamespace
 
 from memkit import extract, judge, store
 from memkit.db import transaction
-from tests.fixtures import OWNER, HashEmbedder, StubQdrant, make_db, make_judge_run
+from tests.fixtures import OWNER, HashEmbedder, StubQdrant, fake_provider, make_db, make_judge_run
 
 
 class ScoredStub(StubQdrant):
@@ -167,23 +167,23 @@ class JudgeRemapEndToEndTest(unittest.TestCase):
                 ],
             )
 
-        providers.register_provider("remap", model_prefix="remap-", call=fake)
-        result = judge.extract(
-            conn,
-            window=[{"id": 1, "role": "user", "content": "obsolete fact, drop it"}],
-            candidates=[
-                {
-                    "id": "aaaaaaaa-1111-2222-3333-444444444444",
-                    "kind": "fact",
-                    "text": "Old fact",
-                    "importance": 0.5,
-                    "context": {},
-                }
-            ],
-            monthly_limit_usd=10.0,
-            model="remap-judge",
-            owner_id=OWNER,
-        )
+        with fake_provider(fake, family="remap", prefix="remap-"):
+            result = judge.extract(
+                conn,
+                window=[{"id": 1, "role": "user", "content": "obsolete fact, drop it"}],
+                candidates=[
+                    {
+                        "id": "aaaaaaaa-1111-2222-3333-444444444444",
+                        "kind": "fact",
+                        "text": "Old fact",
+                        "importance": 0.5,
+                        "context": {},
+                    }
+                ],
+                monthly_limit_usd=10.0,
+                model="remap-judge",
+                owner_id=OWNER,
+            )
         self.assertIn("id=1 ", seen["prompt"])
         self.assertNotIn("aaaaaaaa-1111", seen["prompt"])
         self.assertEqual(len(result.ops), 1)
