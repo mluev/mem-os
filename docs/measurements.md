@@ -140,6 +140,13 @@ pay for asynchronous complexity
 scored against the extracted facts
 ([`decisions/0037`](decisions/0037-answerable-by-partition.md)).
 
+Re-run on 2026-09-03 after the stabilisation batch (profile kinds, session
+drain, batched embedding, candidate slots, cluster cap, decay floor): recall
+0.77, MRR 0.662, mean 295 tokens, MRR/1k 2.245 — unchanged within rounding, which
+is the point. None of those changes was meant to move retrieval, and a change
+that moves it unintentionally is a change to investigate. Raw MRR read 0.632
+against 0.628, well inside run-to-run noise.
+
 ### Head-to-head, 31 shared cases
 
 This is the comparison the stage-2 gate turns on, and the only one that is valid:

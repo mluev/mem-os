@@ -347,8 +347,34 @@ def doctor(settings: Settings, *, load_model: bool = False) -> dict[str, Any]:
             raise RuntimeError("Hermes authenticated service check failed")
         return {"path": str(path), "authenticated": True}
 
+    def client_config() -> dict[str, Any]:
+        """Where agents and hooks will find their key.
+
+        Reported here rather than warned about from the hooks: a hook's whole
+        contract is to stay silent and fail open, so a per-session stderr notice
+        would be noise in the one place that promised none. Diagnostics belong
+        in doctor.
+        """
+        client_path = DEFAULT_CONFIG_DIR / "client.env"
+        legacy = Path.home() / ".memkit"
+        if client_path.is_file():
+            if client_path.stat().st_mode & 0o077:
+                raise RuntimeError(f"permissions are not 0600: {client_path}")
+            return {"path": str(client_path), "legacy_in_use": legacy.is_file()}
+        if legacy.is_file():
+            return {
+                "path": str(legacy),
+                "deprecated": True,
+                "hint": f"run `memkit setup` to write {client_path}",
+            }
+        raise RuntimeError(
+            f"no client config: run `memkit setup` to write {client_path}, "
+            "or agents and hooks will have no key"
+        )
+
     checks = [
         _check("configuration", configuration),
+        _check("client_config", client_config),
         _check("permissions", permissions),
         _check("database", sqlite_health),
         _check("fts5", fts5),

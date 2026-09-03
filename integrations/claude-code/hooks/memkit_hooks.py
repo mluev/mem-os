@@ -64,9 +64,9 @@ def _config() -> tuple[str, str]:
 
     Precedence: the environment, then ~/.config/memkit/client.env (written by
     `memkit setup`, beside the rest of the memkit config), then ~/.memkit.
-    The legacy path is still read because installs predating client.env used it,
-    but it warns: onboarding used to tell people to hand-copy a key into a file
-    nothing created, so hooks failed open and silently did nothing.
+    The legacy path is still read because installs predating client.env used it.
+    Nothing is printed about it here -- a hook's contract is to stay silent and
+    fail open, so `memkit doctor` reports the deprecation instead.
     """
     base = os.environ.get("MEMKIT_BASE_URL", "")
     key = os.environ.get("MEMKIT_API_KEY", "")
@@ -77,11 +77,6 @@ def _config() -> tuple[str, str]:
             values = _read_env_file(path)
             base = base or values.get("MEMKIT_BASE_URL", "")
             key = key or values.get("MEMKIT_API_KEY", "")
-            if path is LEGACY_ENV and values:
-                print(
-                    f"mem-os: {LEGACY_ENV} is deprecated; move it to {CLIENT_ENV}",
-                    file=sys.stderr,
-                )
             if base and key:
                 break
     return (base or "http://127.0.0.1:8077").rstrip("/"), key

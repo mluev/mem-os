@@ -167,20 +167,24 @@ class ConfigResolutionTest(unittest.TestCase):
         os.environ["MEMKIT_API_KEY"] = "from-env"
         self.assertEqual(self.hooks._config()[1], "from-env")
 
-    def test_legacy_file_still_works_and_warns(self) -> None:
+    def test_legacy_file_still_works_and_stays_quiet(self) -> None:
+        """A hook must not print about configuration it can read.
+
+        The deprecation is reported by `memkit doctor`; a per-session stderr
+        notice would be noise in the one path that promises silence.
+        """
         self.hooks.LEGACY_ENV.write_text("MEMKIT_API_KEY=legacy-key\n")
         stderr = io.StringIO()
         with contextlib.redirect_stderr(stderr):
             base, key = self.hooks._config()
         self.assertEqual(key, "legacy-key")
         self.assertEqual(base, "http://127.0.0.1:8077")
-        self.assertIn("deprecated", stderr.getvalue())
+        self.assertEqual(stderr.getvalue(), "")
 
     def test_client_env_takes_precedence_over_legacy(self) -> None:
         self.hooks.CLIENT_ENV.write_text("MEMKIT_API_KEY=new\n")
         self.hooks.LEGACY_ENV.write_text("MEMKIT_API_KEY=old\n")
-        with contextlib.redirect_stderr(io.StringIO()):
-            self.assertEqual(self.hooks._config()[1], "new")
+        self.assertEqual(self.hooks._config()[1], "new")
 
     def test_no_config_yields_no_key(self) -> None:
         self.assertEqual(self.hooks._config(), ("http://127.0.0.1:8077", ""))
