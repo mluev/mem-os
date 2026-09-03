@@ -68,3 +68,8 @@ No entry restates a measured value; it links an anchor. `Status` and
 | [0050](0050-bm25-deferred.md) | BM25 hybrid retrieval is deferred | superseded by 0051 |
 | [0051](0051-memory-boundary-and-hybrid-retrieval.md) | Memory-only boundary, neutral context, hybrid retrieval and silence | accepted |
 | [0052](0052-durable-jobs-and-outbox.md) | Durable jobs, outbox, reservations, and generation reindex | accepted |
+| [0053](0053-prompt-v8-date-anchor-and-failure-modes.md) | Prompt v8: session-date anchor, named failure modes, rejection reasons | accepted |
+| [0054](0054-semantic-candidates-with-integer-remap.md) | Semantic extraction candidates behind an integer id remap | accepted |
+| [0055](0055-write-time-dedup-on-extraction-path.md) | Write-time dedup at 0.90 on the extraction path only | accepted |
+| [0056](0056-semantic-consolidation-merge.md) | Semantic consolidation merge at 0.92, LLM-confirmed, flag-gated | accepted |
+| [0058](0058-claude-code-skill-and-hooks.md) | Claude Code surface: one skill, three fail-open hooks, honest provenance | accepted |

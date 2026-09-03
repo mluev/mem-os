@@ -250,8 +250,10 @@ def run_eval(queries_path: Path, limit: int = 10, target: str = "raw") -> int:
         n_facts = vectors.count(client, vectors.MEMORIES)
         if n_facts == 0:
             print(
-                "no extracted facts in the store — run `memkit backfill` first "
-                "(needs GEMINI_API_KEY or ANTHROPIC_API_KEY)",
+                "no extracted facts in the store — ingest evidence "
+                "(`memkit import-claude-code` or POST /v1/evidence/events), let "
+                "extraction run (needs GEMINI_API_KEY or ANTHROPIC_API_KEY), then "
+                "`memkit drain-index`",
                 file=sys.stderr,
             )
             return 1

@@ -64,7 +64,7 @@ def test_simple_cli_commands(settings, monkeypatch, tmp_path, capsys) -> None:
         "run",
         lambda *args, **kwargs: SimpleNamespace(as_dict=lambda: {"archived": 0}),
     )
-    assert cli.cmd_consolidate(ns(apply=False)) == 0
+    assert cli.cmd_consolidate(ns(apply=False, merge=False)) == 0
 
     export = tmp_path / "export.json"
     export.write_text("{}")

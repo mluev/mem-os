@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 import uuid
@@ -200,6 +201,50 @@ def search_raw(
         }
         for hit in hits
     ]
+
+
+def evidence_excerpts(
+    conn: sqlite3.Connection,
+    memory_ids: list[str],
+    *,
+    per_memory: int = 3,
+) -> dict[str, list[dict[str, Any]]]:
+    """Verbatim source spans for search results — search facts, return evidence.
+
+    An atomic memory embeds precisely but is lossy; the cited span carries the
+    detail. Every span is re-sliced from the retained message and verified
+    against `excerpt_sha256` before leaving the store — the hash was written
+    for exactly this moment, and a mismatch (edited row, drifted offset) drops
+    the span rather than returning corrupted evidence as if it were verbatim.
+    """
+    if not memory_ids:
+        return {}
+    placeholders = ",".join("?" for _ in memory_ids)
+    rows = conn.execute(
+        f"""SELECT e.memory_id,e.message_id,e.start_char,e.end_char,e.excerpt_sha256,
+                   m.content,m.role,m.created_at
+              FROM memory_evidence e JOIN messages m ON m.id=e.message_id
+             WHERE e.memory_id IN ({placeholders})
+             ORDER BY e.memory_id,e.message_id,e.start_char""",
+        memory_ids,
+    ).fetchall()
+    excerpts: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        bucket = excerpts.setdefault(row["memory_id"], [])
+        if len(bucket) >= per_memory:
+            continue
+        excerpt = str(row["content"])[row["start_char"] : row["end_char"]]
+        if hashlib.sha256(excerpt.encode()).hexdigest() != row["excerpt_sha256"]:
+            continue
+        bucket.append(
+            {
+                "message_id": int(row["message_id"]),
+                "excerpt": excerpt,
+                "role": row["role"],
+                "created_at": row["created_at"],
+            }
+        )
+    return excerpts
 
 
 def record_retrieval(conn: sqlite3.Connection, memory_ids: list[str]) -> None:

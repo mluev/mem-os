@@ -77,7 +77,10 @@ class Settings(BaseSettings):
     # see providers.py.
     judge_model: str = "gemini-3.5-flash-lite"
 
-    # Read-path dedup threshold. Kept at the documented 0.90, but exposed as a
+    # Write-time dedup threshold on the extraction path (decisions/0055): an ADD
+    # whose text is closer than this to an existing active memory in the same
+    # context links its evidence to that memory instead of inserting a twin.
+    # Manual POST /v1/memories writes are never deduplicated. Exposed as a
     # setting so it can be swept by the eval rather than edited in code.
     # Measured on BGE-M3 with this corpus: an exact restatement scores 1.0000,
     # a genuine paraphrase of the same fact ("prefers pnpm over npm for all
@@ -87,9 +90,10 @@ class Settings(BaseSettings):
     # while still separating distinct facts. Decide it on the eval, not by feel.
     dedup_cosine: float = 0.90
 
-    # Nightly consolidation (stage 4). Clustering is stricter than the read-path
-    # dedup above: dedup only hides a duplicate from one answer, consolidation
-    # rewrites the store, so a wrong merge is permanent where a wrong hide is not.
+    # Nightly consolidation (stage 4). Clustering is stricter than the write-time
+    # dedup above: dedup only stops one new twin at write time, consolidation
+    # rewrites the store, so a wrong merge is permanent where a skipped insert
+    # loses nothing but a duplicate.
     # Measured on this corpus: a real duplicate pair ("User's name is Maga Luev" /
     # "User's name is Maga (or MagaLoviev)") sits at 0.9278, and the pair that must
     # never merge ("Prefers pnpm" / "Prefers pytest") at 0.7422. So the documented

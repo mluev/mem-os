@@ -8,4 +8,4 @@ The Life OS import and temporary task compatibility adapter cannot be completed 
 
 Out of scope: connectors, multimodal ingestion, a graph database, multiple owners, enterprise tenancy, and multi-region operation.
 
-No automatic semantic merge or confidence-based rank is enabled. Both require a measured evaluation before activation.
+No automatic semantic merge or confidence-based rank is enabled. Semantic merge exists behind an explicit `--apply --merge` flag with LLM confirmation and free rollback (decisions/0056); it never runs by default or on the nightly schedule. Confidence-based rank still requires a measured evaluation before activation.

@@ -1,6 +1,6 @@
 # Model extraction
 
-The versioned extractor receives redacted evidence, same-context candidates, and neutral context. Each ADD/UPDATE must cite message ID and exact character range. The service verifies membership, bounds, non-empty text, hashes the excerpt, derives source trust from the cited role, and only then writes.
+The versioned extractor receives redacted evidence, same-context candidates, neutral context, and the window's recording date, which anchors relative time and `valid_until`. Each ADD/UPDATE must cite message ID and exact character range. The service verifies membership, bounds, non-empty text, hashes the excerpt, derives source trust from the cited role, and only then writes. Rejected operations are counted and recorded with a per-op reason in the job result.
 
 Assistant/agent-only evidence cannot add or update memory. DELETE is allowed because it cannot inject a claim. UPDATE/DELETE targets are constrained by owner and exact context.
 

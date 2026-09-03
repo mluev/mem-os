@@ -22,6 +22,7 @@ class SearchIn:
         budget_tokens (int | Unset):  Default: 800.
         filter_ (None | SearchInFilterType0 | Unset):
         include_raw (bool | Unset):  Default: False.
+        include_sources (bool | Unset):  Default: False.
         include_untrusted (bool | Unset):  Default: False.
         kinds (list[str] | None | Unset):
         limit (int | Unset):  Default: 30.
@@ -32,6 +33,7 @@ class SearchIn:
     budget_tokens: int | Unset = 800
     filter_: None | SearchInFilterType0 | Unset = UNSET
     include_raw: bool | Unset = False
+    include_sources: bool | Unset = False
     include_untrusted: bool | Unset = False
     kinds: list[str] | None | Unset = UNSET
     limit: int | Unset = 30
@@ -53,6 +55,8 @@ class SearchIn:
             filter_ = self.filter_
 
         include_raw = self.include_raw
+
+        include_sources = self.include_sources
 
         include_untrusted = self.include_untrusted
 
@@ -82,6 +86,8 @@ class SearchIn:
             field_dict["filter"] = filter_
         if include_raw is not UNSET:
             field_dict["include_raw"] = include_raw
+        if include_sources is not UNSET:
+            field_dict["include_sources"] = include_sources
         if include_untrusted is not UNSET:
             field_dict["include_untrusted"] = include_untrusted
         if kinds is not UNSET:
@@ -121,6 +127,8 @@ class SearchIn:
 
         include_raw = d.pop("include_raw", UNSET)
 
+        include_sources = d.pop("include_sources", UNSET)
+
         include_untrusted = d.pop("include_untrusted", UNSET)
 
         def _parse_kinds(data: object) -> list[str] | None | Unset:
@@ -149,6 +157,7 @@ class SearchIn:
             budget_tokens=budget_tokens,
             filter_=filter_,
             include_raw=include_raw,
+            include_sources=include_sources,
             include_untrusted=include_untrusted,
             kinds=kinds,
             limit=limit,

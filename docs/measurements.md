@@ -133,7 +133,7 @@ pay for asynchronous complexity
 
 ## Retrieval eval
 
-<!-- measured: 2026-07-31 · uv run memkit eval --compare -->
+<!-- measured: 2026-08-28 · uv run memkit eval --compare -->
 
 `eval/queries.yaml` holds 47 cases grounded in the imported corpus. Each declares
 `answerable_by`, because a question only a raw transcript can answer must not be
@@ -147,27 +147,31 @@ both targets answer the same questions.
 
 | metric | raw turns (stage 1) | extracted facts (stages 2–3) |
 |---|---|---|
-| recall@10 | 0.90 | 0.84 |
-| MRR | **0.790** | **0.728** |
-| top-1 hits | 22 | 21 |
+| recall@10 | 0.74 | 0.77 |
+| MRR | **0.628** | **0.662** |
+| top-1 hits | 17 | 19 |
 | reject violations | 0 | 0 |
-| mean tokens | 1,674 | **423** |
-| max tokens | 9,829 | 1,045 |
-| MRR per 1k tokens | 0.472 | **1.723** |
+| mean tokens | 1,299 | **294** |
+| max tokens | 9,829 | 806 |
+| MRR per 1k tokens | 0.484 | **2.251** |
 
-Extracted facts lose on absolute MRR and win 3.7× on MRR per token. Raw turns
-cannot fit the 600–1,000-token budget the read path targets — their mean answer
-alone is 1,674 tokens, and their worst is 9,829. What to conclude from that is a
-judgement call, argued in the open at
+As of 2026-08-28 (94 active facts, schema v6, FTS5 lexical arm) extracted facts
+beat raw turns on every ranking metric for the first time, at 4.7× the MRR per
+token. Both absolute MRRs sit below the 2026-07-31 figures (0.790/0.728) because
+the corpus and pipeline changed underneath the same 31 questions — the v6
+re-extraction replaced the fact set the July numbers were measured on. The
+stage-2 judgement call is argued at
 [`decisions/0038`](decisions/0038-stage-2-exit-gate.md), which records that the
-gate **as written** was not met.
+gate **as written** was not met at the time.
 
 Current misses:
 
-- raw: `mem-profession`, `mem-over-engineering`, `mem-notiky-login` — all
-  memory-shaped questions a transcript search cannot answer
-- facts: `lms-module`, `code-review-comments`, `mem-review-expectations`,
-  `mem-page-titles`, `mem-migration-style`
+- raw: `enbek-module`, `xling-signing-buttons`, `project-scoped-frontend`,
+  `mem-profession`, `mem-over-engineering`, `mem-notiky-login`,
+  `mem-attendance-decision`, `mem-project-scoped-portfolio`
+- facts: `enbek-module`, `code-review-comments`, `xling-signing-buttons`,
+  `project-scoped-frontend`, `mem-notiky-login`, `mem-attendance-decision`,
+  `mem-project-scoped-portfolio`
 
 ### Single-target runs
 
@@ -180,9 +184,18 @@ memories` scores the 31 it can answer. **Those two printouts are not comparable*
 
 ## Consolidation
 
-<!-- measured: 2026-07-31 · uv run memkit consolidate --dry-run -->
+<!-- measured: 2026-08-28 · uv run memkit consolidate --apply --merge -->
 
-Clustering runs at cosine 0.92 over facts sharing an owner and a `type`.
+Semantic clustering runs at cosine 0.92 over active facts sharing an owner and a
+context, across kinds ([`decisions/0056`](decisions/0056-semantic-consolidation-merge.md)) —
+the kind partition that hid the 0.9821 pair below is gone. First live merge run
+(2026-08-28): the planner found exactly two clusters, both genuine duplicates
+(the 0.9821 "Vibe OS concept/idea" pair below, and an apostrophe-variant pair of
+the project description); the model confirmed both; two survivors carry
+`consolidate-c2`, `manual` provenance, and every inherited evidence row. The
+head-to-head eval re-run after the merge was regression-free (recall 0.77,
+MRR 0.662 — identical to the pre-merge baseline) with two duplicate rows gone.
+Cost: 2 merge calls, `judge_runs kind='merge'`.
 
 ### Model-authored writes
 
@@ -196,12 +209,15 @@ project. Pairwise cosines, measured with BGE-M3:
 | 0.9821 | "Vibe OS idea: preserve global workflow context…" / "Vibe OS concept: retain global workflow context…" | **does not merge** |
 | 0.6573–0.6801 | the description pair against the concept pair | correctly left alone |
 
-The 0.9821 pair is the finding. It is a near-verbatim duplicate, well above the
-threshold, and consolidation will never touch it — because clustering requires a
+The 0.9821 pair was the finding. It is a near-verbatim duplicate, well above the
+threshold, and consolidation could never touch it — because clustering required a
 shared `type`, and the agent labelled the same fact `project` on one write and
-`fact` on the other. The threshold is not the binding constraint here; the type
-partition is. Recorded at
-[`decisions/0032`](decisions/0032-cluster-connected-components.md).
+`fact` on the other. The threshold was not the binding constraint; the type
+partition was. Recorded at
+[`decisions/0032`](decisions/0032-cluster-connected-components.md). Resolved
+2026-08-28: [`decisions/0056`](decisions/0056-semantic-consolidation-merge.md)
+clusters within a context across kinds, and this exact pair was the first live
+merge.
 
 This is also the evidence behind restoring provenance
 ([`decisions/0006`](decisions/0006-source-role-and-may-write.md)): of eight facts
@@ -270,6 +286,7 @@ below with no destination is one that has not needed a decision written for it y
 | BGE-M3 cosines for restatements, paraphrases and distinct facts | 2026-07-29 | [`decisions/0030`](decisions/0030-dedup-stays-at-0.90.md) |
 | the similarity-floor sweep | 2026-07-29 | [`decisions/0028`](decisions/0028-no-similarity-floor.md) |
 | Hermes prefetch latency, cold and warm | 2026-07-30 | [`decisions/0040`](decisions/0040-prefetch-timeout-and-warmup.md) |
+| golden-set v7 vs v8: recall, fp, leaks, cost per run | 2026-08-28 | [`decisions/0053`](decisions/0053-prompt-v8-date-anchor-and-failure-modes.md) |
 | transcript-importer classification and rejection rates | 2026-07-28 | [`decisions/0027`](decisions/0027-importer-two-signals.md) |
 
 The extractor bench has documented run-to-run variance of more than 2× on the

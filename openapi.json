@@ -112,6 +112,11 @@
             "default": true,
             "title": "Dry Run",
             "type": "boolean"
+          },
+          "merge": {
+            "default": false,
+            "title": "Merge",
+            "type": "boolean"
           }
         },
         "title": "ConsolidateIn",
@@ -1816,6 +1821,11 @@
           "include_raw": {
             "default": false,
             "title": "Include Raw",
+            "type": "boolean"
+          },
+          "include_sources": {
+            "default": false,
+            "title": "Include Sources",
             "type": "boolean"
           },
           "include_untrusted": {

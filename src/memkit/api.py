@@ -119,6 +119,10 @@ class SearchIn(StrictModel):
     policy_id: str = "neutral-v1"
     include_untrusted: bool = False
     include_raw: bool = False
+    # Attach hash-verified verbatim source spans to each memory: search over
+    # atomic facts, hand back the evidence that carries the detail. Presentation
+    # only — ranking never sees it.
+    include_sources: bool = False
     budget_tokens: int = Field(default=800, ge=1, le=20_000)
     limit: int = Field(default=30, ge=1, le=200)
 
@@ -180,6 +184,10 @@ class EraseIn(StrictModel):
 
 class ConsolidateIn(StrictModel):
     dry_run: bool = True
+    # LLM-confirmed semantic merge of near-duplicate clusters (decisions/0056).
+    # Only meaningful with dry_run=false; defaults keep the roadmap's promise
+    # that no automatic semantic merge runs unless explicitly requested.
+    merge: bool = False
 
 
 class ReplayIn(StrictModel):
@@ -604,6 +612,9 @@ def _run_extraction(job_id: str) -> None:
                 model=settings.judge_model,
                 job_id=job_id,
                 force=bool(data.get("force")),
+                client=app.state.qdrant,
+                embedder=app.state.embedder,
+                dedup_cosine=settings.dedup_cosine,
             )
             _drain()
             jobs.finish(
@@ -1014,8 +1025,13 @@ def search_memories(body: SearchIn) -> MemorySearchOut:
         if body.include_raw
         else []
     )
+    payload = result.as_dict()
+    if body.include_sources and result.chosen:
+        excerpts = store.evidence_excerpts(conn, [item.id for item in result.chosen])
+        for memory in payload["memories"]:
+            memory["sources"] = excerpts.get(memory["id"], [])
     return {
-        **result.as_dict(),
+        **payload,
         "retrieval_id": retrieval_id,
         "raw": raw,
         "took_ms": round((time.perf_counter() - started) * 1000, 1),
@@ -1403,12 +1419,22 @@ def _run_consolidation(job_id: str) -> None:
                 jobs.finish(conn, job_id, status="cancelled")
                 return
             data = json.loads(job["input_json"])
+            settings = get_settings()
             outcome = consolidate.run(
                 conn,
-                owner_id=get_settings().owner_id,
-                stale_days=get_settings().consolidate_stale_days,
-                demotion=get_settings().consolidate_demotion,
+                owner_id=settings.owner_id,
+                stale_days=settings.consolidate_stale_days,
+                demotion=settings.consolidate_demotion,
                 dry_run=bool(data.get("dry_run", True)),
+                embedder=app.state.embedder,
+                consolidate_cosine=settings.consolidate_cosine,
+                merge=bool(data.get("merge", False)),
+                merge_model=settings.judge_model,
+                monthly_limit_usd=settings.monthly_cost_limit_usd,
+                anthropic_api_key=settings.anthropic_api_key,
+                gemini_api_key=settings.gemini_api_key,
+                project=settings.vertex_project,
+                location=settings.vertex_location,
             )
             _drain()
             jobs.finish(conn, job_id, status="complete", result=outcome.as_dict())
@@ -1421,7 +1447,11 @@ def _run_consolidation(job_id: str) -> None:
 
 @app.post("/v1/admin/consolidate", dependencies=[Depends(require_key)], status_code=202)
 def start_consolidation(body: ConsolidateIn) -> JobQueuedOut:
-    job_id = jobs.create(app.state.db(), kind="consolidation", input_data={"dry_run": body.dry_run})
+    job_id = jobs.create(
+        app.state.db(),
+        kind="consolidation",
+        input_data={"dry_run": body.dry_run, "merge": body.merge},
+    )
     _wake_worker()
     return {"job_id": job_id, "status": "queued"}
 

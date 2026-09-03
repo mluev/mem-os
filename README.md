@@ -25,12 +25,15 @@ uv run memkit import-claude-code --dry-run
 uv run memkit import-claude-code
 uv run memkit drain-index
 uv run memkit reindex
-uv run memkit consolidate             # dry-run
+uv run memkit consolidate             # dry-run, reports semantic clusters
 uv run memkit consolidate --apply
+uv run memkit consolidate --apply --merge   # LLM-confirmed near-duplicate merge
+uv run memkit eval --compare          # retrieval eval, repo checkout only
 uv run memkit export
 uv run memkit replay-report            # non-mutating legacy replay plan
 uv run memkit erase --confirm ERASE
 uv run memkit install-hermes
+uv run memkit install-claude-code     # mem-os skill + hooks for Claude Code
 uv run memkit doctor --json
 uv run memkit service status
 uv run memkit backup create

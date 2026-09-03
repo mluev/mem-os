@@ -7,7 +7,7 @@ import json
 import logging
 import sqlite3
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -25,6 +25,15 @@ class ExtractionOutcome:
     deleted: int = 0
     skipped: int = 0
     rejected: int = 0
+    # One entry per rejected op: {"op", "id", "reason"}. Lands in the job result
+    # JSON via as_dict(), so extraction quality is debuggable from /v1/jobs
+    # without a new table. A bare counter hid *why* ops died, which made every
+    # prompt regression look identical.
+    rejections: list[dict[str, Any]] = field(default_factory=list)
+    # ADD ops whose text was a near-verbatim duplicate of an existing active
+    # memory in the same context: the evidence is linked to that memory instead
+    # of inserting a twin. See decisions/0055.
+    deduplicated: int = 0
     cost_usd: float = 0.0
     judge_run_id: int | None = None
     error: str | None = None
@@ -33,6 +42,10 @@ class ExtractionOutcome:
     def applied(self) -> int:
         return self.added + self.updated + self.deleted
 
+    def reject(self, op: Any, reason: str) -> None:
+        self.rejected += 1
+        self.rejections.append({"op": op.op, "id": op.id, "reason": reason})
+
     def as_dict(self) -> dict[str, Any]:
         return {
             "added": self.added,
@@ -40,6 +53,8 @@ class ExtractionOutcome:
             "deleted": self.deleted,
             "skipped": self.skipped,
             "rejected": self.rejected,
+            "rejections": self.rejections,
+            "deduplicated": self.deduplicated,
             "cost_usd": round(self.cost_usd, 6),
             "judge_run_id": self.judge_run_id,
             "error": self.error,
@@ -140,24 +155,66 @@ def find_candidates(
     *,
     owner_id: str,
     context: dict[str, Any],
-    limit: int = 8,
+    limit: int = 10,
+    client: Any = None,
+    embedder: Any = None,
+    window_text: str = "",
 ) -> list[dict[str, Any]]:
-    rows = conn.execute(
-        """SELECT * FROM memories
-            WHERE owner_id=? AND status='active' AND context_json=?
-            ORDER BY updated_at DESC,id LIMIT ?""",
-        (owner_id, json.dumps(context, ensure_ascii=False, sort_keys=True), limit),
-    ).fetchall()
-    return [
-        {
+    """Candidates the judge may UPDATE/DELETE — and must not re-ADD.
+
+    Two arms. Recency in the exact session context (the original behaviour, and
+    all there is when no index is available). Plus, when a Qdrant client and
+    embedder are supplied, a dense search over the window's user text across
+    *all* contexts: the near-duplicate the judge should notice usually lives
+    under a different or empty context, which exact-context recency can never
+    surface — measured on this corpus as a 0.9821-cosine pair that never merged.
+    Cross-context candidates inform dedup only; apply_ops still rejects any
+    UPDATE/DELETE whose target context differs from the op's.
+
+    SQLite stays authoritative: a dense hit is used only after its row is
+    re-read and confirmed active.
+    """
+
+    def _shape(row: sqlite3.Row) -> dict[str, Any]:
+        return {
             "id": row["id"],
             "kind": row["kind"],
             "text": row["text"],
             "importance": row["importance"],
-            "context": context,
+            "context": json.loads(row["context_json"] or "{}"),
         }
-        for row in rows
-    ]
+
+    merged: dict[str, dict[str, Any]] = {}
+    if client is not None and embedder is not None and window_text.strip():
+        from . import vectors
+
+        hits = vectors.search(
+            client,
+            vectors.MEMORIES,
+            embedder.encode_one(window_text),
+            limit=limit,
+            must=[
+                vectors.keyword("owner_id", owner_id),
+                vectors.keyword("status", "active"),
+            ],
+        )
+        for hit in hits:
+            row = conn.execute(
+                "SELECT * FROM memories WHERE id=? AND owner_id=? AND status='active'",
+                (str(hit.id), owner_id),
+            ).fetchone()
+            if row is not None:
+                merged[row["id"]] = _shape(row)
+
+    rows = conn.execute(
+        """SELECT * FROM memories
+            WHERE owner_id=? AND status='active' AND context_json=?
+            ORDER BY updated_at DESC,id LIMIT 8""",
+        (owner_id, json.dumps(context, ensure_ascii=False, sort_keys=True)),
+    ).fetchall()
+    for row in rows:
+        merged.setdefault(row["id"], _shape(row))
+    return list(merged.values())[:limit]
 
 
 def _validated_evidence(
@@ -205,8 +262,87 @@ def _validated_evidence(
     return evidence, roles
 
 
+def plan_dedup(
+    conn: sqlite3.Connection,
+    *,
+    ops: list[judge.Op],
+    owner_id: str,
+    client: Any,
+    embedder: Any,
+    threshold: float | None,
+) -> dict[int, str]:
+    """Map op index → existing memory id for ADD ops that duplicate the store.
+
+    Runs BEFORE the write transaction on purpose: embedding and the Qdrant
+    round-trip must not extend a SQLite write lock (the same discipline ADR
+    0052 applies to provider calls). apply_ops re-reads each planned target
+    inside the transaction and falls back to a normal ADD if it vanished.
+
+    Same-context only (`context_json` byte equality on the canonical encoding):
+    by this repo's own model a fact duplicated across contexts is two facts.
+    At the configured 0.90 only near-verbatim text clears the bar — a genuine
+    paraphrase measures ≈0.898 on this corpus (see config.dedup_cosine).
+    """
+    if client is None or embedder is None or threshold is None:
+        return {}
+    from . import vectors
+
+    planned: dict[int, str] = {}
+    for index, op in enumerate(ops):
+        if op.op != "ADD" or not (op.text or "").strip():
+            continue
+        op_context = json.dumps(op.context or {}, ensure_ascii=False, sort_keys=True)
+        hits = vectors.search(
+            client,
+            vectors.MEMORIES,
+            embedder.encode_one(op.text),
+            limit=3,
+            must=[
+                vectors.keyword("owner_id", owner_id),
+                vectors.keyword("status", "active"),
+            ],
+        )
+        for hit in hits:
+            if float(hit.score) < threshold:
+                continue
+            row = conn.execute(
+                """SELECT id,context_json FROM memories
+                    WHERE id=? AND owner_id=? AND status='active'""",
+                (str(hit.id), owner_id),
+            ).fetchone()
+            if row is not None and (row["context_json"] or "{}") == op_context:
+                planned[index] = row["id"]
+                break
+    return planned
+
+
 def _context_allowed(operation: dict[str, str], session: dict[str, Any]) -> bool:
     return all(key in session and str(session[key]) == value for key, value in operation.items())
+
+
+def reconcile_context(operation: dict[str, str], session: dict[str, Any]) -> dict[str, str] | None:
+    """Map an op's context onto the session's own keys, or None if it cannot be.
+
+    The guard exists to stop a claim being written into a scope the session is
+    not in. Renaming a key is not that: shown `{"source_workspace": "shop"}` the
+    judge routinely answers `{"workspace": "shop"}`, and rejecting it silently
+    dropped correct, durable project facts — measured on a mixed session where
+    two of four extracted facts died this way.
+
+    Every value must still come from the session context, and an ambiguous
+    value (two session keys holding it) is refused. So a rename can only ever
+    resolve to a scope the session already occupies; it can never invent one.
+    """
+    resolved: dict[str, str] = {}
+    for key, value in operation.items():
+        if key in session and str(session[key]) == value:
+            resolved[key] = value
+            continue
+        candidates = [k for k, v in session.items() if str(v) == value and k not in operation]
+        if len(candidates) != 1:
+            return None
+        resolved[candidates[0]] = value
+    return resolved
 
 
 def _link_evidence(
@@ -243,23 +379,38 @@ def apply_ops(
     judge_run_id: int,
     source_message_ids: list[int],
     extraction_version: str = judge.PROMPT_VERSION,
+    dedup_hits: dict[int, str] | None = None,
 ) -> ExtractionOutcome:
     outcome = ExtractionOutcome(judge_run_id=judge_run_id)
     allowed = set(source_message_ids)
-    for op in ops:
+    for index, op in enumerate(ops):
         validated = _validated_evidence(conn, op, allowed_message_ids=allowed)
         if validated is None:
-            outcome.rejected += 1
+            outcome.reject(op, "evidence_invalid")
             continue
         evidence, roles = validated
         if not provenance.may_write(op=op.op, roles=roles):
-            outcome.rejected += 1
+            outcome.reject(op, "assistant_only_source")
             continue
-        if not _context_allowed(op.context or {}, context):
-            outcome.rejected += 1
+        op_context = reconcile_context(op.context or {}, context)
+        if op_context is None:
+            outcome.reject(op, "context_mismatch")
             continue
+        op.context = op_context
         source_role = provenance.source_role_for(roles)
         if op.op == "ADD":
+            existing_id = (dedup_hits or {}).get(index)
+            if existing_id is not None:
+                row = conn.execute(
+                    "SELECT id FROM memories WHERE id=? AND owner_id=? AND status='active'",
+                    (existing_id, owner_id),
+                ).fetchone()
+                # The plan was computed outside this transaction; a vanished
+                # target simply means the ADD proceeds normally below.
+                if row is not None:
+                    _link_evidence(conn, existing_id, evidence)
+                    outcome.deduplicated += 1
+                    continue
             memory_id = store.add_memory(
                 conn,
                 owner_id=owner_id,
@@ -288,7 +439,7 @@ def apply_ops(
             continue
         existing_context = json.loads(existing["context_json"] or "{}")
         if existing_context != (op.context or {}):
-            outcome.rejected += 1
+            outcome.reject(op, "target_context_mismatch")
             continue
         if op.op == "DELETE":
             store.set_memory_status(
@@ -312,7 +463,9 @@ def apply_ops(
             tags=json.loads(existing["tags_json"] or "[]"),
             importance=op.importance if op.importance is not None else existing["importance"],
             confidence=op.confidence if op.confidence is not None else existing["confidence"],
-            valid_until=op.valid_until,
+            # An UPDATE that says nothing about validity must not clear an
+            # existing expiry; explicit clearing stays on PATCH clear_valid_until.
+            valid_until=op.valid_until if op.valid_until is not None else existing["valid_until"],
             extraction_version=extraction_version,
             judge_run_id=judge_run_id,
             source_role=source_role,
@@ -336,6 +489,9 @@ def run_extraction(
     model: str,
     job_id: str | None = None,
     force: bool = False,
+    client: Any = None,
+    embedder: Any = None,
+    dedup_cosine: float | None = None,
 ) -> ExtractionOutcome:
     session = conn.execute(
         "SELECT owner_id,agent_id FROM sessions WHERE id=?", (session_id,)
@@ -361,7 +517,20 @@ def run_extraction(
             )
         return ExtractionOutcome(skipped=len(window))
     context = session_context(conn, session_id)
-    candidates = find_candidates(conn, owner_id=owner_id, context=context)
+    window_text = "\n".join(str(row["content"] or "") for row in window if row["role"] == "user")
+    candidates = find_candidates(
+        conn,
+        owner_id=owner_id,
+        context=context,
+        client=client,
+        embedder=embedder,
+        window_text=window_text,
+    )
+
+    # The window's own recording date is the prompt's temporal anchor. Without
+    # it "last month" in a backfilled window resolves against nothing (v7) or
+    # against today (wrong for every imported transcript).
+    session_date = (str(window[0]["created_at"] or ""))[:10] or None
 
     # This call performs only short reservation/log transactions internally.
     result = judge.extract(
@@ -375,6 +544,7 @@ def run_extraction(
         location=location,
         model=model,
         context=context,
+        session_date=session_date,
         agent_id=agent_id,
         owner_id=owner_id,
         job_id=job_id,
@@ -387,6 +557,17 @@ def run_extraction(
     if result.error or result.judge_run_id is None:
         release_window(conn, window)
         return outcome
+    # Embedding and the index round-trip happen before the write transaction,
+    # for the same reason the provider call does: nothing slow may hold the
+    # write lock.
+    dedup_hits = plan_dedup(
+        conn,
+        ops=result.ops,
+        owner_id=owner_id,
+        client=client,
+        embedder=embedder,
+        threshold=dedup_cosine,
+    )
     with transaction(conn):
         applied = apply_ops(
             conn,
@@ -396,11 +577,15 @@ def run_extraction(
             context=context,
             judge_run_id=result.judge_run_id,
             source_message_ids=[int(row["id"]) for row in window],
+            dedup_hits=dedup_hits,
         )
         conn.executemany(
             """UPDATE messages SET processed=1,claim_token=NULL,claim_expires_at=NULL
                  WHERE id=? AND claim_token=?""",
             [(row["id"], row["claim_token"]) for row in window],
         )
+    for dropped in result.unknown_candidates:
+        applied.rejected += 1
+        applied.rejections.append({**dropped, "reason": "unknown_candidate"})
     applied.cost_usd = result.cost_usd
     return applied

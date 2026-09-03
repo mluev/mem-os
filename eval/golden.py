@@ -55,6 +55,10 @@ class Case:
     expect: list[dict[str, Any]]
     reject: list[str]
     max_ops: int | None
+    # Recording date the window claims for itself. v8's date anchor resolves
+    # relative time against it; cases that probe that need it to differ from
+    # today, which is why it is per-case rather than the runner's date.
+    session_date: str | None
 
     @classmethod
     def parse(cls, raw: dict[str, Any], index: int) -> Case:
@@ -70,6 +74,7 @@ class Case:
             expect=list(raw.get("expect") or []),
             reject=[str(p) for p in (raw.get("reject") or [])],
             max_ops=raw.get("max_ops"),
+            session_date=str(raw["session_date"]) if raw.get("session_date") else None,
         )
 
 
@@ -221,7 +226,7 @@ def run(cases: list[Case], *, model: str, version: str, s, today: str, verbose: 
             window=judge.render_window(case.messages),
             candidates=judge.render_candidates(case.candidates),
             context=json.dumps(case.context, ensure_ascii=False, sort_keys=True),
-            session_date=today,
+            session_date=case.session_date or today,
             # Deliberately empty: the golden set probes extraction from the
             # window alone. Profile effects are measured on the real corpus,
             # where the profile is real.

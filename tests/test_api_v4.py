@@ -110,6 +110,64 @@ class TestV4Contract(ApiTestCase):
             404,
         )
 
+    def test_include_sources_returns_hash_verified_spans_only(self) -> None:
+        import hashlib
+
+        message_id = self.seed_message(content="I always use pnpm, never npm, on every project")
+        memory_id = self.seed_memory(text="Prefers pnpm over npm on every project")
+        span = "I always use pnpm"
+        digest = hashlib.sha256(span.encode()).hexdigest()
+        from memkit.db import transaction
+
+        with transaction(self.db):
+            self.db.execute(
+                "INSERT INTO memory_sources(memory_id,message_id) VALUES (?,?)",
+                (memory_id, message_id),
+            )
+            self.db.execute(
+                """INSERT INTO memory_evidence
+                   (memory_id,message_id,start_char,end_char,excerpt_sha256)
+                   VALUES (?,?,0,?,?)""",
+                (memory_id, message_id, len(span), digest),
+            )
+
+        plain = self.client.post("/v1/memories/search", headers=self.auth, json={"query": "pnpm"})
+        self.assertEqual(plain.status_code, 200, plain.text)
+        self.assertNotIn("sources", plain.json()["memories"][0])
+
+        sourced = self.client.post(
+            "/v1/memories/search",
+            headers=self.auth,
+            json={"query": "pnpm", "include_sources": True},
+        )
+        self.assertEqual(sourced.status_code, 200, sourced.text)
+        memory = sourced.json()["memories"][0]
+        self.assertEqual(
+            memory["sources"],
+            [
+                {
+                    "message_id": message_id,
+                    "excerpt": span,
+                    "role": "user",
+                    "created_at": memory["sources"][0]["created_at"],
+                }
+            ],
+        )
+
+        # Corrupt the retained message: the hash check must drop the span
+        # rather than return altered text as if it were verbatim evidence.
+        with transaction(self.db):
+            self.db.execute(
+                "UPDATE messages SET content=? WHERE id=?",
+                ("tampered content that no longer matches", message_id),
+            )
+        tampered = self.client.post(
+            "/v1/memories/search",
+            headers=self.auth,
+            json={"query": "pnpm", "include_sources": True},
+        )
+        self.assertEqual(tampered.json()["memories"][0]["sources"], [])
+
 
 if __name__ == "__main__":
     import unittest

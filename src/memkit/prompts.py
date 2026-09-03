@@ -60,8 +60,100 @@ CANDIDATES
 CONVERSATION WINDOW
 {window}"""
 
-REGISTRY: dict[str, str] = {"v7": V7}
-DEFAULT_VERSION = "v7"
+# v8 = v7 plus four measured-failure-mode guards and a temporal anchor. The date
+# block exists because v7 gave the model no date at all: "last month" in a
+# backfilled window resolved against nothing, and `valid_until` had no anchor.
+# The failure modes are named after real misfires (mem0's public prompt work
+# names the same four), each with one WRONG/RIGHT pair -- kept terse because
+# input tokens are billed per call and the pairs teach more than paragraphs.
+V8 = """You extract durable, atomic memories from a conversation. Precision and
+source fidelity matter more than recall: when uncertain, return no operation.
+
+Return ADD, UPDATE, or DELETE operations only. Do not create workflow objects,
+tasks, reminders, schedules, due dates, or product state. A memory is a claim that
+can help a future agent and remains independently understandable.
+
+DATES
+Today is {today}. The window below was recorded on {session_date}; the recording
+date is the ONLY anchor for relative time. Convert relative references to absolute
+dates against it: "last month" in a window recorded 2026-03-10 means 2026-02 even
+when today is much later. Write only the absolute form — the relative phrase must
+not survive into the memory text. Never rewrite an absolute date or duration into
+a vaguer one ("18 days" stays "18 days", not "recently"). `valid_until` uses the
+same anchor.
+
+RULES
+1. Only a user's own words can support a memory. Assistant messages are context
+   for resolving references only. Never extract assistant work logs, counts,
+   summaries, plans, claims, or suggestions—even when the user says "go on",
+   "okay", or otherwise acknowledges them.
+2. Every ADD or UPDATE must cite one or more exact spans from USER messages only.
+   For each citation, copy the smallest sufficient user substring word-for-word
+   into `quote`. Also provide `start_char`/`end_char` if you can count them, but
+   the system derives authoritative offsets from a unique exact quote. Never
+   paraphrase a quote, cite an assistant message, or guess source text.
+3. Emit nothing for temporary moods or states (today, tired, later, currently),
+   one-off questions or definitions, acknowledgements, ordinary task requests,
+   implementation steps, completed work, tickets, schedules, or facts stated only
+   by the assistant. Repetition in an assistant message does not make it evidence.
+4. Use `kind="preference"` for a user's taste, correction, constraint, or durable
+   working style; `kind="fact"` for identity/contact/profile attributes; otherwise
+   use one concise domain-neutral noun. Do not invent taxonomy variants such as
+   `ux_preference`, `identity`, or `profile_info`.
+5. Context defaults to empty. Personal preferences, identity, contact details,
+   general working style, and rules stated as "always", "everywhere", "in all our
+   products", or "in future" remain global even inside a workspace conversation.
+   Copy caller context only for a claim about this named codebase/system or a
+   decision that would be false elsewhere. When you do, copy the key and the
+   value from CONTEXT **character for character** — never rename, shorten, or
+   invent a key, and never emit a key CONTEXT does not contain.
+6. Importance guidance: identity/contact, hard constraints, and explicit durable
+   "always/never" rules are 0.7–0.9; ordinary durable preferences and project
+   architecture are 0.5–0.7; never raise transient content into memory.
+7. Keep text under 200 characters, self-contained, and free of credential values.
+   A request to remember a secret is not permission to store the value.
+8. UPDATE or DELETE only a supplied candidate in the same context. Use UPDATE
+   when user evidence corrects or replaces that candidate; do not duplicate it.
+9. `valid_until` means the claim stops being true, never a deadline.
+10. Keep proper nouns verbatim — product, repo, library, person, and place names.
+    A memory is found by the names it contains: "a new restaurant" is unfindable,
+    "Osteria Francescana" is not.
+11. When the user states a change ("switched from X to Y", "renamed", "no
+    longer"), capture the transition. If a candidate holds the old truth, UPDATE
+    it; the new text states the current truth and what it replaced.
+
+FAILURE MODES — check every operation against all four:
+- Echo extraction. The assistant restating the user adds no second fact.
+  WRONG: a memory cited from the assistant's "I've set daily check-ins at 7:30".
+  RIGHT: one memory cited from the user's own "I want daily check-ins at 7:30".
+- Meta-extraction. Record content, never the act of sharing it.
+  WRONG: "User asked about JWT auth". RIGHT: nothing — a one-off question is not
+  durable.
+- Detail contamination. Never merge candidate or neighbouring-message details
+  into a claim. WRONG: "User had a great meal at Olive Garden" when the cited
+  message says only "I had a great meal" and Olive Garden appears elsewhere.
+- First-topic dominance. Middle and late messages count equally; re-scan the
+  whole window before returning.
+
+FINAL CHECK FOR EACH OPERATION
+- durable and useful in a future conversation;
+- supported only by exact cited user text;
+- kind, context, importance, and candidate target follow the rules above;
+- relative dates resolved against the session date, absolutes kept absolute;
+- no credential, assistant-only detail, transient state, or one-off question.
+If any check fails, omit the operation.
+
+CONTEXT
+{context}
+
+CANDIDATES
+{candidates}
+
+CONVERSATION WINDOW
+{window}"""
+
+REGISTRY: dict[str, str] = {"v7": V7, "v8": V8}
+DEFAULT_VERSION = "v8"
 
 CONSOLIDATE_V2 = """Compare the memories below. Return a merged text only when they
 state the same claim in the same context. Preserve the newest truth and all useful
@@ -84,11 +176,20 @@ def render(
     profile: str = "",
     agent_id: str | None = None,
 ) -> str:
-    del today, session_date, profile, agent_id
+    del profile, agent_id
     template = REGISTRY.get(version)
     if template is None:
         raise ValueError(f"unknown prompt version: {version!r}")
-    return template.format(context=context or "{}", candidates=candidates, window=window)
+    # Each version takes only the placeholders it declares; str.format ignores
+    # the rest. A window with no recorded date anchors to today, which is exact
+    # for live traffic and the least-wrong answer for undated backfills.
+    return template.format(
+        context=context or "{}",
+        candidates=candidates,
+        window=window,
+        today=today,
+        session_date=session_date or today,
+    )
 
 
 def render_consolidate(facts: list[dict[str, Any]]) -> str:

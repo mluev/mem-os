@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 from memkit.api import app
+from memkit.db import SCHEMA_VERSION
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -18,7 +19,9 @@ def check() -> list[str]:
         errors.append("openapi.json is stale; run tools/export_openapi.py")
     required = {
         "docs/01-architecture.md": "Memory, not workflow",
-        "docs/02-data-model.md": "Schema version is 5",
+        # Derived from code so a schema bump cannot leave the doc claiming the
+        # old version -- exactly the drift this checker exists to catch.
+        "docs/02-data-model.md": f"Schema version is {SCHEMA_VERSION}",
         "docs/05-retrieval.md": "BM25",
         "docs/08-testing.md": "10,000 distractors",
     }

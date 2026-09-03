@@ -13,4 +13,6 @@ The policy has an explicit minimum relevance. Below it, search returns nothing. 
 
 Generic filters support equality, membership, existence/absence, and logical `AND` over kind, agent, tags, and nested neutral context. The returned explanation includes dense, lexical, entity, final score, dropped IDs by reason, policy ID, token use, and timing.
 
+`include_sources` attaches up to three verbatim evidence spans per returned memory, each re-sliced from the retained message and verified against its stored hash; a span that no longer matches is dropped, never returned altered. Ranking is unaffected — search runs over atomic facts, the spans carry the detail.
+
 Profiles split stable kinds from recent dynamic context under the same expiry and trust rules. Retrieval feedback records independent usefulness and correctness signals.

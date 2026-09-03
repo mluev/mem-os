@@ -145,7 +145,18 @@ def cmd_consolidate(args: argparse.Namespace) -> int:
         stale_days=settings.consolidate_stale_days,
         demotion=settings.consolidate_demotion,
         dry_run=not args.apply,
+        embedder=get_embedder(),
+        consolidate_cosine=settings.consolidate_cosine,
+        merge=args.merge,
+        merge_model=settings.judge_model,
+        monthly_limit_usd=settings.monthly_cost_limit_usd,
+        anthropic_api_key=settings.anthropic_api_key,
+        gemini_api_key=settings.gemini_api_key,
+        project=settings.vertex_project,
+        location=settings.vertex_location,
     )
+    if args.apply:
+        outbox.drain(conn, vectors.get_client(settings.qdrant_url), get_embedder(), limit=500)
     conn.close()
     _json({"mode": "apply" if args.apply else "dry-run", **result.as_dict()})
     return 0
@@ -334,6 +345,87 @@ def cmd_setup(_args: argparse.Namespace) -> int:
     return int(not result["doctor"]["ok"])
 
 
+def _claude_code_source() -> Path:
+    packaged = resources.files("memkit").joinpath("claude_code_integration")
+    if packaged.is_dir():
+        return Path(str(packaged))
+    return Path(__file__).resolve().parents[2] / "integrations" / "claude-code"
+
+
+def cmd_install_claude_code(args: argparse.Namespace) -> int:
+    """Install the mem-os skill and hooks for Claude Code, system-wide.
+
+    Copies files and prints the exact hooks snippet; it never edits
+    ~/.claude/settings.json itself — hook registration is the user's call.
+    """
+    source = _claude_code_source()
+    if not source.is_dir():
+        print("Claude Code integration is missing from this installation", file=sys.stderr)
+        return 1
+    claude_home = Path(args.claude_home or "~/.claude").expanduser()
+    skill_target = Path(args.skills_home or claude_home / "skills").expanduser() / "mem-os"
+    hook_target = claude_home / "memkit" / "memkit_hooks.py"
+    for target in (skill_target, hook_target):
+        if target.exists() and not args.force:
+            print(f"{target} exists; pass --force to replace it", file=sys.stderr)
+            return 1
+    if skill_target.exists():
+        shutil.rmtree(skill_target)
+    skill_target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(
+        source / "skills" / "mem-os", skill_target, ignore=shutil.ignore_patterns("__pycache__")
+    )
+    hook_target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy(source / "hooks" / "memkit_hooks.py", hook_target)
+    print(f"skill: {skill_target.resolve()}")
+    print(f"hooks: {hook_target.resolve()}")
+    # sys.executable is the interpreter that provably has memkit importable,
+    # which the capture hook needs for the shared transcript classifier.
+    hook = f'"{sys.executable}" "{hook_target.resolve()}"'
+    snippet = {
+        "hooks": {
+            "SessionStart": [
+                {"hooks": [{"type": "command", "command": f"{hook} session-start", "timeout": 5}]}
+            ],
+            "Stop": [{"hooks": [{"type": "command", "command": f"{hook} capture", "timeout": 30}]}],
+            "SessionEnd": [
+                {"hooks": [{"type": "command", "command": f"{hook} session-end", "timeout": 30}]}
+            ],
+        }
+    }
+    print("\nAdd to ~/.claude/settings.json (merge with existing hooks):")
+    print(json.dumps(snippet, indent=2))
+    print(
+        "\nConfig: put MEMKIT_API_KEY=<your key> in ~/.memkit "
+        "(and MEMKIT_BASE_URL if not the default)."
+    )
+    return 0
+
+
+def cmd_eval(args: argparse.Namespace) -> int:
+    """Run the retrieval eval from a repo checkout.
+
+    eval/ is a dev tool, deliberately outside the wheel; this command exists so
+    the instrument the docs cite (`memkit eval --compare`) is a real command
+    instead of a docs-only incantation.
+    """
+    queries = Path(args.queries).expanduser().resolve()
+    repo_root = queries.parent.parent
+    if not (repo_root / "eval" / "run.py").exists():
+        print(
+            "eval harness not found: run from the memkit repo checkout "
+            "(expected eval/run.py one level above the queries file)",
+            file=sys.stderr,
+        )
+        return 1
+    sys.path.insert(0, str(repo_root))
+    from eval import run as eval_run
+
+    if args.compare:
+        return eval_run.run_compare(queries, limit=args.limit)
+    return eval_run.run_eval(queries, limit=args.limit, target=args.target)
+
+
 def cmd_benchmark_retrieval(args: argparse.Namespace) -> int:
     result = benchmark.run_100k(get_settings(), memories=args.memories, query_count=args.queries)
     _json(result)
@@ -394,6 +486,11 @@ def main() -> int:
     compact.add_argument(
         "--apply", action="store_true", help="apply the displayed safe maintenance"
     )
+    compact.add_argument(
+        "--merge",
+        action="store_true",
+        help="with --apply: LLM-confirm and merge semantic near-duplicate clusters",
+    )
     compact.set_defaults(func=cmd_consolidate)
 
     commands.add_parser("export", help="export all owner data").set_defaults(func=cmd_export)
@@ -410,6 +507,14 @@ def main() -> int:
     hermes.add_argument("--hermes-home")
     hermes.add_argument("--force", action="store_true")
     hermes.set_defaults(func=cmd_install_hermes)
+
+    claude_code = commands.add_parser(
+        "install-claude-code", help="install the mem-os skill and hooks for Claude Code"
+    )
+    claude_code.add_argument("--claude-home", help="default ~/.claude")
+    claude_code.add_argument("--skills-home", help="default <claude-home>/skills")
+    claude_code.add_argument("--force", action="store_true")
+    claude_code.set_defaults(func=cmd_install_claude_code)
 
     setup = commands.add_parser("setup", help="install and validate a production instance")
     setup.set_defaults(func=cmd_setup)
@@ -442,6 +547,13 @@ def main() -> int:
     backup_restore.add_argument("--id", required=True)
     backup_restore.add_argument("--confirm", default="")
     backup.set_defaults(func=cmd_backup)
+
+    evaluate = commands.add_parser("eval", help="run the retrieval eval (repo checkout only)")
+    evaluate.add_argument("--queries", default="eval/queries.yaml")
+    evaluate.add_argument("--target", choices=("raw", "memories"), default="raw")
+    evaluate.add_argument("--compare", action="store_true", help="both targets, shared cases")
+    evaluate.add_argument("--limit", type=int, default=10)
+    evaluate.set_defaults(func=cmd_eval)
 
     retrieval_benchmark = commands.add_parser(
         "benchmark-retrieval", help="run the protected 100k retrieval latency gate"

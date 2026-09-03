@@ -1006,6 +1006,11 @@ export interface components {
              * @default true
              */
             dry_run: boolean;
+            /**
+             * Merge
+             * @default false
+             */
+            merge: boolean;
         };
         /** CursorPageOut */
         CursorPageOut: {
@@ -1614,6 +1619,11 @@ export interface components {
              * @default false
              */
             include_raw: boolean;
+            /**
+             * Include Sources
+             * @default false
+             */
+            include_sources: boolean;
             /**
              * Include Untrusted
              * @default false

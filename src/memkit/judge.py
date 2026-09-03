@@ -43,6 +43,7 @@ Corrections to the doc's contract:
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import logging
 import re
@@ -244,6 +245,11 @@ class JudgeResult:
     cost_usd: float
     latency_ms: int
     error: str | None = None
+    # UPDATE/DELETE ops whose candidate reference did not resolve — the model
+    # cited an id it was never shown. Dropped here (a fabricated target must
+    # not reach apply_ops) and surfaced so the extraction outcome can count
+    # them as rejections instead of losing them silently.
+    unknown_candidates: list[dict[str, Any]] = dataclasses.field(default_factory=list)
 
 
 def price_per_mtok(model: str = DEFAULT_MODEL, when: date | None = None) -> tuple[float, float]:
@@ -387,9 +393,15 @@ def extract(
     """
     active_version = version or PROMPT_VERSION
     context, _ = security.redact_value(context or {})
+    # The model sees small integers, never real memory ids: a UUID shown to an
+    # LLM comes back subtly mutated often enough that hallucinated targets were
+    # a real failure class. Integers are copied faithfully, and anything outside
+    # the map is provably fabricated rather than plausibly mistyped.
+    id_map = {str(i + 1): c["id"] for i, c in enumerate(candidates)}
+    display_candidates = [{**c, "id": str(i + 1)} for i, c in enumerate(candidates)]
     prompt = build_prompt(
         window=window,
-        candidates=candidates,
+        candidates=display_candidates,
         context=context,
         session_date=session_date,
         agent_id=agent_id,
@@ -400,6 +412,8 @@ def extract(
         "model": model,
         "window_size": len(window),
         "candidate_ids": [c["id"] for c in candidates],
+        # The integer aliases the model saw, so a logged run stays explainable.
+        "candidate_map": id_map,
         "message_ids": [int(m["id"]) for m in window],
         # Recorded so a run can be explained later without re-deriving the
         # Context and date make the model input independently auditable.
@@ -437,6 +451,7 @@ def extract(
     t0 = time.perf_counter()
     error: str | None = None
     ops: list[Op] = []
+    unknown_candidates: list[dict[str, Any]] = []
     in_tok = out_tok = 0
     raw_output: Any = None
 
@@ -455,6 +470,16 @@ def extract(
         # Op.parse is the real gate on both providers: no response schema can
         # express "text is required when op is ADD".
         ops = [op for op in (Op.parse(r) for r in res.operations) if op is not None]
+        resolved: list[Op] = []
+        for op in ops:
+            if op.op in ("UPDATE", "DELETE"):
+                target = id_map.get(str(op.id))
+                if target is None:
+                    unknown_candidates.append({"op": op.op, "id": op.id})
+                    continue
+                op.id = target
+            resolved.append(op)
+        ops = resolved
     except Exception as exc:
         error = f"{type(exc).__name__}: {exc}"
         logger.warning("judge call failed: %s", error)
@@ -505,4 +530,5 @@ def extract(
         cost_usd=cost,
         latency_ms=latency_ms,
         error=error,
+        unknown_candidates=unknown_candidates,
     )
