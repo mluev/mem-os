@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 from pathlib import Path
 
@@ -35,3 +36,23 @@ def test_generic_core_has_no_retired_domain_columns() -> None:
 def test_generated_openapi_is_current() -> None:
     committed = json.loads((ROOT / "openapi.json").read_text())
     assert committed == app.openapi()
+
+
+def test_documentation_contracts_hold() -> None:
+    """Documented values that are derived from code must match it.
+
+    The prompt-versions block in the experiments notebook claimed a registry of
+    v2-v6 and consolidator c1 long after the code moved to v7/v8 and c2, because
+    the generator for that region had been lost while the marker survived. A
+    stale generated block is worse than no block: it reads as authoritative.
+    """
+    # Loaded by path: `tools` is a namespace package, so a plain import
+    # resolves differently depending on what ran before this test.
+    spec = importlib.util.spec_from_file_location(
+        "memkit_docblocks", ROOT / "tools" / "docblocks.py"
+    )
+    assert spec and spec.loader
+    docblocks = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(docblocks)
+
+    assert docblocks.check() == []

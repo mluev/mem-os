@@ -7,7 +7,6 @@ import math
 import re
 import sqlite3
 import time
-from collections import Counter
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Protocol
@@ -136,50 +135,6 @@ class Explain:
 
 def _terms(text: str) -> list[str]:
     return [term.casefold() for term in WORD_RE.findall(text)]
-
-
-def _bm25(query: str, rows: list[sqlite3.Row]) -> dict[str, float]:
-    query_terms = list(dict.fromkeys(_terms(query)))
-    if not query_terms or not rows:
-        return {}
-    documents = {row["id"]: _terms(row["text"]) for row in rows}
-    avg_length = sum(len(doc) for doc in documents.values()) / max(1, len(documents))
-    doc_frequency = {
-        term: sum(term in set(doc) for doc in documents.values()) for term in query_terms
-    }
-    scores: dict[str, float] = {}
-    for memory_id, document in documents.items():
-        frequencies = Counter(document)
-        score = 0.0
-        for term in query_terms:
-            frequency = frequencies[term]
-            if not frequency:
-                continue
-            df = doc_frequency[term]
-            inverse = math.log(1 + (len(rows) - df + 0.5) / (df + 0.5))
-            denominator = frequency + 1.2 * (1 - 0.75 + 0.75 * len(document) / max(1.0, avg_length))
-            score += inverse * frequency * 2.2 / denominator
-        if score > 0:
-            scores[memory_id] = score
-    maximum = max(scores.values(), default=1.0)
-    return {memory_id: score / maximum for memory_id, score in scores.items()}
-
-
-def _entity_matches(query: str, rows: list[sqlite3.Row]) -> dict[str, float]:
-    """Find identifier-like exact terms as a separate candidate arm."""
-    entities = {
-        token.casefold()
-        for token in WORD_RE.findall(query)
-        if any(char.isdigit() or char in "./:@#_-" for char in token)
-        or (len(token) > 1 and token.isupper())
-    }
-    if not entities:
-        return {}
-    return {
-        row["id"]: 1.0
-        for row in rows
-        if any(entity in row["text"].casefold() for entity in entities)
-    }
 
 
 def _fts_candidates(
