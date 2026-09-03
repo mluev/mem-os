@@ -7,8 +7,7 @@ now; ``test_extract.py`` imports them like everyone else.
 
 Everything here runs offline: no model load, no container, no API key.
 
-    .venv/bin/python -m unittest discover -s tests -t .
-    uv run python -m unittest discover -s tests -t .
+    uv run pytest -q
 """
 
 from __future__ import annotations
