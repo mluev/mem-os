@@ -15,6 +15,13 @@ fp       facts invented where the answer was "nothing" — assistant work logs,
          transient moods, a term the user asked about once. v1's whole failure
          mode, so it is scored separately from recall rather than averaged in.
 context  of the facts found, how many copied only the applicable caller context.
+routing  of the facts found in a case that shows an ENTITIES block, how many
+         landed in the right scope and named the right subject. A spurious scope
+         counts as wrong, so an expectation that omits `scope`/`subject` asserts
+         that the model omitted them too.
+fab      entity numbers that were not in the block the case showed. Production
+         drops such an operation outright, so this is wasted extraction rather
+         than bad data -- but it is the tell that a model is guessing at routing.
 imp      how many cleared the importance floor the case declares. Catches the
          everything-is-0.6 collapse that both v1 and v2 showed.
 """
@@ -40,7 +47,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from memkit import jobs, judge, prompts, providers
 from memkit.config import get_settings
-from memkit.db import connect, init_db, transaction, utcnow
+from memkit.db import connect, init_db, iso, transaction, utcnow
 
 GOLDEN = Path(__file__).parent / "golden" / "conversations.yaml"
 
@@ -59,6 +66,12 @@ class Case:
     # relative time against it; cases that probe that need it to differ from
     # today, which is why it is per-case rather than the runner's date.
     session_date: str | None
+    # The numbered ENTITIES block this window is shown, in the shape
+    # `entities.for_prompt` produces plus the `ref` `judge.extract` assigns.
+    # A case that declares one is a routing case: its expectations are scored
+    # for scope and subject as well as for text. A case that declares none sees
+    # "(none)", which is what a single-user instance sends.
+    entities: list[dict[str, Any]]
 
     @classmethod
     def parse(cls, raw: dict[str, Any], index: int) -> Case:
@@ -75,7 +88,20 @@ class Case:
             reject=[str(p) for p in (raw.get("reject") or [])],
             max_ops=raw.get("max_ops"),
             session_date=str(raw["session_date"]) if raw.get("session_date") else None,
+            entities=[
+                {
+                    "ref": int(entity.get("ref") or i + 1),
+                    "label": str(entity.get("label") or entity.get("kind") or "entity"),
+                    "name": str(entity.get("name") or ""),
+                    "aliases": [str(a) for a in (entity.get("aliases") or [])],
+                }
+                for i, entity in enumerate(raw.get("entities") or [])
+            ],
         )
+
+    @property
+    def refs(self) -> set[int]:
+        return {int(entity["ref"]) for entity in self.entities}
 
 
 @dataclass
@@ -88,6 +114,9 @@ class Score:
     context_checked = 0
     kind_ok = 0
     kind_checked = 0
+    routing_ok = 0
+    routing_checked = 0
+    fabricated = 0
     evidence_ok = 0
     evidence_checked = 0
     imp_ok = 0
@@ -123,6 +152,63 @@ def _match(pattern: str, text: str) -> bool:
     return bool(re.search(pattern, text or "", re.IGNORECASE))
 
 
+def _routing_of(op: judge.Op) -> dict[str, Any]:
+    return {"scope": op.scope, "subject": op.subject, "subject_name": op.subject_name}
+
+
+def _routing_wanted(want: dict[str, Any]) -> dict[str, Any]:
+    """The routing an expectation asserts. An absent key asserts absence.
+
+    There is no "don't care" here on purpose. Routing a personal preference to
+    the team is exactly the failure this metric exists to catch, and a metric
+    that only looked at the cases where a scope was wanted could not see it.
+    """
+    return {
+        "scope": want.get("scope"),
+        "subject": want.get("subject"),
+        "subject_name": want.get("subject_name"),
+    }
+
+
+def _routing_matches(want: dict[str, Any], got: dict[str, Any]) -> bool:
+    for name in ("scope", "subject"):
+        wanted = want[name]
+        actual = got[name]
+        if (wanted is None) != (actual is None) or (
+            wanted is not None and int(wanted) != int(actual)
+        ):
+            return False
+    # An unresolved person is asserted verbatim, since a human reads this name
+    # to say who was meant; case is the one difference that carries no meaning.
+    wanted_name = str(want["subject_name"] or "").strip().casefold()
+    actual_name = str(got["subject_name"] or "").strip().casefold()
+    return wanted_name == actual_name
+
+
+RETIRED_KEYS = frozenset({"type", "holds_in_other_repos"})
+
+
+def retired_expectations(raw: list[dict[str, Any]]) -> list[str]:
+    """Case ids whose expectations use the retired single-owner schema.
+
+    `scope` is not on the list any more, but it changed meaning rather than
+    disappearing: it used to name the project context and now holds an integer
+    reference into the ENTITIES block. A string there would score nothing and
+    quietly inflate recall, so the type is checked instead of the key.
+    """
+    offenders: list[str] = []
+    for case in raw:
+        for expected in case.get("expect") or []:
+            bad_types = any(
+                not isinstance(expected[key], int)
+                for key in ("scope", "subject")
+                if key in expected
+            )
+            if RETIRED_KEYS & set(expected) or bad_types:
+                offenders.append(str(case.get("id")))
+    return sorted(set(offenders))
+
+
 def score_case(case: Case, ops: list[judge.Op], sc: Score) -> None:
     texts = [o.text or "" for o in ops]
     sc.total_ops += len(ops)
@@ -139,6 +225,16 @@ def score_case(case: Case, ops: list[judge.Op], sc: Score) -> None:
                 else:
                     sc.false_positives += 1
                     sc.failures.append(f"{case.id}: rejected {pattern!r} -> {t[:60]!r}")
+
+    # A number outside the block cannot have come from the window. Production
+    # drops the whole operation, so it is scored here even when the operation
+    # would otherwise have matched an expectation.
+    for op in ops:
+        for name in ("scope", "subject"):
+            ref = getattr(op, name)
+            if ref is not None and int(ref) not in case.refs:
+                sc.fabricated += 1
+                sc.failures.append(f"{case.id}: FABRICATED {name}={ref}, block has {case.refs}")
 
     # Windows whose right answer is "nothing": every emitted fact is invented.
     if not case.expect and ops:
@@ -162,6 +258,17 @@ def score_case(case: Case, ops: list[judge.Op], sc: Score) -> None:
                 sc.failures.append(
                     f"{case.id}: context {best.context!r}, wanted {want['context']!r} "
                     f"-> {(best.text or '')[:50]!r}"
+                )
+        if case.entities:
+            sc.routing_checked += 1
+            wanted_routing = _routing_wanted(want)
+            got_routing = _routing_of(best)
+            if _routing_matches(wanted_routing, got_routing):
+                sc.routing_ok += 1
+            else:
+                sc.failures.append(
+                    f"{case.id}: routing {got_routing!r}, wanted {wanted_routing!r} "
+                    f"-> {(best.text or '')[:40]!r}"
                 )
         if "kind" in want:
             sc.kind_checked += 1
@@ -226,6 +333,7 @@ def run(cases: list[Case], *, model: str, version: str, s, today: str, verbose: 
             window=judge.render_window(case.messages),
             candidates=judge.render_candidates(case.candidates),
             context=json.dumps(case.context, ensure_ascii=False, sort_keys=True),
+            entities=judge.render_entities(case.entities),
             session_date=case.session_date or today,
             # Deliberately empty: the golden set probes extraction from the
             # window alone. Profile effects are measured on the real corpus,
@@ -259,6 +367,7 @@ def run(cases: list[Case], *, model: str, version: str, s, today: str, verbose: 
             for op in ops:
                 print(
                     f"      {op.op} {op.kind} context={op.context or {}} "
+                    f"scope={op.scope} subject={op.subject or op.subject_name} "
                     f"imp={op.importance} citations={len(op.evidence or [])} {op.text}"
                 )
             if not ops:
@@ -268,13 +377,14 @@ def run(cases: list[Case], *, model: str, version: str, s, today: str, verbose: 
 
 
 def report(scores: list[Score], cases: list[Case]) -> None:
-    print("\n" + "=" * 104)
+    print("\n" + "=" * 118)
     print(
-        f"{'variant':<32} {'recall':>12} {'fp':>4} {'leak':>5} {'context':>8} "
-        f"{'kind':>7} {'evidence':>8} {'imp':>7} {'op':>6} {'over':>5} {'$':>8}"
+        f"{'variant':<32} {'recall':>12} {'fp':>4} {'leak':>5} {'routing':>8} {'fab':>4} "
+        f"{'context':>8} {'kind':>7} {'evidence':>8} {'imp':>7} {'op':>6} {'over':>5} {'$':>8}"
     )
-    print("-" * 104)
+    print("-" * 118)
     for sc in scores:
+        routing = f"{sc.routing_ok}/{sc.routing_checked}" if sc.routing_checked else "-"
         context = f"{sc.context_ok}/{sc.context_checked}" if sc.context_checked else "-"
         kind = f"{sc.kind_ok}/{sc.kind_checked}" if sc.kind_checked else "-"
         evidence = f"{sc.evidence_ok}/{sc.evidence_checked}"
@@ -282,12 +392,15 @@ def report(scores: list[Score], cases: list[Case]) -> None:
         op = f"{sc.op_ok}/{sc.op_checked}" if sc.op_checked else "-"
         print(
             f"{sc.label:<32} {sc.found:>3}/{sc.expected:<3} {sc.recall:>5.0%} "
-            f"{sc.false_positives:>4} {sc.leaks:>5} {context:>8} {kind:>7} "
-            f"{evidence:>8} {imp:>7} {op:>6} {sc.over_emission:>5} {sc.cost:>8.4f}"
+            f"{sc.false_positives:>4} {sc.leaks:>5} {routing:>8} {sc.fabricated:>4} "
+            f"{context:>8} {kind:>7} {evidence:>8} {imp:>7} {op:>6} "
+            f"{sc.over_emission:>5} {sc.cost:>8.4f}"
         )
-    print("-" * 104)
+    print("-" * 118)
     print("recall found/expected  |  fp = facts invented where the answer was nothing")
     print("leak = credential values stored (any value fails the run)")
+    print("routing = scope/subject correct, counting a spurious scope as wrong")
+    print("fab = entity numbers absent from the block the case showed")
     print("context/kind/evidence/imp/op validate the v7 domain-neutral contract")
 
     for sc in scores:
@@ -297,8 +410,8 @@ def report(scores: list[Score], cases: list[Case]) -> None:
                 print(f"    {e[:100]}")
         if sc.failures:
             print(f"\n  {sc.label} — {len(sc.failures)} failures:")
-            for f in sc.failures[:14]:
-                print(f"    {f[:112]}")
+            for f in sc.failures[:24]:
+                print(f"    {f[:118]}")
 
 
 def _score_summary(score: Score) -> dict[str, Any]:
@@ -311,6 +424,8 @@ def _score_summary(score: Score) -> dict[str, Any]:
         "false_positives": score.false_positives,
         "credential_leaks": score.leaks,
         "invalid_evidence": score.evidence_checked - score.evidence_ok,
+        "routing": [score.routing_ok, score.routing_checked],
+        "fabricated_refs": score.fabricated,
         "context": [score.context_ok, score.context_checked],
         "kind": [score.kind_ok, score.kind_checked],
         "importance": [score.imp_ok, score.imp_checked],
@@ -332,9 +447,17 @@ def _winner(scores: list[Score]) -> str | None:
         return None
 
     def correctness(score: Score) -> tuple[float, ...]:
+        # Safety first and absolute: `safety_passed` already excluded leaks and
+        # invalid evidence, and an invented fact outranks every accuracy metric
+        # because no amount of recall repairs a store that contains fiction.
+        # Then recall, then routing -- a fact in the wrong person's scope is
+        # readable by the wrong person, which context drift is not -- then the
+        # narrower contract metrics, then price.
         return (
-            score.recall,
             -score.false_positives,
+            score.recall,
+            score.routing_ok / (score.routing_checked or 1),
+            -score.fabricated,
             score.context_ok / (score.context_checked or 1),
             score.kind_ok / (score.kind_checked or 1),
             score.imp_ok / (score.imp_checked or 1),
@@ -359,6 +482,7 @@ def _cost_ceiling(
                 window=judge.render_window(case.messages),
                 candidates=judge.render_candidates(case.candidates),
                 context=json.dumps(case.context, ensure_ascii=False, sort_keys=True),
+                entities=judge.render_entities(case.entities),
                 session_date=today,
                 profile="",
                 agent_id="claude-code",
@@ -375,13 +499,15 @@ def _write_artifact(
 ) -> Path:
     summaries = [_score_summary(score) for score in scores]
     artifact: dict[str, Any] = {
-        "kind": "paid-golden-v7",
-        "created_at": utcnow(),
+        "kind": "paid-golden",
+        # The artifact is checksummed, so its timestamp has to be the rendered
+        # string that gets hashed, not the datetime `utcnow` now returns.
+        "created_at": iso(utcnow()),
         "cases": len(cases),
         "case_ids": [case.id for case in cases],
         "scores": summaries,
         "selected_model": _winner(scores),
-        "selection_order": ["safety", "correctness", "cost"],
+        "selection_order": ["safety", "recall", "routing", "context", "cost"],
         "both_failed": not any(summary["safety_passed"] for summary in summaries),
         "cost_ceiling_usd": sum(ceilings.values()),
         "variant_cost_ceilings_usd": ceilings,
@@ -392,7 +518,7 @@ def _write_artifact(
     ).hexdigest()
     output_dir.mkdir(parents=True, exist_ok=True)
     os.chmod(output_dir, 0o700)
-    path = output_dir / f"golden-v7-{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}.json"
+    path = output_dir / f"golden-{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}.json"
     path.write_text(json.dumps(artifact, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     os.chmod(path, 0o600)
     return path
@@ -428,12 +554,9 @@ def main() -> int:
     if not cases:
         print("no cases", file=sys.stderr)
         return 1
-    forbidden = {"scope", "type", "holds_in_other_repos"}
-    for raw_case in raw:
-        for expected in raw_case.get("expect") or []:
-            if forbidden & set(expected):
-                print(f"{raw_case.get('id')}: retired expectation keys", file=sys.stderr)
-                return 1
+    if retired := retired_expectations(raw):
+        print(f"retired expectation keys in: {', '.join(retired)}", file=sys.stderr)
+        return 1
     if args.schema_only:
         for case in cases:
             prompts.render(
@@ -442,8 +565,10 @@ def main() -> int:
                 window=judge.render_window(case.messages),
                 candidates=judge.render_candidates(case.candidates),
                 context=json.dumps(case.context, sort_keys=True),
+                entities=judge.render_entities(case.entities),
+                session_date=case.session_date,
             )
-        print(f"validated {len(cases)} v7 golden cases")
+        print(f"validated {len(cases)} golden cases against {prompts.DEFAULT_VERSION}")
         return 0
 
     variants = [v.split(":", 1) for v in args.variant] or [
@@ -477,7 +602,11 @@ def main() -> int:
 
     total_expected = sum(len(c.expect) for c in cases)
     empty_cases = sum(1 for c in cases if not c.expect)
-    print(f"cases: {len(cases)}  expected facts: {total_expected}  must-be-empty: {empty_cases}")
+    routing_cases = sum(1 for c in cases if c.entities)
+    print(
+        f"cases: {len(cases)}  expected facts: {total_expected}  "
+        f"must-be-empty: {empty_cases}  routing: {routing_cases}"
+    )
     print(f"variants: {[':'.join(v) for v in variants]}\n")
 
     try:

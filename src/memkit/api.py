@@ -50,6 +50,7 @@ from . import (
     reextract,
     reindex,
     retrieval,
+    stats,
     store,
     telemetry,
     users,
@@ -3085,6 +3086,76 @@ def metrics(
 @app.get("/v1/admin/backups")
 def backup_status(principal: Principal = Depends(require_admin)) -> ItemsOut:
     return {"items": operations.list_backups(get_settings())}
+
+
+# ---------------------------------------------------------------------------
+# Dashboard statistics
+# ---------------------------------------------------------------------------
+
+
+@app.get("/v1/admin/stats/memories")
+def stats_memories(
+    days: int = Query(30, ge=1, le=365),
+    group_by: str = Query("kind"),
+    principal: Principal = Depends(get_principal),
+    conn: psycopg.Connection = Depends(get_conn),
+) -> FlexibleOut:
+    try:
+        return stats.memories(conn, scope_ids=principal.scopes(), days=days, group_by=group_by)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@app.get("/v1/admin/stats/pipeline")
+def stats_pipeline(
+    days: int = Query(30, ge=1, le=365),
+    principal: Principal = Depends(get_principal),
+    conn: psycopg.Connection = Depends(get_conn),
+) -> FlexibleOut:
+    """Instance-wide for an administrator, own work for anyone else."""
+    return stats.pipeline(
+        conn, user_id=None if principal.is_admin else principal.user_id, days=days
+    )
+
+
+@app.get("/v1/admin/stats/retrieval")
+def stats_retrieval(
+    days: int = Query(30, ge=1, le=365),
+    principal: Principal = Depends(get_principal),
+    conn: psycopg.Connection = Depends(get_conn),
+) -> FlexibleOut:
+    return stats.retrieval(
+        conn, user_id=None if principal.is_admin else principal.user_id, days=days
+    )
+
+
+@app.get("/v1/admin/stats/review")
+def stats_review(
+    days: int = Query(30, ge=1, le=365),
+    principal: Principal = Depends(get_principal),
+    conn: psycopg.Connection = Depends(get_conn),
+) -> FlexibleOut:
+    """Also drives the nav badge, so it stays cheap enough to poll."""
+    return stats.review(conn, scope_ids=principal.scopes(), user_id=principal.user_id, days=days)
+
+
+@app.get("/v1/admin/stats/entities")
+def stats_entities(
+    limit: int = Query(10, ge=1, le=50),
+    principal: Principal = Depends(get_principal),
+    conn: psycopg.Connection = Depends(get_conn),
+) -> FlexibleOut:
+    return stats.entities(conn, scope_ids=principal.scopes(), limit=limit)
+
+
+@app.get("/v1/admin/stats/users")
+def stats_users(
+    days: int = Query(30, ge=1, le=365),
+    principal: Principal = Depends(require_admin),
+    conn: psycopg.Connection = Depends(get_conn),
+) -> FlexibleOut:
+    """Admin-only: this is the one panel that reports on other people."""
+    return stats.users(conn, days=days)
 
 
 class SPAStaticFiles(StaticFiles):

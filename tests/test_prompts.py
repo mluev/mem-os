@@ -3,7 +3,7 @@
 judge.py's module comment cites test_production_prompt_is_the_active_registry_version
 as the guard that PROMPT_VERSION and the rendered text cannot drift apart; the
 test had been lost in a refactor while the comment survived. It lives here now,
-beside the v8 date-anchor contract and v9's routing block.
+beside the v8 date-anchor contract and the routing blocks of v9 and v10.
 
 Old versions stay in the registry and stay tested. A stored fact carries the
 version that produced it, so `extraction_version='v7'` has to keep meaning
@@ -34,12 +34,23 @@ class TestPromptRegistry(unittest.TestCase):
         rendered = judge.build_prompt(window=[], candidates=[], context={})
         self.assertIn("CONVERSATION WINDOW", rendered)
 
-    def test_v9_is_the_active_version(self) -> None:
-        self.assertEqual(prompts.DEFAULT_VERSION, "v9")
+    def test_the_default_is_a_version_that_was_measured_into_place(self) -> None:
+        """This test used to assert `DEFAULT_VERSION == "v9"`, and was red.
+
+        v9 was written, tested, and then *not* promoted: the paid comparison
+        found it regressed context accuracy and left its own routing unmeasured
+        (docs/measurements.md#extractor-prompt-v8-against-v9). The assertion
+        outlived the decision. Naming a specific version here means the test has
+        to be edited by whoever moves the default, which is the point — so it
+        asserts the promotion rule instead of a literal, and the literal lives
+        in the comment above `DEFAULT_VERSION` where the reasoning is.
+        """
+        self.assertIn(prompts.DEFAULT_VERSION, prompts.REGISTRY)
+        self.assertEqual(prompts.DEFAULT_VERSION, judge.PROMPT_VERSION)
 
     def test_retired_versions_stay_readable(self) -> None:
-        """Facts stamped v7 or v8 are still in the store."""
-        self.assertEqual(sorted(prompts.REGISTRY), ["v7", "v8", "v9"])
+        """Facts stamped v7, v8 or v9 are still in the store."""
+        self.assertEqual(sorted(prompts.REGISTRY), ["v10", "v7", "v8", "v9"])
 
     def test_unknown_version_raises(self) -> None:
         with self.assertRaises(ValueError):
@@ -98,6 +109,85 @@ class TestV9Routing(unittest.TestCase):
         ]
         for clause in required:
             self.assertIn(clause, v9, f"v9 lost a routing rule: {clause!r}")
+
+
+class TestV10Routing(unittest.TestCase):
+    """v10 = v9's routing, reordered so rule 5 is read before it.
+
+    The regression v10 exists to undo was invisible to every prompt test: v9
+    was well-formed, said everything it was meant to say, and still scoped
+    facts that belonged globally. What can be tested offline is that the three
+    changes which the measurement pointed at are actually present.
+    """
+
+    def test_routing_comes_after_context_not_before_it(self) -> None:
+        v10 = prompts.REGISTRY["v10"]
+        self.assertLess(v10.index("CONTEXT"), v10.index("ROUTING"))
+        self.assertLess(v10.index("Context defaults to empty"), v10.index("ROUTING"))
+        # v9 is the counterexample, and the reason this test exists.
+        v9 = prompts.REGISTRY["v9"]
+        self.assertLess(v9.index("ROUTING"), v9.index("CONTEXT\n"))
+
+    def test_scope_and_context_are_named_as_different_fields(self) -> None:
+        v10 = _collapsed("v10")
+        self.assertIn("Scope is not context", v10)
+        self.assertIn("a scoped memory usually still has empty context", v10)
+
+    def test_rule_five_asks_the_counterfactual_rather_than_listing_examples(self) -> None:
+        v10 = _collapsed("v10")
+        self.assertIn("said again tomorrow in another repo, would this sentence still hold", v10)
+        self.assertIn("character for character", v10)
+
+    def test_v10_keeps_every_routing_rule_v9_was_accepted_for(self) -> None:
+        v10 = _collapsed("v10")
+        for clause in [
+            "no scope and no subject",
+            "set subject to their number and omit scope",
+            "set scope to its number",
+            "set scope to the team's number, no subject",
+            "Do not guess which listed person was meant",
+            "refer to them by number only; never invent a number",
+            # v10 tightens two of v9's clauses, each because a measured run
+            # showed the looser wording being read past: the unresolved name
+            # came back transliterated, and an unlisted project came back
+            # routed to the nearest listed one.
+            "in the user's own spelling and script",
+            "Never route to a number whose name is not the thing the sentence is about",
+        ]:
+            self.assertIn(clause, v10, f"v10 lost a routing rule: {clause!r}")
+
+    def test_v10_keeps_v8s_extraction_rules(self) -> None:
+        """Rule 5 was rewritten on purpose; nothing else was."""
+        v10 = _collapsed("v10")
+        for clause in [
+            "the recording date is the ONLY anchor",
+            "Only a user's own words can support a memory",
+            "exact spans from USER messages only",
+            "only a supplied candidate in the same context",
+            "under 200 characters",
+            "Keep proper nouns verbatim",
+            "capture the transition",
+            "Echo extraction",
+            "Meta-extraction",
+            "Detail contamination",
+            "First-topic dominance",
+        ]:
+            self.assertIn(clause, v10, f"v10 lost a v8 rule: {clause!r}")
+
+    def test_v10_renders_entities_and_both_dates(self) -> None:
+        rendered = prompts.render(
+            "v10",
+            today="2026-09-04",
+            window="[1] user: Саша требует настоящую базу",
+            candidates="(none)",
+            context='{"workspace": "mem-os"}',
+            entities="1. you, the speaker: Artem Volkov\n5. teammate: Alexander Petrov",
+            session_date="2026-03-10",
+        )
+        self.assertIn("Today is 2026-09-04.", rendered)
+        self.assertIn("recorded on 2026-03-10", rendered)
+        self.assertIn("5. teammate: Alexander Petrov", rendered)
+        self.assertNotIn("{entities}", rendered)
 
 
 class TestV8Contract(unittest.TestCase):

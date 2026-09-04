@@ -186,6 +186,16 @@ PRINCIPAL_SCOPED = {
     ("GET", "/v1/admin/judge-runs"),
     ("GET", "/v1/admin/judge-runs/{run_id}"),
     ("GET", "/v1/admin/metrics"),
+    # The statistics panels narrow by principal rather than requiring an
+    # administrator: a member's own volume, latency and review backlog are
+    # their own business, and locking them out would leave them unable to see
+    # whether their agent is working. The one panel that reports on other
+    # people, /v1/admin/stats/users, is admin-only and so is absent here.
+    ("GET", "/v1/admin/stats/memories"),
+    ("GET", "/v1/admin/stats/pipeline"),
+    ("GET", "/v1/admin/stats/retrieval"),
+    ("GET", "/v1/admin/stats/review"),
+    ("GET", "/v1/admin/stats/entities"),
 }
 
 

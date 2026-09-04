@@ -14,10 +14,10 @@ Current state, generated from the code:
 <!-- generated:prompt-versions -->
 | | |
 |---|---|
-| registry | `v7`, `v8`, `v9` |
-| active extractor prompt | `v9` |
+| registry | `v10`, `v7`, `v8`, `v9` |
+| active extractor prompt | `v10` |
 | consolidator prompt | `c2` |
-| stamped on new facts | `v9` |
+| stamped on new facts | `v10` |
 | default judge model | `gemini-3.5-flash-lite` |
 <!-- /generated:prompt-versions -->
 

@@ -371,3 +371,120 @@
     - text: "sentence-transformers"
   reject: ["(какая-то|некая|a certain|an embedding model called)"]
   max_ops: 2
+
+# ============================================================= routing (v9/v10)
+# A team instance has more than one place a fact can go, so the extractor is
+# shown a numbered ENTITIES block and answers with numbers into it. These cases
+# score that answer. They all share one block, in the order production builds it
+# (`entities.for_prompt`: the speaker, the team, their projects, then teammates)
+# and numbered the way `judge.extract` numbers it — one block across the cases
+# means a routing failure is attributable to the window, not to renumbering.
+#
+# An expectation that names no `scope`/`subject` asserts that the model emitted
+# none. Scoping a personal preference to a repo, or to the team, is the failure
+# this metric exists to see; it is not a "don't care".
+- id: routing-fact-about-listed-teammate
+  probes: a fact about a listed teammate belongs to them, by number
+  context: {workspace: memkit}
+  entities: &team
+    - {ref: 1, label: "you, the speaker", name: "Artem Volkov", aliases: ["Артём"]}
+    - {ref: 2, label: team, name: "Northline", aliases: ["наша команда", "the team"]}
+    - {ref: 3, label: project, name: "memkit", aliases: ["mem-os"]}
+    - {ref: 4, label: project, name: "notiky", aliases: []}
+    - {ref: 5, label: teammate, name: "Alexander Petrov", aliases: ["Саша", "Sasha"]}
+    - {ref: 6, label: teammate, name: "Dana Kim", aliases: ["Дана"]}
+  messages:
+    - [user, "Alexander пишет только на Go, фронт он не трогает вообще, не давай ему vue-таски"]
+    - [assistant, "Понял, фронтовые задачи мимо Alexander."]
+  expect:
+    - text: "(go\\b|golang|фронт|frontend|vue)"
+      subject: 5
+      context: {}
+  max_ops: 2
+
+- id: routing-teammate-via-russian-alias
+  probes: the alias column is why a name in conversation resolves at all
+  context: {workspace: memkit}
+  entities: *team
+  messages:
+    - [user, "у Саши аллергия на моки — он требует настоящую базу в тестах, всегда"]
+    - [assistant, "Понял, в его ревью моков не предлагаю."]
+  expect:
+    - text: "(мок|mock|настоящ|real|базу|database)"
+      subject: 5
+  max_ops: 2
+
+# Context is deliberately not asserted here: the claim names memkit and the
+# caller context also says memkit, so both {} and {workspace: memkit} follow
+# rule 5. Scope is the thing under test.
+- id: routing-fact-about-listed-project
+  probes: a fact about a listed project lives in that project's scope
+  context: {workspace: memkit}
+  entities: *team
+  messages:
+    - [user, "запомни: очередь в memkit на самом Postgres, Redis мы специально не заводим"]
+    - [assistant, "Понял, очередь на Postgres, Redis не добавляю."]
+  expect:
+    - text: "(очеред|queue|postgres|redis)"
+      scope: 3
+  max_ops: 2
+
+- id: routing-rule-for-the-whole-team
+  probes: a rule stated for everyone goes to the team scope, with empty context
+  context: {workspace: memkit}
+  entities: *team
+  messages:
+    - [user, "у нас принято squash-merge всегда, во всех репах, история должна быть линейной"]
+    - [assistant, "Понял, зафиксирую как правило мержа."]
+  expect:
+    - text: "(squash|линейн|linear)"
+      scope: 2
+      context: {}
+  max_ops: 2
+
+# The regression guard. v9 scoped more than v8 did, and this is the shape it
+# got wrong: a preference the speaker states about their own working style,
+# inside a session that is entirely one project. It routes nowhere and carries
+# no context — scope and context are separate fields, and neither applies.
+- id: routing-own-preference-in-a-project-session
+  probes: a speaker's own preference routes nowhere, even in a project session
+  context: {workspace: notiky}
+  entities: *team
+  messages:
+    - [assistant, "Прошёл по notiky: переписал OtpForm.vue, AttemptsTable.vue, обновил роутер. type-check 0 ошибок."]
+    - [assistant, "Заодно перевёл 12 импортов на относительные пути внутри модуля."]
+    - [user, "верни абсолютные. мне удобнее когда все импорты абсолютные, относительные я просто не читаю"]
+    - [assistant, "Понял, возвращаю абсолютные импорты."]
+  expect:
+    - text: "(абсолютн|absolute|импорт|import)"
+      context: {}
+      kind: preference
+  reject: ["type-check", "0 ошибок"]
+  max_ops: 2
+
+- id: routing-unlisted-person-keeps-their-name
+  probes: an unlisted person is named verbatim, never guessed into a listed one
+  context: {workspace: memkit}
+  entities: *team
+  messages:
+    - [user, "Тимур Аскаров не читает PR больше 400 строк, ему надо разбивать на мелкие"]
+    - [assistant, "Понял, для него дроблю PR."]
+  expect:
+    - text: "(400|PR|разбива|split)"
+      subject_name: "Тимур Аскаров"
+  max_ops: 2
+
+# The fabrication temptation: cine is a real workspace in the caller context and
+# a real subject in the window, and it is not in the block. There is no number
+# for it, so there is no scope — inventing 7, or settling for memkit, both lose.
+- id: routing-unlisted-project-has-no-number
+  probes: an entity absent from the block is not routable, not approximated
+  context: {workspace: cine}
+  entities: *team
+  messages:
+    - [user, "в cine рендер-очередь висит на ffmpeg-воркерах, они на отдельной машине, не в кластере"]
+    - [assistant, "Понял, воркеры cine отдельно от кластера."]
+  expect:
+    - text: "(cine|ffmpeg|воркер|worker)"
+      context: {workspace: cine}
+  max_ops: 2

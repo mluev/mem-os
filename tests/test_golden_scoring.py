@@ -64,7 +64,18 @@ def _op(text: str, **kw):
             "evidence",
             [{"message_id": 1, "start_char": 0, "end_char": 17, "quote": "I always use pnpm"}],
         ),
+        scope=kw.pop("scope", None),
+        subject=kw.pop("subject", None),
+        subject_name=kw.pop("subject_name", None),
     )
+
+
+# The block a routing case shows, in the shape entities.for_prompt produces.
+_ENTITIES = [
+    {"ref": 1, "label": "you, the speaker", "name": "Artem Volkov", "aliases": []},
+    {"ref": 2, "label": "team", "name": "Northline", "aliases": []},
+    {"ref": 3, "label": "teammate", "name": "Alexander Petrov", "aliases": ["Саша"]},
+]
 
 
 def _score():
@@ -145,6 +156,61 @@ class ScoreCaseTest(unittest.TestCase):
         self.assertEqual((sc.context_ok, sc.context_checked), (0, 1))
         self.assertEqual((sc.kind_ok, sc.kind_checked), (0, 1))
 
+    def test_routing_is_not_scored_when_the_case_shows_no_entities(self) -> None:
+        """A single-user window has nothing to route to, and the model is shown
+        "(none)". Counting those as routing successes would dilute the metric
+        with 24 free passes."""
+        sc = _score()
+        golden.score_case(_case(expect=[{"text": "pnpm"}]), [_op("Prefers pnpm")], sc)
+        self.assertEqual((sc.routing_ok, sc.routing_checked), (0, 0))
+
+    def test_the_right_subject_scores(self) -> None:
+        case = _case(entities=_ENTITIES, expect=[{"text": "pnpm", "subject": 3}])
+        sc = _score()
+        golden.score_case(case, [_op("Alexander prefers pnpm", subject=3)], sc)
+        self.assertEqual((sc.routing_ok, sc.routing_checked), (1, 1))
+
+    def test_the_wrong_subject_fails_even_though_the_text_matched(self) -> None:
+        case = _case(entities=_ENTITIES, expect=[{"text": "pnpm", "subject": 3}])
+        sc = _score()
+        golden.score_case(case, [_op("Alexander prefers pnpm", subject=2)], sc)
+        self.assertEqual((sc.found, sc.routing_ok), (1, 0))
+        self.assertTrue(any("routing" in failure for failure in sc.failures))
+
+    def test_a_spurious_scope_is_as_wrong_as_a_missing_one(self) -> None:
+        """The v9 regression in miniature: a personal preference routed to the
+        team is still a well-formed, correctly cited memory in the wrong place."""
+        case = _case(entities=_ENTITIES, expect=[{"text": "pnpm"}])
+        sc = _score()
+        golden.score_case(case, [_op("Prefers pnpm", scope=2)], sc)
+        self.assertEqual((sc.routing_ok, sc.routing_checked), (0, 1))
+
+    def test_omitting_routing_when_none_was_wanted_scores(self) -> None:
+        case = _case(entities=_ENTITIES, expect=[{"text": "pnpm"}])
+        sc = _score()
+        golden.score_case(case, [_op("Prefers pnpm")], sc)
+        self.assertEqual((sc.routing_ok, sc.routing_checked), (1, 1))
+
+    def test_an_unlisted_person_is_asserted_by_name(self) -> None:
+        case = _case(entities=_ENTITIES, expect=[{"text": "pnpm", "subject_name": "Тимур Аскаров"}])
+        sc = _score()
+        golden.score_case(case, [_op("Тимур Аскаров prefers pnpm", subject_name="Тимур")], sc)
+        self.assertEqual(sc.routing_ok, 0)
+        sc = _score()
+        golden.score_case(
+            case, [_op("Тимур Аскаров prefers pnpm", subject_name="Тимур Аскаров")], sc
+        )
+        self.assertEqual(sc.routing_ok, 1)
+
+    def test_a_number_outside_the_block_is_counted_as_fabricated(self) -> None:
+        """Production drops the whole operation, so this is scored even when the
+        text was right: it is the tell that the model is guessing at routing."""
+        case = _case(entities=_ENTITIES, expect=[{"text": "pnpm", "scope": 2}])
+        sc = _score()
+        golden.score_case(case, [_op("Prefers pnpm", scope=9)], sc)
+        self.assertEqual(sc.fabricated, 1)
+        self.assertTrue(any("FABRICATED" in failure for failure in sc.failures))
+
     def test_over_emission_is_measured_against_max_ops(self) -> None:
         case = _case(expect=[{"text": "pnpm"}], max_ops=1)
         sc = _score()
@@ -188,6 +254,27 @@ class WinnerTest(unittest.TestCase):
         clean = self._score(model="clean", false_positives=0)
         self.assertEqual(golden._winner([noisy, clean]), "clean")
 
+    def test_an_invented_fact_outranks_extra_recall(self) -> None:
+        """Safety first and absolute: nothing buys back a store with fiction
+        in it, so one false positive loses to a variant that found less."""
+        noisy = self._score(model="noisy", found=10, evidence=10, false_positives=1)
+        clean = self._score(model="clean", found=6, evidence=6)
+        self.assertEqual(golden._winner([noisy, clean]), "clean")
+
+    def test_routing_outranks_context_at_equal_recall(self) -> None:
+        """A fact in the wrong teammate's scope is readable by the wrong
+        person; context drift only makes a fact harder to retrieve."""
+        routes = self._score(model="routes", routing_ok=7, routing_checked=7)
+        routes.context_ok, routes.context_checked = 4, 8
+        drifts = self._score(model="drifts", routing_ok=3, routing_checked=7)
+        drifts.context_ok, drifts.context_checked = 8, 8
+        self.assertEqual(golden._winner([routes, drifts]), "routes")
+
+    def test_recall_still_outranks_routing(self) -> None:
+        found = self._score(model="found", found=9, evidence=9, routing_ok=0, routing_checked=7)
+        missed = self._score(model="missed", found=4, evidence=4, routing_ok=7, routing_checked=7)
+        self.assertEqual(golden._winner([found, missed]), "found")
+
 
 class GoldenFileTest(unittest.TestCase):
     """The committed golden set, checked against the prompt it will be run with.
@@ -214,21 +301,48 @@ class GoldenFileTest(unittest.TestCase):
                 window=judge.render_window(case.messages),
                 candidates=judge.render_candidates(case.candidates),
                 context="{}",
+                entities=judge.render_entities(case.entities),
                 session_date=case.session_date,
             )
 
     def test_no_case_still_expects_a_retired_key(self) -> None:
-        """`scope`, `type` and `holds_in_other_repos` belonged to the old
-        single-owner schema; an expectation on one would score nothing and
-        quietly inflate recall."""
-        retired = {"scope", "type", "holds_in_other_repos"}
-        offenders = [
-            item.get("id")
-            for item in self.raw
-            for expected in item.get("expect") or []
-            if retired & set(expected)
+        """`type` and `holds_in_other_repos` belonged to the old single-owner
+        schema; an expectation on one would score nothing and quietly inflate
+        recall. `scope` survived the rename with a new meaning -- an integer
+        reference into ENTITIES -- so it is checked by type, not by name."""
+        self.assertEqual(golden.retired_expectations(self.raw), [])
+        self.assertEqual(
+            golden.retired_expectations([{"id": "old", "expect": [{"scope": "mem-os"}]}]),
+            ["old"],
+        )
+        self.assertEqual(golden.retired_expectations([{"id": "new", "expect": [{"scope": 3}]}]), [])
+
+    def test_the_routing_cases_reference_only_numbers_their_block_defines(self) -> None:
+        """An expectation on a number the case never showed would demand a
+        fabrication -- and would be scored as one."""
+        for case in self.cases:
+            wanted = {
+                value
+                for expected in case.expect
+                for key, value in expected.items()
+                if key in ("scope", "subject")
+            }
+            self.assertLessEqual(wanted, case.refs, case.id)
+
+    def test_the_golden_set_covers_routing(self) -> None:
+        """Routing is the reason v9 and v10 exist; unmeasured, it is a claim."""
+        routing = [case for case in self.cases if case.entities]
+        self.assertGreaterEqual(len(routing), 7)
+        subjects = [c for c in routing for e in c.expect if "subject" in e]
+        unlisted = [c for c in routing for e in c.expect if "subject_name" in e]
+        scopes = [c for c in routing for e in c.expect if "scope" in e]
+        nowhere = [
+            c
+            for c in routing
+            for e in c.expect
+            if not {"scope", "subject", "subject_name"} & set(e)
         ]
-        self.assertEqual(offenders, [])
+        self.assertTrue(subjects and unlisted and scopes and nowhere)
 
     def test_a_case_may_declare_its_own_recording_date(self) -> None:
         """v8 onwards resolves relative time against the window's date, so a

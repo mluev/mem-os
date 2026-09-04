@@ -398,3 +398,143 @@ been running for a week: the median and p95 of `/v1/memories/search`
 (`retrieval_runs.timings`, which already records every arm separately), and the
 share of pending memories a human actually reviews — the review queue is only
 worth its complexity if it is read.
+
+## Extractor prompt v8 against v9
+
+<!-- measured: 2026-09-04 · uv run python -m eval.golden --variant gemini-3.5-flash-lite:v8 --variant gemini-3.5-flash-lite:v9 --budget-usd 0.80 -->
+
+| metric | v8 | v9 |
+|---|---|---|
+| recall | 0.917 (22/24) | 0.917 (22/24) |
+| false positives | 0 | 0 |
+| credential leaks | 0 | 0 |
+| invalid evidence | 0 | 0 |
+| context correct | 8/14 | 6/14 |
+| input tokens | 33,060 | 38,510 |
+| cost | $0.0240 | $0.0257 |
+
+Total spend $0.0496. Artifact `golden-20260904T093215Z.json`.
+
+v9 matches v8 on every safety and recall gate and costs 16% more input tokens
+for the entity block, which is the expected price. It is **not** promoted,
+for two reasons.
+
+Context accuracy fell from 8/14 to 6/14. The failures are the same class in
+both versions -- a preference stated inside a workspace conversation is
+recorded against that workspace instead of globally (rule 5) -- but v9 does it
+more. That is the predictable cost of telling a model to think about where a
+fact belongs: it scopes more things.
+
+And v9's actual purpose, routing a fact to a teammate or an entity, is not
+measured at all. The golden harness has no notion of an expected scope or
+subject, so the feature that justifies the extra tokens is unverified. A prompt
+cannot be promoted on a regression plus an untested claim.
+
+Outstanding: teach the harness `entities`, `scope` and `subject`, add the
+routing cases, then re-measure. `DEFAULT_VERSION` stays v8 until a successor
+beats it on context and passes routing.
+
+## Extractor prompt v8 against v10
+
+<!-- measured: 2026-09-04 · MEMKIT_DATABASE_URL=postgresql://memkit@127.0.0.1:5433/memkit_golden uv run python -m eval.golden --variant gemini-3.5-flash-lite:v8 --variant gemini-3.5-flash-lite:v10 --budget-usd 1.20 -->
+
+The v8-against-v9 section above ended with three things outstanding: teach the
+golden harness `entities`, `scope` and `subject`; add routing cases; re-measure.
+All three are done. The golden set is now 32 cases, 7 of them routing cases that
+show a numbered ENTITIES block in the shape production builds it, and `routing`
+is scored the way `context` is — with the rule that an expectation naming no
+scope asserts the model emitted none, since a spurious scope is as wrong as a
+missing one.
+
+| metric | v8 | v10 |
+|---|---|---|
+| recall | 0.903 (28/31) | 0.903 (28/31) |
+| false positives | 0 | 0 |
+| credential leaks | 0 | 0 |
+| invalid evidence | 0 | 0 |
+| routing correct | 3/7 | 7/7 |
+| fabricated entity numbers | 0 | 0 |
+| context correct | 9/17 | 15/18 |
+| input tokens | 42,072 | 59,639 |
+| cost | $0.0313 | $0.0355 |
+
+Artifact `golden-20260904T100020Z.json`. That run cost $0.0669; the whole
+comparison — four full runs, plus six cheap subset runs (`--file` with the
+routing cases, or with the routing and context-drift cases) while iterating —
+cost $0.347 against a $1.20 cap.
+
+**v10 is promoted.** It clears every gate: no leaks, no false positives, no
+invalid evidence, recall equal to v8, routing 7/7 against 3/7, and context
+*better* rather than worse — which is the whole point, since context accuracy is
+what disqualified v9. It costs 42% more input tokens (13% more total cost, as
+output dominates the bill on Flash-Lite).
+
+### Why v10 works where v9 did not
+
+v9 printed ENTITIES and ROUTING *before* CONTEXT, so the model was told to decide
+where a fact belongs before it was told that context defaults to empty. Three
+changes, each aimed at a measured failure and nothing else:
+
+1. **Routing moved after CONTEXT**, so rule 5 is read first.
+2. **Scope and context are named as different fields** — scope is where the
+   memory lives, context is a qualifier on when the claim is true, and the
+   workspace CONTEXT names is not a scope. v9 never said this, and a model given
+   a second placement field used the first one to mean the same thing.
+3. **Rule 5 asks a counterfactual** instead of listing phrases to pattern-match:
+   said again tomorrow in another repo, would this sentence still hold?
+
+v8's context failures are all one shape and they are visible in every run: a
+preference stated while working in one repo gets that repo's context
+(`direct-preference`, `preference-buried-in-project-work`,
+`drift-working-style-via-correction`, `correction-implies-comment-preference`,
+and the new `routing-own-preference-in-a-project-session` all fail this way in
+at least three of four runs). v10 gets these right.
+
+### Iterations, and what the measurement said about each
+
+Four full runs, because two of the three changes above were wrong on the first
+attempt and the harness said so.
+
+| iteration | change | v10 result |
+|---|---|---|
+| 1 | routing after CONTEXT, scope≠context, counterfactual rule 5 | routing 6/7, context 16/17, recall 28/31 — but the guard case scoped a personal preference to the session's project |
+| 2 | added the WRONG/RIGHT pair for that guard | guard fixed; recall fell to 27/31 |
+| 3 | "the test decides the context field, not the wording — never generalise the claim or drop a specific" | recall back to 29/31, context 17/18, routing 5/7 |
+| 4 | "the workspace CONTEXT names is not a scope; most operations need none" | recall 28/31, context 15/18, routing 7/7 |
+
+Iteration 2's recall loss is the one worth remembering. Asking the model where a
+fact belongs made it write *more general* claims, and a general claim loses
+specifics: `drift-reverse-guard-generic-wording` went from "Authentication uses
+OTP sent to email with no password; dev@notiky.local in dev" to "In dev, use
+dev@notiky.local for login" — the mechanism dropped, the case missed. One clause
+saying the counterfactual decides the context field and never the wording
+recovered it. Generalisation pressure and recall are the same dial.
+
+A clause that bought nothing was also removed rather than kept: a WRONG/RIGHT
+pair for the unlisted-project rule made no difference across two runs, so it does
+not earn its tokens.
+
+### What the model still gets wrong
+
+**An unlisted project gets approximated to a listed one.** `cine` appears in the
+caller context and in the sentence and has no number in the block;
+gemini-3.5-flash-lite scoped that fact to `memkit` — the first listed project —
+in seven consecutive runs, with the rule stated three ways, including as a
+WRONG/RIGHT pair. It came out right only in the final run. Treat this as unfixed
+at this model size: a fact about an entity the instance does not know may land in
+the wrong project's scope. `judge.extract` cannot catch it, because the number is
+real; only a human reviewing the scope can.
+
+**Run-to-run variance is large enough to matter.** The extractor calls Gemini
+with no temperature set, so sampling is at the provider default, and one run of
+seven routing cases is not a stable measurement: v10 scored 5/7, 6/7, 6/7, 6/7,
+6/7, 7/7 across six measurements of near-identical text. The promotion decision
+rests on the final run *and* the fact that v10 beat v8 on routing and on context
+in all four full runs. Anyone re-running this should expect ±1 on recall and ±1
+on routing, and should not read a single run as a verdict.
+
+**Two cases neither version passes.** `correction-abstraction` (a preference
+implied by "зачем? есть же company store") returns nothing under v8 or v10 in any
+run, and `mixed-user-and-project` yields the general rule but drops the second,
+concrete fact. They are left failing on purpose: both are real corpus shapes, and
+a golden case weakened to make a version pass measures nothing.
