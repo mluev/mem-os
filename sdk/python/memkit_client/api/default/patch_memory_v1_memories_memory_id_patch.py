@@ -9,21 +9,30 @@ from ...client import AuthenticatedClient, Client
 from ...models.entity_out import EntityOut
 from ...models.http_validation_error import HTTPValidationError
 from ...models.memory_patch import MemoryPatch
-from ...types import Response
+from ...types import UNSET, Response, Unset
 
 
 def _get_kwargs(
     memory_id: str,
     *,
     body: MemoryPatch,
+    x_requested_with: None | str | Unset = UNSET,
+    memkit_session: None | str | Unset = UNSET,
 ) -> dict[str, Any]:
     headers: dict[str, Any] = {}
+    if not isinstance(x_requested_with, Unset):
+        headers["x-requested-with"] = x_requested_with
+
+    cookies = {}
+    if memkit_session is not UNSET:
+        cookies["memkit_session"] = memkit_session
 
     _kwargs: dict[str, Any] = {
         "method": "patch",
         "url": "/v1/memories/{memory_id}".format(
             memory_id=quote(str(memory_id), safe=""),
         ),
+        "cookies": cookies,
     }
 
     _kwargs["json"] = body.to_dict()
@@ -69,11 +78,15 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
     body: MemoryPatch,
+    x_requested_with: None | str | Unset = UNSET,
+    memkit_session: None | str | Unset = UNSET,
 ) -> Response[EntityOut | HTTPValidationError]:
     """Patch Memory
 
     Args:
         memory_id (str):
+        x_requested_with (None | str | Unset):
+        memkit_session (None | str | Unset):
         body (MemoryPatch):
 
     Raises:
@@ -87,6 +100,8 @@ def sync_detailed(
     kwargs = _get_kwargs(
         memory_id=memory_id,
         body=body,
+        x_requested_with=x_requested_with,
+        memkit_session=memkit_session,
     )
 
     response = client.get_httpx_client().request(
@@ -101,11 +116,15 @@ def sync(
     *,
     client: AuthenticatedClient,
     body: MemoryPatch,
+    x_requested_with: None | str | Unset = UNSET,
+    memkit_session: None | str | Unset = UNSET,
 ) -> EntityOut | HTTPValidationError | None:
     """Patch Memory
 
     Args:
         memory_id (str):
+        x_requested_with (None | str | Unset):
+        memkit_session (None | str | Unset):
         body (MemoryPatch):
 
     Raises:
@@ -120,6 +139,8 @@ def sync(
         memory_id=memory_id,
         client=client,
         body=body,
+        x_requested_with=x_requested_with,
+        memkit_session=memkit_session,
     ).parsed
 
 
@@ -128,11 +149,15 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
     body: MemoryPatch,
+    x_requested_with: None | str | Unset = UNSET,
+    memkit_session: None | str | Unset = UNSET,
 ) -> Response[EntityOut | HTTPValidationError]:
     """Patch Memory
 
     Args:
         memory_id (str):
+        x_requested_with (None | str | Unset):
+        memkit_session (None | str | Unset):
         body (MemoryPatch):
 
     Raises:
@@ -146,6 +171,8 @@ async def asyncio_detailed(
     kwargs = _get_kwargs(
         memory_id=memory_id,
         body=body,
+        x_requested_with=x_requested_with,
+        memkit_session=memkit_session,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -158,11 +185,15 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
     body: MemoryPatch,
+    x_requested_with: None | str | Unset = UNSET,
+    memkit_session: None | str | Unset = UNSET,
 ) -> EntityOut | HTTPValidationError | None:
     """Patch Memory
 
     Args:
         memory_id (str):
+        x_requested_with (None | str | Unset):
+        memkit_session (None | str | Unset):
         body (MemoryPatch):
 
     Raises:
@@ -178,5 +209,7 @@ async def asyncio(
             memory_id=memory_id,
             client=client,
             body=body,
+            x_requested_with=x_requested_with,
+            memkit_session=memkit_session,
         )
     ).parsed

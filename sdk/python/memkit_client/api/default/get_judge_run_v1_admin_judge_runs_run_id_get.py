@@ -8,20 +8,32 @@ from ... import errors
 from ...client import AuthenticatedClient, Client
 from ...models.http_validation_error import HTTPValidationError
 from ...models.judge_run_out import JudgeRunOut
-from ...types import Response
+from ...types import UNSET, Response, Unset
 
 
 def _get_kwargs(
     run_id: int,
+    *,
+    x_requested_with: None | str | Unset = UNSET,
+    memkit_session: None | str | Unset = UNSET,
 ) -> dict[str, Any]:
+    headers: dict[str, Any] = {}
+    if not isinstance(x_requested_with, Unset):
+        headers["x-requested-with"] = x_requested_with
+
+    cookies = {}
+    if memkit_session is not UNSET:
+        cookies["memkit_session"] = memkit_session
 
     _kwargs: dict[str, Any] = {
         "method": "get",
         "url": "/v1/admin/judge-runs/{run_id}".format(
             run_id=quote(str(run_id), safe=""),
         ),
+        "cookies": cookies,
     }
 
+    _kwargs["headers"] = headers
     return _kwargs
 
 
@@ -59,11 +71,15 @@ def sync_detailed(
     run_id: int,
     *,
     client: AuthenticatedClient,
+    x_requested_with: None | str | Unset = UNSET,
+    memkit_session: None | str | Unset = UNSET,
 ) -> Response[HTTPValidationError | JudgeRunOut]:
     """Get Judge Run
 
     Args:
         run_id (int):
+        x_requested_with (None | str | Unset):
+        memkit_session (None | str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -75,6 +91,8 @@ def sync_detailed(
 
     kwargs = _get_kwargs(
         run_id=run_id,
+        x_requested_with=x_requested_with,
+        memkit_session=memkit_session,
     )
 
     response = client.get_httpx_client().request(
@@ -88,11 +106,15 @@ def sync(
     run_id: int,
     *,
     client: AuthenticatedClient,
+    x_requested_with: None | str | Unset = UNSET,
+    memkit_session: None | str | Unset = UNSET,
 ) -> HTTPValidationError | JudgeRunOut | None:
     """Get Judge Run
 
     Args:
         run_id (int):
+        x_requested_with (None | str | Unset):
+        memkit_session (None | str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -105,6 +127,8 @@ def sync(
     return sync_detailed(
         run_id=run_id,
         client=client,
+        x_requested_with=x_requested_with,
+        memkit_session=memkit_session,
     ).parsed
 
 
@@ -112,11 +136,15 @@ async def asyncio_detailed(
     run_id: int,
     *,
     client: AuthenticatedClient,
+    x_requested_with: None | str | Unset = UNSET,
+    memkit_session: None | str | Unset = UNSET,
 ) -> Response[HTTPValidationError | JudgeRunOut]:
     """Get Judge Run
 
     Args:
         run_id (int):
+        x_requested_with (None | str | Unset):
+        memkit_session (None | str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -128,6 +156,8 @@ async def asyncio_detailed(
 
     kwargs = _get_kwargs(
         run_id=run_id,
+        x_requested_with=x_requested_with,
+        memkit_session=memkit_session,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -139,11 +169,15 @@ async def asyncio(
     run_id: int,
     *,
     client: AuthenticatedClient,
+    x_requested_with: None | str | Unset = UNSET,
+    memkit_session: None | str | Unset = UNSET,
 ) -> HTTPValidationError | JudgeRunOut | None:
     """Get Judge Run
 
     Args:
         run_id (int):
+        x_requested_with (None | str | Unset):
+        memkit_session (None | str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -157,5 +191,7 @@ async def asyncio(
         await asyncio_detailed(
             run_id=run_id,
             client=client,
+            x_requested_with=x_requested_with,
+            memkit_session=memkit_session,
         )
     ).parsed

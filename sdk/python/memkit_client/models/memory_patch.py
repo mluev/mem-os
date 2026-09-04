@@ -20,24 +20,32 @@ class MemoryPatch:
     """
     Attributes:
         expected_revision (int):
+        clear_subject (bool | Unset):  Default: False.
         clear_valid_until (bool | Unset):  Default: False.
         confidence (float | None | Unset):
         context (MemoryPatchContextType0 | None | Unset):
         importance (float | None | Unset):
         kind (None | str | Unset):
         move_context (bool | Unset):  Default: False.
+        move_scope (bool | Unset):  Default: False.
+        scope (None | str | Unset):
+        subject (None | str | Unset):
         tags (list[str] | None | Unset):
         text (None | str | Unset):
         valid_until (datetime.datetime | None | Unset):
     """
 
     expected_revision: int
+    clear_subject: bool | Unset = False
     clear_valid_until: bool | Unset = False
     confidence: float | None | Unset = UNSET
     context: MemoryPatchContextType0 | None | Unset = UNSET
     importance: float | None | Unset = UNSET
     kind: None | str | Unset = UNSET
     move_context: bool | Unset = False
+    move_scope: bool | Unset = False
+    scope: None | str | Unset = UNSET
+    subject: None | str | Unset = UNSET
     tags: list[str] | None | Unset = UNSET
     text: None | str | Unset = UNSET
     valid_until: datetime.datetime | None | Unset = UNSET
@@ -46,6 +54,8 @@ class MemoryPatch:
         from ..models.memory_patch_context_type_0 import MemoryPatchContextType0
 
         expected_revision = self.expected_revision
+
+        clear_subject = self.clear_subject
 
         clear_valid_until = self.clear_valid_until
 
@@ -77,6 +87,20 @@ class MemoryPatch:
 
         move_context = self.move_context
 
+        move_scope = self.move_scope
+
+        scope: None | str | Unset
+        if isinstance(self.scope, Unset):
+            scope = UNSET
+        else:
+            scope = self.scope
+
+        subject: None | str | Unset
+        if isinstance(self.subject, Unset):
+            subject = UNSET
+        else:
+            subject = self.subject
+
         tags: list[str] | None | Unset
         if isinstance(self.tags, Unset):
             tags = UNSET
@@ -107,6 +131,8 @@ class MemoryPatch:
                 "expected_revision": expected_revision,
             }
         )
+        if clear_subject is not UNSET:
+            field_dict["clear_subject"] = clear_subject
         if clear_valid_until is not UNSET:
             field_dict["clear_valid_until"] = clear_valid_until
         if confidence is not UNSET:
@@ -119,6 +145,12 @@ class MemoryPatch:
             field_dict["kind"] = kind
         if move_context is not UNSET:
             field_dict["move_context"] = move_context
+        if move_scope is not UNSET:
+            field_dict["move_scope"] = move_scope
+        if scope is not UNSET:
+            field_dict["scope"] = scope
+        if subject is not UNSET:
+            field_dict["subject"] = subject
         if tags is not UNSET:
             field_dict["tags"] = tags
         if text is not UNSET:
@@ -134,6 +166,8 @@ class MemoryPatch:
 
         d = dict(src_dict)
         expected_revision = d.pop("expected_revision")
+
+        clear_subject = d.pop("clear_subject", UNSET)
 
         clear_valid_until = d.pop("clear_valid_until", UNSET)
 
@@ -183,6 +217,26 @@ class MemoryPatch:
 
         move_context = d.pop("move_context", UNSET)
 
+        move_scope = d.pop("move_scope", UNSET)
+
+        def _parse_scope(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        scope = _parse_scope(d.pop("scope", UNSET))
+
+        def _parse_subject(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        subject = _parse_subject(d.pop("subject", UNSET))
+
         def _parse_tags(data: object) -> list[str] | None | Unset:
             if data is None:
                 return data
@@ -228,12 +282,16 @@ class MemoryPatch:
 
         memory_patch = cls(
             expected_revision=expected_revision,
+            clear_subject=clear_subject,
             clear_valid_until=clear_valid_until,
             confidence=confidence,
             context=context,
             importance=importance,
             kind=kind,
             move_context=move_context,
+            move_scope=move_scope,
+            scope=scope,
+            subject=subject,
             tags=tags,
             text=text,
             valid_until=valid_until,

@@ -12,17 +12,34 @@ from ...types import UNSET, Response, Unset
 
 def _get_kwargs(
     *,
-    namespace: None | str | Unset = UNSET,
+    kind: None | str | Unset = UNSET,
+    scope: None | str | Unset = UNSET,
+    x_requested_with: None | str | Unset = UNSET,
+    memkit_session: None | str | Unset = UNSET,
 ) -> dict[str, Any]:
+    headers: dict[str, Any] = {}
+    if not isinstance(x_requested_with, Unset):
+        headers["x-requested-with"] = x_requested_with
+
+    cookies = {}
+    if memkit_session is not UNSET:
+        cookies["memkit_session"] = memkit_session
 
     params: dict[str, Any] = {}
 
-    json_namespace: None | str | Unset
-    if isinstance(namespace, Unset):
-        json_namespace = UNSET
+    json_kind: None | str | Unset
+    if isinstance(kind, Unset):
+        json_kind = UNSET
     else:
-        json_namespace = namespace
-    params["namespace"] = json_namespace
+        json_kind = kind
+    params["kind"] = json_kind
+
+    json_scope: None | str | Unset
+    if isinstance(scope, Unset):
+        json_scope = UNSET
+    else:
+        json_scope = scope
+    params["scope"] = json_scope
 
     params = {k: v for k, v in params.items() if v is not UNSET and v is not None}
 
@@ -30,8 +47,10 @@ def _get_kwargs(
         "method": "get",
         "url": "/v1/policies",
         "params": params,
+        "cookies": cookies,
     }
 
+    _kwargs["headers"] = headers
     return _kwargs
 
 
@@ -68,12 +87,18 @@ def _build_response(
 def sync_detailed(
     *,
     client: AuthenticatedClient,
-    namespace: None | str | Unset = UNSET,
+    kind: None | str | Unset = UNSET,
+    scope: None | str | Unset = UNSET,
+    x_requested_with: None | str | Unset = UNSET,
+    memkit_session: None | str | Unset = UNSET,
 ) -> Response[HTTPValidationError | ItemsOut]:
     """List Policies
 
     Args:
-        namespace (None | str | Unset):
+        kind (None | str | Unset):
+        scope (None | str | Unset):
+        x_requested_with (None | str | Unset):
+        memkit_session (None | str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -84,7 +109,10 @@ def sync_detailed(
     """
 
     kwargs = _get_kwargs(
-        namespace=namespace,
+        kind=kind,
+        scope=scope,
+        x_requested_with=x_requested_with,
+        memkit_session=memkit_session,
     )
 
     response = client.get_httpx_client().request(
@@ -97,12 +125,18 @@ def sync_detailed(
 def sync(
     *,
     client: AuthenticatedClient,
-    namespace: None | str | Unset = UNSET,
+    kind: None | str | Unset = UNSET,
+    scope: None | str | Unset = UNSET,
+    x_requested_with: None | str | Unset = UNSET,
+    memkit_session: None | str | Unset = UNSET,
 ) -> HTTPValidationError | ItemsOut | None:
     """List Policies
 
     Args:
-        namespace (None | str | Unset):
+        kind (None | str | Unset):
+        scope (None | str | Unset):
+        x_requested_with (None | str | Unset):
+        memkit_session (None | str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -114,19 +148,28 @@ def sync(
 
     return sync_detailed(
         client=client,
-        namespace=namespace,
+        kind=kind,
+        scope=scope,
+        x_requested_with=x_requested_with,
+        memkit_session=memkit_session,
     ).parsed
 
 
 async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
-    namespace: None | str | Unset = UNSET,
+    kind: None | str | Unset = UNSET,
+    scope: None | str | Unset = UNSET,
+    x_requested_with: None | str | Unset = UNSET,
+    memkit_session: None | str | Unset = UNSET,
 ) -> Response[HTTPValidationError | ItemsOut]:
     """List Policies
 
     Args:
-        namespace (None | str | Unset):
+        kind (None | str | Unset):
+        scope (None | str | Unset):
+        x_requested_with (None | str | Unset):
+        memkit_session (None | str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -137,7 +180,10 @@ async def asyncio_detailed(
     """
 
     kwargs = _get_kwargs(
-        namespace=namespace,
+        kind=kind,
+        scope=scope,
+        x_requested_with=x_requested_with,
+        memkit_session=memkit_session,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -148,12 +194,18 @@ async def asyncio_detailed(
 async def asyncio(
     *,
     client: AuthenticatedClient,
-    namespace: None | str | Unset = UNSET,
+    kind: None | str | Unset = UNSET,
+    scope: None | str | Unset = UNSET,
+    x_requested_with: None | str | Unset = UNSET,
+    memkit_session: None | str | Unset = UNSET,
 ) -> HTTPValidationError | ItemsOut | None:
     """List Policies
 
     Args:
-        namespace (None | str | Unset):
+        kind (None | str | Unset):
+        scope (None | str | Unset):
+        x_requested_with (None | str | Unset):
+        memkit_session (None | str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -166,6 +218,9 @@ async def asyncio(
     return (
         await asyncio_detailed(
             client=client,
-            namespace=namespace,
+            kind=kind,
+            scope=scope,
+            x_requested_with=x_requested_with,
+            memkit_session=memkit_session,
         )
     ).parsed

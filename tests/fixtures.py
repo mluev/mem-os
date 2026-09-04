@@ -1,11 +1,8 @@
-"""Shared test fixtures: stub Qdrant, stub embedders, temp-SQLite builders.
+"""Shared test fixtures: stub Qdrant, stub embedders, and a seeded team.
 
-These lived in ``tests/test_extract.py`` and were imported from there by five
-other modules. That made a 1000-line extraction-test file the de-facto conftest,
-so importing a fixture meant importing sixty extraction tests. They live here
-now; ``test_extract.py`` imports them like everyone else.
-
-Everything here runs offline: no model load, no container, no API key.
+Everything here runs offline: no model load, no vector container, no API key.
+The database is real (see ``conftest.py``) because the scope predicates and the
+full-text configuration are most of what these tests assert.
 
     uv run pytest -q
 """
@@ -14,19 +11,22 @@ from __future__ import annotations
 
 import contextlib
 import hashlib
+import os
 import struct
 import sys
-import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from memkit import judge, providers, vectors
-from memkit.db import connect, ensure_owner, ensure_session, init_db
+from memkit import auth, db, entities, judge, principal, providers, users, vectors
 
-OWNER = "u-test"
 DIM = 1024
+
+TEAM_NAME = "Test Team"
+PASSWORD = "a-long-enough-test-password"
 
 
 class StubEmbedder:
@@ -297,59 +297,154 @@ def fake_provider(handler, *, family: str = "fake", prefix: str = "fake-"):
         providers._CUSTOM_PROVIDERS.pop(family, None)
 
 
-def make_db(owner: str = OWNER):
-    """A real temp SQLite file at the current schema — never the live DB."""
-    tmp = Path(tempfile.mkdtemp()) / "t.db"
-    init_db(tmp)
-    conn = connect(tmp)
-    ensure_owner(conn, owner, "test")
-    ensure_session(conn, "s-1", owner, "chat")
-    conn.commit()
+@dataclass
+class Team:
+    """A seeded instance: two people, a team, and a project they share.
+
+    Two users rather than one, always, because almost every claim worth making
+    about a team system is a claim about what the *other* person can see.
+    """
+
+    conn: Any
+    alice: Any
+    bob: Any
+    alice_key: str
+    bob_key: str
+    team_id: str
+    project_id: str
+
+    @property
+    def alice_id(self) -> str:
+        return str(self.alice["id"])
+
+    @property
+    def bob_id(self) -> str:
+        return str(self.bob["id"])
+
+    def principal(self, who: str = "alice"):
+        return principal.load(self.conn, self.alice_id if who == "alice" else self.bob_id)
+
+    def scope_of(self, who: str = "alice") -> str:
+        return self.principal(who).own_entity_id
+
+
+def seed_team(conn, *, project: str = "Mem OS", aliases: tuple[str, ...] = ("memkit",)) -> Team:
+    """Create the standard cast. Idempotent within one clean database."""
+    with conn.transaction():
+        team = entities.ensure_team(conn, name=TEAM_NAME)
+        alice = users.create(
+            conn, handle="alice", display_name="Alice Ivanova", password=PASSWORD, role="admin"
+        )
+        bob = users.create(conn, handle="bob", display_name="Bob Petrov", password=PASSWORD)
+        alice_key = auth.mint_api_key(conn, user_id=str(alice["id"]), name="test")
+        bob_key = auth.mint_api_key(conn, user_id=str(bob["id"]), name="test")
+        shared = entities.create(
+            conn,
+            kind="project",
+            name=project,
+            created_by=str(alice["id"]),
+            aliases=list(aliases),
+        )
+        entities.set_member(
+            conn, entity_id=str(shared["id"]), user_id=str(bob["id"]), role="member"
+        )
+    return Team(
+        conn=conn,
+        alice=alice,
+        bob=bob,
+        alice_key=alice_key.token,
+        bob_key=bob_key.token,
+        team_id=str(team["id"]),
+        project_id=str(shared["id"]),
+    )
+
+
+def make_db(seed: bool = True):
+    """A connection to the test database, emptied, optionally seeded.
+
+    `conftest.clean_database` already truncates between tests; this exists for
+    the tests that want the cast and a session ready to write into.
+    """
+    conn = db.connect(os.environ["MEMKIT_DATABASE_URL"])
+    db.truncate_all(conn)
+    if seed:
+        team = seed_team(conn)
+        make_session(conn, team)
     return conn
 
 
-def make_judge_run(conn, cost=0.002) -> int:
+def make_session(conn, team: Team, *, session_id: str = "s-1", who: str = "alice", scope=None):
+    """A session owned by one of the cast, in their own scope by default."""
+    with conn.transaction():
+        conn.execute(
+            """INSERT INTO sessions (id,user_id,scope_id,agent_id,started_at)
+               VALUES (%s,%s,%s,'chat',now()) ON CONFLICT (id) DO NOTHING""",
+            (
+                session_id,
+                team.alice_id if who == "alice" else team.bob_id,
+                scope or team.scope_of(who),
+            ),
+        )
+    return session_id
+
+
+def make_judge_run(conn, cost=0.002, user_id=None) -> int:
     """Insert a real judge_runs row and return its id.
 
     memories.judge_run_id is a foreign key, so a fabricated id is rejected --
     provenance cannot point at a judge run that never happened. Production
     always has a real row here because judge.extract() logs before applying.
     """
-    cur = conn.execute(
-        """INSERT INTO judge_runs
-           (kind, model, prompt_version, input_json, cost_usd, created_at)
-           VALUES ('extract', ?, ?, '{}', ?, '2026-07-01T00:00:00Z')""",
-        (judge.DEFAULT_MODEL, judge.PROMPT_VERSION, cost),
-    )
-    conn.commit()
-    return int(cur.lastrowid)
+    with conn.transaction():
+        row = conn.execute(
+            """INSERT INTO judge_runs
+               (user_id,kind,model,prompt_version,input,cost_usd,created_at)
+               VALUES (%s,'extract',%s,%s,'{}'::jsonb,%s,now())
+               RETURNING id""",
+            (user_id, judge.DEFAULT_MODEL, judge.PROMPT_VERSION, cost),
+        ).fetchone()
+    return int(row["id"])
 
 
-def add_messages(conn, n=10, role="user", content="hello there friend", session="s-1"):
+def add_messages(
+    conn, n=10, role="user", content="hello there friend", session="s-1", user_id=None
+):
+    if user_id is None:
+        row = conn.execute("SELECT user_id FROM sessions WHERE id=%s", (session,)).fetchone()
+        user_id = str(row["user_id"])
     ids = []
-    for i in range(n):
-        cur = conn.execute(
-            "INSERT INTO messages (session_id, role, content, created_at) "
-            "VALUES (?, ?, ?, '2026-07-01T00:00:00Z')",
-            (session, role, f"{content} {i}"),
-        )
-        ids.append(int(cur.lastrowid))
-    conn.commit()
+    with conn.transaction():
+        for i in range(n):
+            row = conn.execute(
+                """INSERT INTO messages (session_id,user_id,role,content,created_at)
+                   VALUES (%s,%s,%s,%s,now()) RETURNING id""",
+                (session, user_id, role, f"{content} {i}"),
+            ).fetchone()
+            ids.append(int(row["id"]))
     return ids
 
 
-def apply(conn, q, ops, **kw):
+def apply(conn, team: Team, ops, **kw):
+    """Run apply_ops the way run_extraction does, for one of the cast."""
     from memkit import extract
 
+    who = kw.get("who", "alice")
+    caller = team.principal(who)
     run_id = kw.get("judge_run_id")
     if run_id is None:
-        run_id = make_judge_run(conn)
+        run_id = make_judge_run(conn, user_id=caller.user_id)
     return extract.apply_ops(
         conn,
         ops=ops,
-        owner_id=OWNER,
+        user_id=caller.user_id,
+        session_scope_id=kw.get("scope_id", caller.own_entity_id),
+        own_scope_id=caller.own_entity_id,
+        team_scope_id=caller.team_entity_id,
+        writable_scope_ids=sorted(caller.writable_scope_ids),
         agent_id=kw.get("agent_id", "chat"),
         context=kw.get("context", {}),
         judge_run_id=run_id,
         source_message_ids=kw.get("source_message_ids", []),
+        entity_map=kw.get("entity_map"),
+        dedup_hits=kw.get("dedup_hits"),
     )

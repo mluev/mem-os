@@ -8,18 +8,27 @@ from ...client import AuthenticatedClient, Client
 from ...models.entity_out import EntityOut
 from ...models.http_validation_error import HTTPValidationError
 from ...models.policy_in import PolicyIn
-from ...types import Response
+from ...types import UNSET, Response, Unset
 
 
 def _get_kwargs(
     *,
     body: PolicyIn,
+    x_requested_with: None | str | Unset = UNSET,
+    memkit_session: None | str | Unset = UNSET,
 ) -> dict[str, Any]:
     headers: dict[str, Any] = {}
+    if not isinstance(x_requested_with, Unset):
+        headers["x-requested-with"] = x_requested_with
+
+    cookies = {}
+    if memkit_session is not UNSET:
+        cookies["memkit_session"] = memkit_session
 
     _kwargs: dict[str, Any] = {
         "method": "post",
         "url": "/v1/policies",
+        "cookies": cookies,
     }
 
     _kwargs["json"] = body.to_dict()
@@ -64,10 +73,14 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
     body: PolicyIn,
+    x_requested_with: None | str | Unset = UNSET,
+    memkit_session: None | str | Unset = UNSET,
 ) -> Response[EntityOut | HTTPValidationError]:
     """Create Policy
 
     Args:
+        x_requested_with (None | str | Unset):
+        memkit_session (None | str | Unset):
         body (PolicyIn):
 
     Raises:
@@ -80,6 +93,8 @@ def sync_detailed(
 
     kwargs = _get_kwargs(
         body=body,
+        x_requested_with=x_requested_with,
+        memkit_session=memkit_session,
     )
 
     response = client.get_httpx_client().request(
@@ -93,10 +108,14 @@ def sync(
     *,
     client: AuthenticatedClient,
     body: PolicyIn,
+    x_requested_with: None | str | Unset = UNSET,
+    memkit_session: None | str | Unset = UNSET,
 ) -> EntityOut | HTTPValidationError | None:
     """Create Policy
 
     Args:
+        x_requested_with (None | str | Unset):
+        memkit_session (None | str | Unset):
         body (PolicyIn):
 
     Raises:
@@ -110,6 +129,8 @@ def sync(
     return sync_detailed(
         client=client,
         body=body,
+        x_requested_with=x_requested_with,
+        memkit_session=memkit_session,
     ).parsed
 
 
@@ -117,10 +138,14 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
     body: PolicyIn,
+    x_requested_with: None | str | Unset = UNSET,
+    memkit_session: None | str | Unset = UNSET,
 ) -> Response[EntityOut | HTTPValidationError]:
     """Create Policy
 
     Args:
+        x_requested_with (None | str | Unset):
+        memkit_session (None | str | Unset):
         body (PolicyIn):
 
     Raises:
@@ -133,6 +158,8 @@ async def asyncio_detailed(
 
     kwargs = _get_kwargs(
         body=body,
+        x_requested_with=x_requested_with,
+        memkit_session=memkit_session,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -144,10 +171,14 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
     body: PolicyIn,
+    x_requested_with: None | str | Unset = UNSET,
+    memkit_session: None | str | Unset = UNSET,
 ) -> EntityOut | HTTPValidationError | None:
     """Create Policy
 
     Args:
+        x_requested_with (None | str | Unset):
+        memkit_session (None | str | Unset):
         body (PolicyIn):
 
     Raises:
@@ -162,5 +193,7 @@ async def asyncio(
         await asyncio_detailed(
             client=client,
             body=body,
+            x_requested_with=x_requested_with,
+            memkit_session=memkit_session,
         )
     ).parsed

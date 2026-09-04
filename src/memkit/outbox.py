@@ -51,6 +51,16 @@ def enqueue(
     return int(row["id"])
 
 
+def index_lock_name(scope_id: str) -> str:
+    """The advisory lock guarding index writes for one scope.
+
+    Exported because erasure has to take the same one; when the two names drifted
+    apart, each held a lock nobody else wanted and a queued delivery could put
+    back a vector that erasure had just removed.
+    """
+    return f"memkit:index:{scope_id}"
+
+
 @contextmanager
 def scope_barrier(conn: psycopg.Connection, scope_id: str):
     """Cross-process barrier shared by erasure and external index writes.
@@ -61,7 +71,7 @@ def scope_barrier(conn: psycopg.Connection, scope_id: str):
     held by the database itself, so it also holds between containers.
     """
     with conn.transaction():
-        advisory_lock(conn, f"memkit:index:{scope_id}")
+        advisory_lock(conn, index_lock_name(scope_id))
         yield
 
 

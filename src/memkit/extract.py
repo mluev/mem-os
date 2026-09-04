@@ -410,27 +410,30 @@ def _link_evidence(
     """
     if not evidence:
         return
-    conn.executemany(
-        """INSERT INTO memory_sources(memory_id,message_id) VALUES (%s,%s)
-           ON CONFLICT DO NOTHING""",
-        [(memory_id, item["message_id"]) for item in evidence],
-    )
-    conn.executemany(
-        """INSERT INTO memory_evidence
-           (memory_id,message_id,start_char,end_char,excerpt_sha256)
-           VALUES (%s,%s,%s,%s,%s)
-           ON CONFLICT DO NOTHING""",
-        [
-            (
-                memory_id,
-                item["message_id"],
-                item["start_char"],
-                item["end_char"],
-                item["excerpt_sha256"],
-            )
-            for item in evidence
-        ],
-    )
+    # `executemany` is a cursor method in psycopg; a connection only has
+    # `execute`, so batching these goes through an explicit cursor.
+    with conn.cursor() as cursor:
+        cursor.executemany(
+            """INSERT INTO memory_sources(memory_id,message_id) VALUES (%s,%s)
+               ON CONFLICT DO NOTHING""",
+            [(memory_id, item["message_id"]) for item in evidence],
+        )
+        cursor.executemany(
+            """INSERT INTO memory_evidence
+               (memory_id,message_id,start_char,end_char,excerpt_sha256)
+               VALUES (%s,%s,%s,%s,%s)
+               ON CONFLICT DO NOTHING""",
+            [
+                (
+                    memory_id,
+                    item["message_id"],
+                    item["start_char"],
+                    item["end_char"],
+                    item["excerpt_sha256"],
+                )
+                for item in evidence
+            ],
+        )
 
 
 def _resolve_routing(

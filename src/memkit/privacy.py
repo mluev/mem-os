@@ -29,7 +29,7 @@ from typing import Any
 import psycopg
 from qdrant_client import QdrantClient
 
-from . import vectors
+from . import outbox, vectors
 from .db import advisory_lock, iso, transaction, utcnow
 
 EXPORT_FORMAT = "memkit-user-export-v2"
@@ -298,8 +298,12 @@ def erase_user(
 
     The Qdrant side is deleted by filter, not by enumerating ids: listing the
     points first would race with concurrent delivery, and the ids are exactly
-    what is being removed. Both stores are covered under one advisory lock, so
-    an indexer cannot re-insert a point between the two deletions.
+    what is being removed.
+
+    The scope locks are what stop an indexer re-inserting a point between the
+    two deletions, and they must be the *same* names `outbox.scope_barrier`
+    takes: a lock of our own would have been uncontended and would have proved
+    nothing. They are taken in sorted order so two erasures cannot deadlock.
     """
     blocking = _authored_elsewhere(conn, user_id=user_id, private_scope_id=private_scope_id)
     if blocking:
@@ -311,10 +315,20 @@ def erase_user(
             "Reassign them to another author or delete them first, then erase the user."
         )
 
+    # Every scope this erasure will remove points from: the private one, plus
+    # any scope holding this user's raw turns.
+    locked_scopes = sorted(
+        {private_scope_id}
+        | {
+            str(row["scope_id"])
+            for row in conn.execute(
+                "SELECT DISTINCT scope_id FROM sessions WHERE user_id=%s", (user_id,)
+            )
+        }
+    )
     with transaction(conn):
-        # Serialises against the index worker, which is the other writer that
-        # can touch both Postgres and Qdrant for this user's rows.
-        advisory_lock(conn, f"memkit:erase:{user_id}")
+        for scope in locked_scopes:
+            advisory_lock(conn, outbox.index_lock_name(scope))
         memory_ids = [
             str(row["id"])
             for row in conn.execute(

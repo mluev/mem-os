@@ -66,10 +66,22 @@ No entry restates a measured value; it links an anchor. `Status` and
 | [0040](0040-prefetch-timeout-and-warmup.md) | Prefetch gets 0.4 s and a background warm-up | accepted |
 | [0042](0042-no-tool-results-by-default.md) | `send_tool_results` defaults to false | accepted |
 | [0050](0050-bm25-deferred.md) | BM25 hybrid retrieval is deferred | superseded by 0051 |
-| [0051](0051-memory-boundary-and-hybrid-retrieval.md) | Memory-only boundary, neutral context, hybrid retrieval and silence | accepted |
-| [0052](0052-durable-jobs-and-outbox.md) | Durable jobs, outbox, reservations, and generation reindex | accepted |
+| [0051](0051-memory-boundary-and-hybrid-retrieval.md) | Memory-only boundary, neutral context, hybrid retrieval and silence | accepted; lexical arm superseded by 0065 |
+| [0052](0052-durable-jobs-and-outbox.md) | Durable jobs, outbox, reservations, and generation reindex | accepted; substrate superseded by 0059 |
 | [0053](0053-prompt-v8-date-anchor-and-failure-modes.md) | Prompt v8: session-date anchor, named failure modes, rejection reasons | accepted |
 | [0054](0054-semantic-candidates-with-integer-remap.md) | Semantic extraction candidates behind an integer id remap | accepted |
 | [0055](0055-write-time-dedup-on-extraction-path.md) | Write-time dedup at 0.90 on the extraction path only | accepted |
 | [0056](0056-semantic-consolidation-merge.md) | Semantic consolidation merge at 0.92, LLM-confirmed, flag-gated | accepted |
 | [0058](0058-claude-code-skill-and-hooks.md) | Claude Code surface: one skill, three fail-open hooks, honest provenance | accepted |
+| [0059](0059-postgres-truth-qdrant-index.md) | Postgres is the source of truth; Qdrant stays the derived index | accepted |
+| [0060](0060-per-user-keys-and-sessions.md) | Per-user API keys and cookie sessions replace the single static key | accepted |
+| [0061](0061-scope-is-authorization-subject-is-attribution.md) | Scope is the authorization boundary; subject is attribution | accepted |
+| [0062](0062-application-scope-predicates-not-rls.md) | Scope predicates in the application with a fitness test, not RLS | accepted |
+| [0063](0063-a-fact-about-a-teammate-is-a-team-fact.md) | A fact about a teammate goes straight into the team scope | accepted |
+| [0064](0064-pending-is-a-column-and-stays-retrievable.md) | Automatic writes are pending, retrievable, and derived from a column | accepted |
+| [0065](0065-postgres-russian-fulltext-replaces-fts5.md) | Postgres `russian` full text plus pg_trgm replaces FTS5 | accepted |
+| [0066](0066-fresh-schema-v1-and-a-one-time-importer.md) | A fresh schema v1 with a one-time importer, not a ported ladder | accepted |
+| [0067](0067-records-platform-removed-policies-stay.md) | The records platform is removed; policies stay | accepted |
+| [0068](0068-replay-release-program-parked.md) | The replay/release/evaluation program is parked, keeping the planner | deferred |
+| [0069](0069-docker-compose-on-coolify.md) | Docker Compose on Coolify; launchd dropped; a CPU embedding ladder | accepted |
+| [0070](0070-numbered-entities-and-integer-routing.md) | Routing through a numbered ENTITIES block, behind the integer remap | accepted |

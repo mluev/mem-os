@@ -40,7 +40,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from memkit import jobs, judge, prompts, providers
 from memkit.config import get_settings
-from memkit.db import connect, ensure_owner, init_db, transaction, utcnow
+from memkit.db import connect, init_db, transaction, utcnow
 
 GOLDEN = Path(__file__).parent / "golden" / "conversations.yaml"
 
@@ -398,6 +398,18 @@ def _write_artifact(
     return path
 
 
+def _runner_id(conn) -> str | None:
+    """The administrator this paid run is billed to, if the instance has one.
+
+    `judge_runs.user_id` is nullable, so a golden run on a bare database still
+    records its spend rather than failing on a foreign key.
+    """
+    row = conn.execute(
+        "SELECT id FROM users WHERE role='admin' AND disabled_at IS NULL ORDER BY created_at"
+    ).fetchone()
+    return str(row["id"]) if row else None
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(prog="golden")
     ap.add_argument("--variant", action="append", default=[])
@@ -444,14 +456,13 @@ def main() -> int:
     if ceiling > allowed + 1e-12:
         print(f"refusing paid run: ${ceiling:.4f} ceiling exceeds ${allowed:.2f}", file=sys.stderr)
         return 2
-    init_db(s.db_path)
-    conn = connect(s.db_path)
-    ensure_owner(conn, s.owner_id, s.owner_name)
-    conn.commit()
+    init_db(s.database_url)
+    conn = connect(s.database_url)
     program_spend = float(
         conn.execute(
-            "SELECT COALESCE(SUM(cost_usd),0) FROM judge_runs WHERE kind LIKE 'improvement-%'"
-        ).fetchone()[0]
+            """SELECT COALESCE(SUM(cost_usd),0) AS spent FROM judge_runs
+                WHERE kind LIKE 'improvement-%'"""
+        ).fetchone()["spent"]
     )
     if program_spend + ceiling > allowed + 1e-12:
         conn.close()
@@ -482,11 +493,11 @@ def main() -> int:
                 accounted += cost
                 conn.execute(
                     """INSERT INTO judge_runs
-                       (owner_id,kind,model,prompt_version,input_json,output_json,error,
+                       (user_id,kind,model,prompt_version,input,output,error,
                         input_tokens,output_tokens,cost_usd,latency_ms,created_at)
-                       VALUES (?,'improvement-golden',?,?,?,?,?,?,?,?,?,?)""",
+                       VALUES (%s,'improvement-golden',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
                     (
-                        s.owner_id,
+                        _runner_id(conn),
                         score.model,
                         score.version,
                         json.dumps({"case_ids": [case.id for case in cases]}, sort_keys=True),

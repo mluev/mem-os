@@ -18,10 +18,8 @@ const sessions = createRoute({ getParentRoute: () => root, path: "/sessions", co
 const session = createRoute({ getParentRoute: () => root, path: "/sessions/$sessionId", component: lazyRouteComponent(() => import("./routes/Sessions"), "SessionDetail") });
 const ops = createRoute({ getParentRoute: () => root, path: "/ops", component: lazyRouteComponent(() => import("./routes/Ops"), "Ops") });
 const feedback = createRoute({ getParentRoute: () => root, path: "/feedback", component: lazyRouteComponent(() => import("./routes/Feedback"), "Feedback") });
-const replay = createRoute({ getParentRoute: () => root, path: "/replay", component: lazyRouteComponent(() => import("./routes/Replay"), "Replay") });
-const evaluations = createRoute({ getParentRoute: () => root, path: "/evaluations", component: lazyRouteComponent(() => import("./routes/Evaluations"), "Evaluations") });
 const missing = createRoute({ getParentRoute: () => root, path: "$", component: () => <EmptyState title="Screen not found" body="This route does not exist." action={<Link className="button button-secondary" to="/">Overview</Link>} /> });
 
-const routeTree = root.addChildren([overview, memories, search, feedback, replay, evaluations, runs, run, sessions, session, ops, missing]);
+const routeTree = root.addChildren([overview, memories, search, feedback, runs, run, sessions, session, ops, missing]);
 export const router = createRouter({ routeTree, basepath: "/ui", defaultPreload: "intent", scrollRestoration: true });
 declare module "@tanstack/react-router" { interface Register { router: typeof router } }

@@ -9,28 +9,21 @@ messages is ever finished, and whether a leased window can wedge a loop.
 
 from __future__ import annotations
 
-import pathlib
+import os
+import threading
 import unittest
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 
-from memkit import extract, judge, providers
-from tests.fixtures import OWNER, add_messages, fake_provider, make_db
+from memkit import entities, extract, judge, providers
+from memkit.db import ConnectionPool, utcnow
+from memkit.retrieval import _token_count
+from tests.fixtures import add_messages, fake_provider, make_db, make_session, seed_team
 
 MODEL = "fake-judge"
 
 
 def _result(operations=None, **kw):
     return providers.ProviderResult(operations=operations or [], raw={"operations": []}, **kw)
-
-
-def _future(minutes: int = 5) -> str:
-    """A lease expiry in the store's own timestamp format.
-
-    Timestamps are compared lexicographically as text, so the shape matters:
-    `db.utcnow` writes a trailing Z, and an isoformat offset would sort wrong.
-    """
-    stamp = datetime.now(UTC) + timedelta(minutes=minutes)
-    return stamp.isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
 def _add(text: str, **kw):
@@ -49,22 +42,26 @@ def _add(text: str, **kw):
                 "quote": kw["quote"],
             }
         ],
+        **{key: value for key, value in kw.items() if key in {"scope", "subject", "subject_name"}},
     }
 
 
-class ExtractionRunTest(unittest.TestCase):
+class PipelineCase(unittest.TestCase):
+    """A seeded team with one session of Alice's, ready to be extracted from."""
+
     def setUp(self) -> None:
-        self.conn = make_db()
+        self.conn = make_db(seed=False)
+        self.team = seed_team(self.conn)
+        make_session(self.conn, self.team)
 
     def tearDown(self) -> None:
         self.conn.close()
 
-    def _run(self, handler, **kw):
+    def run_extraction(self, handler, **kw):
         with fake_provider(handler):
             return extract.run_extraction(
                 self.conn,
                 session_id="s-1",
-                owner_id=OWNER,
                 agent_id="chat",
                 monthly_limit_usd=10.0,
                 model=MODEL,
@@ -75,9 +72,20 @@ class ExtractionRunTest(unittest.TestCase):
                 **kw,
             )
 
+    def ref(self, name: str) -> int:
+        """The number the prompt shows for an entity, as the extractor builds it."""
+        block = entities.for_prompt(self.conn, user_id=self.team.alice_id)
+        return next(index + 1 for index, item in enumerate(block) if item["name"] == name)
+
+    def unprocessed(self) -> int:
+        row = self.conn.execute("SELECT COUNT(*) AS n FROM messages WHERE NOT processed").fetchone()
+        return int(row["n"])
+
+
+class ExtractionRunTest(PipelineCase):
     def test_a_cited_user_statement_becomes_a_memory(self) -> None:
         ids = add_messages(self.conn, n=10, content="I always use pnpm, never npm")
-        outcome = self._run(
+        outcome = self.run_extraction(
             lambda **_: _result(
                 [_add("Prefers pnpm over npm", message_id=ids[0], quote="I always use pnpm")],
                 input_tokens=900,
@@ -90,14 +98,70 @@ class ExtractionRunTest(unittest.TestCase):
         row = self.conn.execute("SELECT * FROM memories").fetchone()
         self.assertEqual(row["text"], "Prefers pnpm over npm")
         self.assertEqual(row["source_role"], "user")
+        self.assertEqual(str(row["scope_id"]), self.team.scope_of("alice"))
         self.assertTrue(
             self.conn.execute(
-                "SELECT 1 FROM memory_evidence WHERE memory_id=?", (row["id"],)
+                "SELECT 1 FROM memory_evidence WHERE memory_id=%s", (row["id"],)
             ).fetchone()
         )
-        self.assertEqual(
-            self.conn.execute("SELECT COUNT(*) FROM messages WHERE processed=1").fetchone()[0], 10
+        self.assertEqual(self.unprocessed(), 0)
+
+    def test_the_session_decides_whose_memory_a_window_becomes(self) -> None:
+        """The authorization anchor is the session row, not a parameter.
+
+        Nothing a client sends may redirect extraction into another person's
+        space, so a session of Bob's writes to Bob even when the run is started
+        by whatever process happens to hold the queue.
+        """
+        make_session(self.conn, self.team, session_id="s-bob", who="bob")
+        ids = add_messages(self.conn, n=10, content="I always use fish, never zsh", session="s-bob")
+        with fake_provider(
+            lambda **_: _result(
+                [_add("Prefers fish over zsh", message_id=ids[0], quote="I always use fish")]
+            )
+        ):
+            outcome = extract.run_extraction(
+                self.conn,
+                session_id="s-bob",
+                agent_id="chat",
+                monthly_limit_usd=10.0,
+                model=MODEL,
+                api_key="",
+                gemini_api_key="",
+                project="",
+                location="",
+                force=True,
+            )
+        self.assertEqual(outcome.added, 1)
+        row = self.conn.execute("SELECT * FROM memories").fetchone()
+        self.assertEqual(str(row["scope_id"]), self.team.scope_of("bob"))
+        self.assertEqual(str(row["author_id"]), self.team.bob_id)
+
+    def test_a_fact_about_a_teammate_is_routed_by_number(self) -> None:
+        """The whole routing chain, from entity block to stored scope.
+
+        Unit tests fix each half; only this one proves the numbering the prompt
+        showed is the numbering `apply_ops` resolves against.
+        """
+        ids = add_messages(self.conn, n=10, content="Bob Petrov reviews only on Fridays")
+        outcome = self.run_extraction(
+            lambda **_: _result(
+                [
+                    _add(
+                        "Bob reviews only on Fridays",
+                        message_id=ids[0],
+                        quote="Bob Petrov reviews only on Fridays",
+                        subject=self.ref("Bob Petrov"),
+                    )
+                ]
+            ),
+            force=True,
         )
+        self.assertEqual(outcome.added, 1)
+        row = self.conn.execute("SELECT * FROM memories").fetchone()
+        self.assertEqual(str(row["scope_id"]), self.team.team_id)
+        self.assertEqual(str(row["subject_id"]), self.team.scope_of("bob"))
+        self.assertEqual(row["review_status"], "pending")
 
     def test_an_unreachable_provider_costs_nothing(self) -> None:
         """A failure that never reached a model must not be charged.
@@ -113,39 +177,43 @@ class ExtractionRunTest(unittest.TestCase):
         def refuse(**_):
             raise ConnectionRefusedError("connection refused")
 
-        outcome = self._run(refuse, force=True)
+        outcome = self.run_extraction(refuse, force=True)
         self.assertIsNotNone(outcome.error)
         run = self.conn.execute("SELECT cost_usd, error FROM judge_runs").fetchone()
-        self.assertEqual(run["cost_usd"], 0.0)
+        self.assertEqual(float(run["cost_usd"]), 0.0)
         self.assertTrue(run["error"].startswith("unbilled:"))
         self.assertEqual(outcome.cost_usd, 0.0)
 
     def test_a_missing_key_costs_nothing(self) -> None:
         add_messages(self.conn, n=10)
-        outcome = self._run(lambda **_: _result(error="no GEMINI_API_KEY set"), force=True)
-        self.assertIsNotNone(outcome.error)
-        self.assertEqual(
-            self.conn.execute("SELECT cost_usd FROM judge_runs").fetchone()["cost_usd"], 0.0
+        outcome = self.run_extraction(
+            lambda **_: _result(error="no GEMINI_API_KEY set"), force=True
         )
+        self.assertIsNotNone(outcome.error)
+        run = self.conn.execute("SELECT cost_usd FROM judge_runs").fetchone()
+        self.assertEqual(float(run["cost_usd"]), 0.0)
 
     def test_an_unclassified_failure_is_estimated_without_a_completion(self) -> None:
         """Unknown failures may have been billed for the prompt, never for output."""
         add_messages(self.conn, n=10)
+        seen: dict[str, str] = {}
 
-        def explode(**_):
+        def explode(**kwargs):
+            seen["prompt"] = kwargs["prompt"]
             raise RuntimeError("something unrecognised")
 
-        self._run(explode, force=True)
+        self.run_extraction(explode, force=True)
         run = self.conn.execute("SELECT cost_usd, error FROM judge_runs").fetchone()
-        self.assertGreater(run["cost_usd"], 0.0)
         self.assertTrue(run["error"].startswith("cost_unknown:"))
-        prompt_only = judge.cost_of(10_000, 0, model=MODEL)
-        with_completion = judge.cost_of(10_000, 4096, model=MODEL)
-        self.assertLess(run["cost_usd"], with_completion)
-        self.assertLess(run["cost_usd"] / max(prompt_only, 1e-9), 1e9)
+        # The same conservative input estimate the reservation used, priced with
+        # no completion at all -- that difference is the whole regression.
+        prompt = seen["prompt"]
+        estimate = max(_token_count(prompt), len(prompt.encode("utf-8")))
+        self.assertEqual(float(run["cost_usd"]), judge.cost_of(estimate, 0, model=MODEL))
+        self.assertLess(float(run["cost_usd"]), judge.cost_of(estimate, 4096, model=MODEL))
 
 
-class RememberGateTest(unittest.TestCase):
+class RememberGateTest(PipelineCase):
     """ "Remember this" anywhere in the window must trigger extraction.
 
     The gate read only the last message of the claimed window, so on the batch
@@ -153,46 +221,21 @@ class RememberGateTest(unittest.TestCase):
     claimed message was an assistant turn.
     """
 
-    def setUp(self) -> None:
-        self.conn = make_db()
-
-    def tearDown(self) -> None:
-        self.conn.close()
-
     def test_request_in_an_earlier_message_is_honoured(self) -> None:
-        self.conn.execute(
-            "INSERT INTO messages (session_id, role, content, created_at) "
-            "VALUES ('s-1','user','запомни: мы используем pnpm везде','2026-07-01T00:00:00Z')"
-        )
-        self.conn.execute(
-            "INSERT INTO messages (session_id, role, content, created_at) "
-            "VALUES ('s-1','assistant','Готово.','2026-07-01T00:00:01Z')"
-        )
-        self.conn.commit()
+        add_messages(self.conn, n=1, content="запомни: мы используем pnpm везде")
+        add_messages(self.conn, n=1, role="assistant", content="Готово.")
         calls: list[str] = []
 
         def handler(**kwargs):
             calls.append(kwargs["prompt"])
             return _result()
 
-        with fake_provider(handler):
-            outcome = extract.run_extraction(
-                self.conn,
-                session_id="s-1",
-                owner_id=OWNER,
-                agent_id="chat",
-                monthly_limit_usd=10.0,
-                model=MODEL,
-                api_key="",
-                gemini_api_key="",
-                project="",
-                location="",
-            )
+        outcome = self.run_extraction(handler)
         self.assertEqual(len(calls), 1, "an explicit remember request was ignored")
         self.assertFalse(outcome.declined)
 
 
-class SessionDrainTest(unittest.TestCase):
+class SessionDrainTest(PipelineCase):
     """A queued job must finish the session, not one window of it.
 
     `run_extraction` claims exactly one ten-message window; nothing re-queued it
@@ -201,13 +244,7 @@ class SessionDrainTest(unittest.TestCase):
     session kept most of its messages unprocessed forever.
     """
 
-    def setUp(self) -> None:
-        self.conn = make_db()
-
-    def tearDown(self) -> None:
-        self.conn.close()
-
-    def _drain(self, *, max_windows: int, handler=None, cancelled=None):
+    def drain(self, *, max_windows: int, handler=None, cancelled=None):
         handler = handler or (lambda **_: _result())
         with fake_provider(handler):
             return extract.run_session_extraction(
@@ -215,7 +252,6 @@ class SessionDrainTest(unittest.TestCase):
                 max_windows=max_windows,
                 cancelled=cancelled,
                 session_id="s-1",
-                owner_id=OWNER,
                 agent_id="chat",
                 monthly_limit_usd=10.0,
                 model=MODEL,
@@ -226,21 +262,18 @@ class SessionDrainTest(unittest.TestCase):
                 force=True,
             )
 
-    def _unprocessed(self) -> int:
-        return self.conn.execute("SELECT COUNT(*) FROM messages WHERE processed=0").fetchone()[0]
-
     def test_one_run_clears_a_multi_window_backlog(self) -> None:
         add_messages(self.conn, n=25)
-        outcome = self._drain(max_windows=3)
+        outcome = self.drain(max_windows=3)
         self.assertEqual(outcome.windows, 3)
         self.assertEqual(outcome.claimed, 25)
-        self.assertEqual(self._unprocessed(), 0)
+        self.assertEqual(self.unprocessed(), 0)
 
     def test_the_window_cap_is_respected(self) -> None:
         add_messages(self.conn, n=25)
-        outcome = self._drain(max_windows=2)
+        outcome = self.drain(max_windows=2)
         self.assertEqual(outcome.windows, 2)
-        self.assertEqual(self._unprocessed(), 5)
+        self.assertEqual(self.unprocessed(), 5)
 
     def test_a_provider_error_stops_the_loop(self) -> None:
         add_messages(self.conn, n=25)
@@ -250,122 +283,83 @@ class SessionDrainTest(unittest.TestCase):
             calls.append(1)
             raise ConnectionRefusedError("down")
 
-        outcome = self._drain(max_windows=3, handler=failing)
+        outcome = self.drain(max_windows=3, handler=failing)
         self.assertEqual(len(calls), 1, "a dead provider was retried per window")
         self.assertIsNotNone(outcome.error)
 
     def test_cancellation_is_honoured_between_windows(self) -> None:
         add_messages(self.conn, n=25)
-        outcome = self._drain(max_windows=3, cancelled=lambda: True)
+        outcome = self.drain(max_windows=3, cancelled=lambda: True)
         self.assertEqual(outcome.windows, 0)
-        self.assertEqual(self._unprocessed(), 25)
+        self.assertEqual(self.unprocessed(), 25)
 
     def test_a_leased_window_does_not_spin(self) -> None:
-        """Unclaimable work must end the loop rather than repeat forever."""
+        """Unclaimable work must end the loop rather than repeat forever.
+
+        A window held by another job's live lease yields no rows and no
+        progress, which is indistinguishable from an empty session unless the
+        loop stops on `claimed == 0`.
+        """
         add_messages(self.conn, n=10)
         self.conn.execute(
-            "UPDATE messages SET claim_token='other-job', claim_expires_at=?",
-            (_future(),),
+            "UPDATE messages SET claim_token='other-job', claim_expires_at=%s",
+            (utcnow() + timedelta(minutes=5),),
         )
-        self.conn.commit()
-        outcome = self._drain(max_windows=5)
+        outcome = self.drain(max_windows=5)
         self.assertEqual(outcome.claimed, 0)
         self.assertEqual(outcome.windows, 0)
 
-    def test_replay_raises_instead_of_spinning_when_no_window_can_be_claimed(self) -> None:
-        """Unprocessed messages that cannot be claimed must end replay, not spin.
 
-        The loop was `while messages_since_last(...)`, and a window held by
-        another job's live lease yields no rows and no progress, so it repeated
-        at full speed forever with no iteration cap and no sleep. The lease is
-        simulated here because apply_replay clears claims when it initializes,
-        so the race can only start after that point.
-        """
-        from unittest.mock import patch
-
-        from memkit import jobs, reextract
-
-        job_id = jobs.create(self.conn, kind="legacy_replay_dry_run", input_data={"apply": True})
-        add_messages(self.conn, n=10)
-
-        def claims_nothing(connection, **_kwargs):
-            return extract.ExtractionOutcome()
-
-        with (
-            patch("memkit.reextract.extract.run_session_extraction", claims_nothing),
-            self.assertRaisesRegex(RuntimeError, "stalled"),
-        ):
-            reextract.apply_replay(
-                self.conn,
-                owner_id=OWNER,
-                api_key="",
-                gemini_api_key="",
-                project="",
-                location="",
-                monthly_limit_usd=1.0,
-                model=MODEL,
-                job_id=job_id,
-                cancelled=lambda: False,
-            )
-
-
-class WindowClaimConcurrencyTest(unittest.TestCase):
+class WindowClaimConcurrencyTest(PipelineCase):
     """Two workers must never process the same messages.
 
-    The lease exists so a provider call is never paid for twice, and the only
-    existing test claimed sequentially. A window is claimed under BEGIN
-    IMMEDIATE, so a race should leave exactly one winner.
+    The lease exists so a provider call is never paid for twice. Real threads on
+    pooled connections, because that is what the worker does: a claim proved
+    safe only against sequential calls proves nothing about the case it exists
+    for.
     """
 
+    WORKERS = 8
+
     def test_only_one_of_many_racing_claims_wins(self) -> None:
-        import threading
-
-        from memkit.db import connect
-
-        conn = make_db()
-        add_messages(conn, n=10)
-        db_path = pathlib.Path(
-            conn.execute("SELECT file FROM pragma_database_list WHERE name='main'").fetchone()[
-                "file"
-            ]
-        )
-        conn.close()
-
+        add_messages(self.conn, n=10)
+        pool = ConnectionPool(os.environ["MEMKIT_DATABASE_URL"], max_size=self.WORKERS)
+        self.addCleanup(pool.close_all)
         results: list[int] = []
         errors: list[BaseException] = []
-        barrier = threading.Barrier(8)
+        barrier = threading.Barrier(self.WORKERS)
+        guard = threading.Lock()
 
         def claim(index: int) -> None:
-            worker = connect(db_path)
             try:
-                barrier.wait(timeout=5)
-                window = extract.claim_window(worker, session_id="s-1", job_id=f"job-{index}")
-                results.append(len(window))
-            except BaseException as exc:
-                errors.append(exc)
-            finally:
-                worker.close()
+                with pool.borrow() as worker:
+                    barrier.wait(timeout=10)
+                    window = extract.claim_window(worker, session_id="s-1", job_id=f"job-{index}")
+                with guard:
+                    results.append(len(window))
+            except BaseException as exc:  # a thread must not fail silently
+                with guard:
+                    errors.append(exc)
 
-        threads = [threading.Thread(target=claim, args=(i,)) for i in range(8)]
+        threads = [threading.Thread(target=claim, args=(i,)) for i in range(self.WORKERS)]
         for thread in threads:
             thread.start()
         for thread in threads:
-            thread.join(timeout=10)
+            thread.join(timeout=20)
 
         self.assertEqual(errors, [])
-        self.assertEqual(sorted(results, reverse=True)[0], 10)
         self.assertEqual([count for count in results if count], [10], "a window was claimed twice")
+        self.assertEqual(len(results), self.WORKERS)
 
     def test_an_expired_lease_can_be_reclaimed(self) -> None:
-        conn = make_db()
-        add_messages(conn, n=10)
-        conn.execute(
-            "UPDATE messages SET claim_token='dead-job', claim_expires_at='2020-01-01T00:00:00Z'"
+        """A worker that dies mid-window must not strand its messages."""
+        add_messages(self.conn, n=10)
+        self.conn.execute(
+            "UPDATE messages SET claim_token='dead-job', claim_expires_at=%s",
+            (utcnow() - timedelta(hours=1),),
         )
-        conn.commit()
-        window = extract.claim_window(conn, session_id="s-1", job_id="fresh")
+        window = extract.claim_window(self.conn, session_id="s-1", job_id="fresh")
         self.assertEqual(len(window), 10)
-        conn.close()
 
 
 if __name__ == "__main__":

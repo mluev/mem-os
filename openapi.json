@@ -1,45 +1,80 @@
 {
   "components": {
     "schemas": {
-      "AdminHealthOut": {
+      "AliasIn": {
         "additionalProperties": false,
         "properties": {
-          "database": {
-            "additionalProperties": true,
-            "title": "Database",
-            "type": "object"
-          },
-          "embedder": {
-            "additionalProperties": true,
-            "title": "Embedder",
-            "type": "object"
-          },
-          "jobs": {
-            "additionalProperties": {
-              "type": "integer"
-            },
-            "title": "Jobs",
-            "type": "object"
-          },
-          "outbox": {
-            "additionalProperties": true,
-            "title": "Outbox",
-            "type": "object"
-          },
-          "qdrant": {
-            "additionalProperties": true,
-            "title": "Qdrant",
-            "type": "object"
+          "alias": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Alias",
+            "type": "string"
           }
         },
         "required": [
-          "database",
-          "qdrant",
-          "embedder",
-          "outbox",
-          "jobs"
+          "alias"
         ],
-        "title": "AdminHealthOut",
+        "title": "AliasIn",
+        "type": "object"
+      },
+      "ApiKeyIn": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "user_id": {
+            "anyOf": [
+              {
+                "maxLength": 256,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Id"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "ApiKeyIn",
+        "type": "object"
+      },
+      "AttentionResolveIn": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "enum": [
+              "link_entity",
+              "dismiss"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "entity": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entity"
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "title": "AttentionResolveIn",
         "type": "object"
       },
       "BatchOut": {
@@ -51,7 +86,8 @@
           },
           "items": {
             "items": {
-              "$ref": "#/components/schemas/MessageOut"
+              "additionalProperties": true,
+              "type": "object"
             },
             "title": "Items",
             "type": "array"
@@ -62,47 +98,6 @@
           "count"
         ],
         "title": "BatchOut",
-        "type": "object"
-      },
-      "ChecksumIn": {
-        "additionalProperties": false,
-        "properties": {
-          "checksum": {
-            "title": "Checksum",
-            "type": "string"
-          }
-        },
-        "required": [
-          "checksum"
-        ],
-        "title": "ChecksumIn",
-        "type": "object"
-      },
-      "CollectionIn": {
-        "additionalProperties": false,
-        "properties": {
-          "name": {
-            "maxLength": 128,
-            "minLength": 1,
-            "title": "Name",
-            "type": "string"
-          },
-          "policy": {
-            "additionalProperties": true,
-            "title": "Policy",
-            "type": "object"
-          },
-          "schema": {
-            "additionalProperties": true,
-            "title": "Schema",
-            "type": "object"
-          }
-        },
-        "required": [
-          "name",
-          "schema"
-        ],
-        "title": "CollectionIn",
         "type": "object"
       },
       "ConsolidateIn": {
@@ -122,34 +117,70 @@
         "title": "ConsolidateIn",
         "type": "object"
       },
-      "CursorPageOut": {
+      "EntityIn": {
         "additionalProperties": false,
         "properties": {
-          "items": {
+          "aliases": {
             "items": {
-              "additionalProperties": true,
-              "type": "object"
+              "maxLength": 2000,
+              "minLength": 1,
+              "type": "string"
             },
-            "title": "Items",
+            "maxItems": 20,
+            "title": "Aliases",
             "type": "array"
           },
-          "next_cursor": {
+          "description": {
+            "default": "",
+            "maxLength": 2000,
+            "title": "Description",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "project",
+              "product",
+              "company",
+              "person",
+              "custom"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "slug": {
             "anyOf": [
               {
+                "maxLength": 128,
+                "minLength": 1,
                 "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Next Cursor"
+            "title": "Slug"
+          },
+          "visibility": {
+            "default": "members",
+            "enum": [
+              "members",
+              "team"
+            ],
+            "title": "Visibility",
+            "type": "string"
           }
         },
         "required": [
-          "items",
-          "next_cursor"
+          "kind",
+          "name"
         ],
-        "title": "CursorPageOut",
+        "title": "EntityIn",
         "type": "object"
       },
       "EntityOut": {
@@ -188,6 +219,53 @@
         "title": "EntityOut",
         "type": "object"
       },
+      "EntityPatch": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "visibility": {
+            "anyOf": [
+              {
+                "enum": [
+                  "members",
+                  "team"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Visibility"
+          }
+        },
+        "title": "EntityPatch",
+        "type": "object"
+      },
       "EraseIn": {
         "additionalProperties": false,
         "properties": {
@@ -201,153 +279,6 @@
           "confirm"
         ],
         "title": "EraseIn",
-        "type": "object"
-      },
-      "EvaluationArmsIn": {
-        "additionalProperties": false,
-        "properties": {
-          "current_memory": {
-            "title": "Current Memory",
-            "type": "string"
-          },
-          "no_memory": {
-            "title": "No Memory",
-            "type": "string"
-          },
-          "oracle_memory": {
-            "title": "Oracle Memory",
-            "type": "string"
-          },
-          "reviewed_v7": {
-            "title": "Reviewed V7",
-            "type": "string"
-          }
-        },
-        "required": [
-          "no_memory",
-          "current_memory",
-          "reviewed_v7",
-          "oracle_memory"
-        ],
-        "title": "EvaluationArmsIn",
-        "type": "object"
-      },
-      "EvaluationCaseIn": {
-        "additionalProperties": false,
-        "properties": {
-          "arms": {
-            "$ref": "#/components/schemas/EvaluationArmsIn"
-          },
-          "case_key": {
-            "maxLength": 256,
-            "minLength": 1,
-            "title": "Case Key",
-            "type": "string"
-          },
-          "prompt": {
-            "maxLength": 2000,
-            "minLength": 1,
-            "title": "Prompt",
-            "type": "string"
-          }
-        },
-        "required": [
-          "case_key",
-          "prompt",
-          "arms"
-        ],
-        "title": "EvaluationCaseIn",
-        "type": "object"
-      },
-      "EvaluationCreateIn": {
-        "additionalProperties": false,
-        "properties": {
-          "cases": {
-            "items": {
-              "$ref": "#/components/schemas/EvaluationCaseIn"
-            },
-            "maxItems": 32,
-            "minItems": 1,
-            "title": "Cases",
-            "type": "array"
-          },
-          "model": {
-            "const": "gpt-5.6-sol",
-            "default": "gpt-5.6-sol",
-            "title": "Model",
-            "type": "string"
-          },
-          "rubric": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Rubric"
-          }
-        },
-        "required": [
-          "cases"
-        ],
-        "title": "EvaluationCreateIn",
-        "type": "object"
-      },
-      "EvaluationReviewIn": {
-        "additionalProperties": false,
-        "properties": {
-          "current_vs_v7": {
-            "enum": [
-              "v7_win",
-              "current_win",
-              "tie"
-            ],
-            "title": "Current Vs V7",
-            "type": "string"
-          },
-          "harmful": {
-            "items": {
-              "enum": [
-                "A",
-                "B",
-                "C",
-                "D"
-              ],
-              "type": "string"
-            },
-            "title": "Harmful",
-            "type": "array"
-          },
-          "notes": {
-            "default": "",
-            "maxLength": 2000,
-            "title": "Notes",
-            "type": "string"
-          },
-          "ranking": {
-            "items": {
-              "enum": [
-                "A",
-                "B",
-                "C",
-                "D"
-              ],
-              "type": "string"
-            },
-            "maxItems": 4,
-            "minItems": 4,
-            "title": "Ranking",
-            "type": "array"
-          }
-        },
-        "required": [
-          "ranking",
-          "current_vs_v7"
-        ],
-        "title": "EvaluationReviewIn",
         "type": "object"
       },
       "EvidenceBatchIn": {
@@ -384,10 +315,14 @@
             "title": "Correct"
           },
           "memory_id": {
+            "maxLength": 256,
+            "minLength": 1,
             "title": "Memory Id",
             "type": "string"
           },
           "query": {
+            "maxLength": 8192,
+            "minLength": 1,
             "title": "Query",
             "type": "string"
           },
@@ -426,7 +361,6 @@
       },
       "FlexibleOut": {
         "additionalProperties": true,
-        "description": "Typed public fields while allowing additive response evolution.",
         "properties": {},
         "title": "FlexibleOut",
         "type": "object"
@@ -479,14 +413,6 @@
       "JobOut": {
         "additionalProperties": true,
         "properties": {
-          "history": {
-            "items": {
-              "additionalProperties": true,
-              "type": "object"
-            },
-            "title": "History",
-            "type": "array"
-          },
           "id": {
             "title": "Id",
             "type": "string"
@@ -503,8 +429,7 @@
         "required": [
           "id",
           "kind",
-          "status",
-          "history"
+          "status"
         ],
         "title": "JobOut",
         "type": "object"
@@ -552,52 +477,101 @@
           "id": {
             "title": "Id",
             "type": "integer"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
           }
         },
         "required": [
-          "id"
+          "id",
+          "kind",
+          "model"
         ],
         "title": "JudgeRunOut",
         "type": "object"
       },
-      "LinkIn": {
+      "KeyCreatedOut": {
         "additionalProperties": false,
         "properties": {
-          "from_ref": {
-            "maxLength": 256,
-            "minLength": 1,
-            "title": "From Ref",
+          "id": {
+            "title": "Id",
             "type": "string"
           },
-          "metadata": {
-            "additionalProperties": true,
-            "title": "Metadata",
-            "type": "object"
-          },
-          "relation": {
-            "maxLength": 128,
-            "minLength": 1,
-            "title": "Relation",
+          "key_prefix": {
+            "title": "Key Prefix",
             "type": "string"
           },
-          "to_ref": {
-            "maxLength": 256,
-            "minLength": 1,
-            "title": "To Ref",
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "secret": {
+            "title": "Secret",
             "type": "string"
           }
         },
         "required": [
-          "from_ref",
-          "relation",
-          "to_ref"
+          "id",
+          "name",
+          "key_prefix",
+          "secret"
         ],
-        "title": "LinkIn",
+        "title": "KeyCreatedOut",
+        "type": "object"
+      },
+      "LoginIn": {
+        "additionalProperties": false,
+        "properties": {
+          "handle": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Handle",
+            "type": "string"
+          },
+          "password": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Password",
+            "type": "string"
+          }
+        },
+        "required": [
+          "handle",
+          "password"
+        ],
+        "title": "LoginIn",
+        "type": "object"
+      },
+      "MemberIn": {
+        "additionalProperties": false,
+        "properties": {
+          "role": {
+            "default": "member",
+            "enum": [
+              "owner",
+              "member",
+              "viewer"
+            ],
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "title": "MemberIn",
         "type": "object"
       },
       "MemoryCreatedOut": {
         "additionalProperties": false,
         "properties": {
+          "deduplicated": {
+            "default": false,
+            "title": "Deduplicated",
+            "type": "boolean"
+          },
           "id": {
             "title": "Id",
             "type": "string"
@@ -616,6 +590,11 @@
           "indexed": {
             "title": "Indexed",
             "type": "boolean"
+          },
+          "review_status": {
+            "default": "pending",
+            "title": "Review Status",
+            "type": "string"
           },
           "stored": {
             "title": "Stored",
@@ -717,6 +696,19 @@
             "title": "Kind",
             "type": "string"
           },
+          "scope": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scope"
+          },
           "source_role": {
             "enum": [
               "user",
@@ -727,6 +719,19 @@
             ],
             "title": "Source Role",
             "type": "string"
+          },
+          "subject": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject"
           },
           "tags": {
             "items": {
@@ -783,6 +788,11 @@
       "MemoryPatch": {
         "additionalProperties": false,
         "properties": {
+          "clear_subject": {
+            "default": false,
+            "title": "Clear Subject",
+            "type": "boolean"
+          },
           "clear_valid_until": {
             "default": false,
             "title": "Clear Valid Until",
@@ -848,6 +858,37 @@
             "default": false,
             "title": "Move Context",
             "type": "boolean"
+          },
+          "move_scope": {
+            "default": false,
+            "title": "Move Scope",
+            "type": "boolean"
+          },
+          "scope": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scope"
+          },
+          "subject": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject"
           },
           "tags": {
             "anyOf": [
@@ -971,10 +1012,6 @@
             "title": "Timings",
             "type": "object"
           },
-          "took_ms": {
-            "title": "Took Ms",
-            "type": "number"
-          },
           "used_tokens": {
             "title": "Used Tokens",
             "type": "integer"
@@ -989,8 +1026,7 @@
           "dropped_relevance",
           "policy_id",
           "embed_ms",
-          "raw",
-          "took_ms"
+          "timings"
         ],
         "title": "MemorySearchOut",
         "type": "object"
@@ -1092,6 +1128,19 @@
             "title": "Role",
             "type": "string"
           },
+          "scope": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scope"
+          },
           "session_id": {
             "maxLength": 256,
             "minLength": 1,
@@ -1138,11 +1187,6 @@
             "title": "Index Job Id"
           },
           "index_status": {
-            "enum": [
-              "complete",
-              "pending",
-              "not_applicable"
-            ],
             "title": "Index Status",
             "type": "string"
           },
@@ -1158,12 +1202,6 @@
             "default": false,
             "title": "Redacted",
             "type": "boolean"
-          },
-          "stored": {
-            "const": true,
-            "default": true,
-            "title": "Stored",
-            "type": "boolean"
           }
         },
         "required": [
@@ -1175,210 +1213,9 @@
         "type": "object"
       },
       "MetricsOut": {
-        "additionalProperties": false,
-        "properties": {
-          "abstention_rate": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Abstention Rate"
-          },
-          "backup_freshness_seconds": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Backup Freshness Seconds"
-          },
-          "correct_rate": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Correct Rate"
-          },
-          "feedback_labels": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Feedback Labels"
-          },
-          "feedback_runs": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Feedback Runs"
-          },
-          "index_parity": {
-            "anyOf": [
-              {
-                "additionalProperties": {
-                  "anyOf": [
-                    {
-                      "type": "integer"
-                    },
-                    {
-                      "type": "boolean"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ]
-                },
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Index Parity"
-          },
-          "month_reserved_usd": {
-            "title": "Month Reserved Usd",
-            "type": "number"
-          },
-          "month_spend_usd": {
-            "title": "Month Spend Usd",
-            "type": "number"
-          },
-          "oldest_unprocessed_message": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Oldest Unprocessed Message"
-          },
-          "outbox_oldest_age_seconds": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Outbox Oldest Age Seconds"
-          },
-          "outbox_pending": {
-            "title": "Outbox Pending",
-            "type": "integer"
-          },
-          "outbox_retries": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Outbox Retries"
-          },
-          "provider_errors": {
-            "title": "Provider Errors",
-            "type": "integer"
-          },
-          "retrieval_runs": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Retrieval Runs"
-          },
-          "search_latency_ms": {
-            "anyOf": [
-              {
-                "additionalProperties": {
-                  "anyOf": [
-                    {
-                      "type": "number"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ]
-                },
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Search Latency Ms"
-          },
-          "useful_rate": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Useful Rate"
-          }
-        },
-        "required": [
-          "outbox_pending",
-          "oldest_unprocessed_message",
-          "provider_errors",
-          "month_spend_usd",
-          "month_reserved_usd"
-        ],
+        "additionalProperties": true,
+        "properties": {},
         "title": "MetricsOut",
-        "type": "object"
-      },
-      "NamespaceIn": {
-        "additionalProperties": false,
-        "properties": {
-          "description": {
-            "default": "",
-            "maxLength": 1000,
-            "title": "Description",
-            "type": "string"
-          },
-          "name": {
-            "maxLength": 128,
-            "minLength": 1,
-            "title": "Name",
-            "type": "string"
-          }
-        },
-        "required": [
-          "name"
-        ],
-        "title": "NamespaceIn",
         "type": "object"
       },
       "OffsetPageOut": {
@@ -1414,24 +1251,27 @@
         "title": "OffsetPageOut",
         "type": "object"
       },
-      "PolicyActivationIn": {
+      "PasswordChangeIn": {
         "additionalProperties": false,
         "properties": {
-          "checksum": {
-            "title": "Checksum",
+          "current_password": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Current Password",
             "type": "string"
           },
-          "confirm": {
-            "const": "ACTIVATE",
-            "title": "Confirm",
+          "new_password": {
+            "maxLength": 200,
+            "minLength": 12,
+            "title": "New Password",
             "type": "string"
           }
         },
         "required": [
-          "checksum",
-          "confirm"
+          "current_password",
+          "new_password"
         ],
-        "title": "PolicyActivationIn",
+        "title": "PasswordChangeIn",
         "type": "object"
       },
       "PolicyIn": {
@@ -1453,12 +1293,12 @@
             "type": "string"
           },
           "name": {
-            "maxLength": 128,
+            "maxLength": 2000,
             "minLength": 1,
             "title": "Name",
             "type": "string"
           },
-          "namespace": {
+          "scope": {
             "anyOf": [
               {
                 "maxLength": 128,
@@ -1469,7 +1309,7 @@
                 "type": "null"
               }
             ],
-            "title": "Namespace"
+            "title": "Scope"
           },
           "version": {
             "minimum": 1.0,
@@ -1489,6 +1329,20 @@
       "ProfileIn": {
         "additionalProperties": false,
         "properties": {
+          "blocks": {
+            "items": {
+              "enum": [
+                "about",
+                "style",
+                "team",
+                "project",
+                "recent"
+              ],
+              "type": "string"
+            },
+            "title": "Blocks",
+            "type": "array"
+          },
           "budget_tokens": {
             "default": 800,
             "maximum": 20000.0,
@@ -1508,14 +1362,18 @@
             "title": "Include Untrusted",
             "type": "boolean"
           },
-          "stable_kinds": {
-            "items": {
-              "maxLength": 64,
-              "minLength": 1,
-              "type": "string"
-            },
-            "title": "Stable Kinds",
-            "type": "array"
+          "workspace": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workspace"
           }
         },
         "title": "ProfileIn",
@@ -1524,13 +1382,20 @@
       "ProfileOut": {
         "additionalProperties": false,
         "properties": {
-          "dynamic": {
-            "items": {
-              "additionalProperties": true,
-              "type": "object"
+          "blocks": {
+            "additionalProperties": {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "type": "array"
             },
-            "title": "Dynamic",
-            "type": "array"
+            "title": "Blocks",
+            "type": "object"
+          },
+          "budget_tokens": {
+            "title": "Budget Tokens",
+            "type": "integer"
           },
           "generated_at": {
             "title": "Generated At",
@@ -1540,47 +1405,19 @@
             "title": "Policy Id",
             "type": "string"
           },
-          "stable": {
-            "items": {
-              "additionalProperties": true,
-              "type": "object"
-            },
-            "title": "Stable",
-            "type": "array"
-          },
           "used_tokens": {
             "title": "Used Tokens",
             "type": "integer"
           }
         },
         "required": [
-          "stable",
-          "dynamic",
+          "blocks",
           "used_tokens",
+          "budget_tokens",
           "generated_at",
           "policy_id"
         ],
         "title": "ProfileOut",
-        "type": "object"
-      },
-      "PromotionIn": {
-        "additionalProperties": false,
-        "properties": {
-          "checksum": {
-            "title": "Checksum",
-            "type": "string"
-          },
-          "confirm": {
-            "const": "PROMOTE",
-            "title": "Confirm",
-            "type": "string"
-          }
-        },
-        "required": [
-          "checksum",
-          "confirm"
-        ],
-        "title": "PromotionIn",
         "type": "object"
       },
       "ReadyOut": {
@@ -1612,167 +1449,39 @@
         "title": "ReadyOut",
         "type": "object"
       },
-      "RecordIn": {
-        "additionalProperties": false,
-        "properties": {
-          "context": {
-            "additionalProperties": true,
-            "title": "Context",
-            "type": "object"
-          },
-          "idempotency_key": {
-            "anyOf": [
-              {
-                "maxLength": 256,
-                "minLength": 1,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Idempotency Key"
-          },
-          "metadata": {
-            "additionalProperties": true,
-            "title": "Metadata",
-            "type": "object"
-          },
-          "value": {
-            "additionalProperties": true,
-            "title": "Value",
-            "type": "object"
-          }
-        },
-        "required": [
-          "value"
-        ],
-        "title": "RecordIn",
-        "type": "object"
-      },
-      "RecordPatch": {
-        "additionalProperties": false,
-        "properties": {
-          "context": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Context"
-          },
-          "expected_revision": {
-            "minimum": 1.0,
-            "title": "Expected Revision",
-            "type": "integer"
-          },
-          "metadata": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Metadata"
-          },
-          "value": {
-            "additionalProperties": true,
-            "title": "Value",
-            "type": "object"
-          }
-        },
-        "required": [
-          "expected_revision",
-          "value"
-        ],
-        "title": "RecordPatch",
-        "type": "object"
-      },
-      "RecordSearchIn": {
-        "additionalProperties": false,
-        "properties": {
-          "cursor": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Cursor"
-          },
-          "filter": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Filter"
-          },
-          "limit": {
-            "default": 50,
-            "maximum": 500.0,
-            "minimum": 1.0,
-            "title": "Limit",
-            "type": "integer"
-          }
-        },
-        "title": "RecordSearchIn",
-        "type": "object"
-      },
       "ReplayIn": {
         "additionalProperties": false,
         "properties": {
-          "apply": {
-            "default": false,
-            "title": "Apply",
-            "type": "boolean"
+          "confirm": {
+            "anyOf": [
+              {
+                "const": "REPLAY",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confirm"
           }
         },
         "title": "ReplayIn",
         "type": "object"
       },
-      "ReplayReviewIn": {
+      "ResolveIn": {
         "additionalProperties": false,
         "properties": {
-          "decision": {
-            "enum": [
-              "accepted",
-              "rejected",
-              "edited"
-            ],
-            "title": "Decision",
+          "name": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Name",
             "type": "string"
-          },
-          "edits": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Edits"
           }
         },
         "required": [
-          "decision"
+          "name"
         ],
-        "title": "ReplayReviewIn",
+        "title": "ResolveIn",
         "type": "object"
       },
       "RetrievalRunFeedbackIn": {
@@ -1790,6 +1499,8 @@
             "title": "Correct"
           },
           "memory_id": {
+            "maxLength": 256,
+            "minLength": 1,
             "title": "Memory Id",
             "type": "string"
           },
@@ -1809,6 +1520,37 @@
           "memory_id"
         ],
         "title": "RetrievalRunFeedbackIn",
+        "type": "object"
+      },
+      "ReviewIn": {
+        "additionalProperties": false,
+        "properties": {
+          "decision": {
+            "enum": [
+              "confirm",
+              "decline",
+              "undo"
+            ],
+            "title": "Decision",
+            "type": "string"
+          },
+          "expected_revision": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Revision"
+          }
+        },
+        "required": [
+          "decision"
+        ],
+        "title": "ReviewIn",
         "type": "object"
       },
       "SearchIn": {
@@ -1881,6 +1623,35 @@
             "minLength": 1,
             "title": "Query",
             "type": "string"
+          },
+          "scopes": {
+            "anyOf": [
+              {
+                "items": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scopes"
+          },
+          "subject": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject"
           }
         },
         "required": [
@@ -1926,6 +1697,124 @@
           "session"
         ],
         "title": "SessionMessagesOut",
+        "type": "object"
+      },
+      "SessionOut": {
+        "additionalProperties": false,
+        "properties": {
+          "csrf_required_header": {
+            "default": "X-Requested-With",
+            "title": "Csrf Required Header",
+            "type": "string"
+          },
+          "user": {
+            "additionalProperties": true,
+            "title": "User",
+            "type": "object"
+          }
+        },
+        "required": [
+          "user"
+        ],
+        "title": "SessionOut",
+        "type": "object"
+      },
+      "UserIn": {
+        "additionalProperties": false,
+        "properties": {
+          "display_name": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Display Name",
+            "type": "string"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "maxLength": 256,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "handle": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Handle",
+            "type": "string"
+          },
+          "password": {
+            "maxLength": 200,
+            "minLength": 12,
+            "title": "Password",
+            "type": "string"
+          },
+          "role": {
+            "default": "member",
+            "enum": [
+              "admin",
+              "member"
+            ],
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "handle",
+          "display_name",
+          "password"
+        ],
+        "title": "UserIn",
+        "type": "object"
+      },
+      "UserPatch": {
+        "additionalProperties": false,
+        "properties": {
+          "disabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disabled"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "enum": [
+                  "admin",
+                  "member"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role"
+          }
+        },
+        "title": "UserPatch",
         "type": "object"
       },
       "ValidationError": {
@@ -1979,7 +1868,7 @@
   },
   "info": {
     "title": "memkit",
-    "version": "0.2.0"
+    "version": "0.3.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -2022,6 +1911,40 @@
     "/v1/admin/backups": {
       "get": {
         "operationId": "backup_status_v1_admin_backups_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-requested-with",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Requested-With"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "memkit_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memkit Session"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -2032,6 +1955,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "security": [
@@ -2044,7 +1977,42 @@
     },
     "/v1/admin/consolidate": {
       "post": {
+        "description": "Consolidate the caller's scopes, or every scope for an administrator.",
         "operationId": "start_consolidation_v1_admin_consolidate_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-requested-with",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Requested-With"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "memkit_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memkit Session"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -2087,17 +2055,61 @@
     },
     "/v1/admin/health": {
       "get": {
-        "operationId": "detailed_health_v1_admin_health_get",
+        "operationId": "admin_health_v1_admin_health_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-requested-with",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Requested-With"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "memkit_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memkit Session"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AdminHealthOut"
+                  "$ref": "#/components/schemas/FlexibleOut"
                 }
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "security": [
@@ -2105,7 +2117,7 @@
             "APIKeyHeader": []
           }
         ],
-        "summary": "Detailed Health"
+        "summary": "Admin Health"
       }
     },
     "/v1/admin/judge-runs": {
@@ -2125,14 +2137,35 @@
             }
           },
           {
-            "in": "query",
-            "name": "offset",
+            "in": "header",
+            "name": "x-requested-with",
             "required": false,
             "schema": {
-              "default": 0,
-              "minimum": 0,
-              "title": "Offset",
-              "type": "integer"
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Requested-With"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "memkit_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memkit Session"
             }
           }
         ],
@@ -2141,7 +2174,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/OffsetPageOut"
+                  "$ref": "#/components/schemas/ItemsOut"
                 }
               }
             },
@@ -2178,6 +2211,38 @@
               "title": "Run Id",
               "type": "integer"
             }
+          },
+          {
+            "in": "header",
+            "name": "x-requested-with",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Requested-With"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "memkit_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memkit Session"
+            }
           }
         ],
         "responses": {
@@ -2212,80 +2277,48 @@
     },
     "/v1/admin/metrics": {
       "get": {
+        "description": "Instance metrics for an administrator, own metrics for anyone else.",
         "operationId": "metrics_v1_admin_metrics_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-requested-with",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Requested-With"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "memkit_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memkit Session"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/MetricsOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "security": [
-          {
-            "APIKeyHeader": []
-          }
-        ],
-        "summary": "Metrics"
-      }
-    },
-    "/v1/admin/policy-sweep": {
-      "post": {
-        "operationId": "run_policy_sweep_v1_admin_policy_sweep_post",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/FlexibleOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "security": [
-          {
-            "APIKeyHeader": []
-          }
-        ],
-        "summary": "Run Policy Sweep"
-      }
-    },
-    "/v1/admin/policy-sweep/{checksum}/activate": {
-      "post": {
-        "operationId": "activate_policy_sweep_v1_admin_policy_sweep__checksum__activate_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "checksum",
-            "required": true,
-            "schema": {
-              "title": "Checksum",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PolicyActivationIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/FlexibleOut"
                 }
               }
             },
@@ -2307,12 +2340,47 @@
             "APIKeyHeader": []
           }
         ],
-        "summary": "Activate Policy Sweep"
+        "summary": "Metrics"
       }
     },
     "/v1/admin/reextract": {
       "post": {
-        "operationId": "start_replay_report_v1_admin_reextract_post",
+        "description": "Plan a re-extraction. Reports only; it never rewrites the store.",
+        "operationId": "start_reextract_report_v1_admin_reextract_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-requested-with",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Requested-With"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "memkit_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memkit Session"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -2357,12 +2425,46 @@
             "APIKeyHeader": []
           }
         ],
-        "summary": "Start Replay Report"
+        "summary": "Start Reextract Report"
       }
     },
     "/v1/admin/reindex": {
       "post": {
         "operationId": "start_reindex_v1_admin_reindex_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-requested-with",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Requested-With"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "memkit_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memkit Session"
+            }
+          }
+        ],
         "responses": {
           "202": {
             "content": {
@@ -2373,6 +2475,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "security": [
@@ -2385,6 +2497,7 @@
     },
     "/v1/admin/sessions": {
       "get": {
+        "description": "Conversations, with what each one produced.\n\nAdministrators see the instance; everyone else sees their own, because a\ntranscript is the rawest thing the system holds.",
         "operationId": "list_sessions_v1_admin_sessions_get",
         "parameters": [
           {
@@ -2408,6 +2521,38 @@
               "minimum": 0,
               "title": "Offset",
               "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-requested-with",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Requested-With"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "memkit_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memkit Session"
             }
           }
         ],
@@ -2441,6 +2586,83 @@
         "summary": "List Sessions"
       }
     },
+    "/v1/admin/sessions/{session_id}/memories": {
+      "get": {
+        "description": "What this conversation produced, and what it refused to produce.\n\nThe rejections matter as much as the facts: they are the only place the\nreason a plausible-looking claim was dropped is visible.",
+        "operationId": "list_session_memories_v1_admin_sessions__session_id__memories_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-requested-with",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Requested-With"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "memkit_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memkit Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "List Session Memories"
+      }
+    },
     "/v1/admin/sessions/{session_id}/messages": {
       "get": {
         "operationId": "list_session_messages_v1_admin_sessions__session_id__messages_get",
@@ -2459,8 +2681,8 @@
             "name": "limit",
             "required": false,
             "schema": {
-              "default": 100,
-              "maximum": 500,
+              "default": 200,
+              "maximum": 1000,
               "minimum": 1,
               "title": "Limit",
               "type": "integer"
@@ -2475,6 +2697,38 @@
               "minimum": 0,
               "title": "Offset",
               "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-requested-with",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Requested-With"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "memkit_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memkit Session"
             }
           }
         ],
@@ -2508,26 +2762,40 @@
         "summary": "List Session Messages"
       }
     },
-    "/v1/collections/{namespace}/{name}": {
+    "/v1/api-keys": {
       "get": {
-        "operationId": "get_collection_v1_collections__namespace___name__get",
+        "operationId": "list_api_keys_v1_api_keys_get",
         "parameters": [
           {
-            "in": "path",
-            "name": "namespace",
-            "required": true,
+            "in": "header",
+            "name": "x-requested-with",
+            "required": false,
             "schema": {
-              "title": "Namespace",
-              "type": "string"
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Requested-With"
             }
           },
           {
-            "in": "path",
-            "name": "name",
-            "required": true,
+            "in": "cookie",
+            "name": "memkit_session",
+            "required": false,
             "schema": {
-              "title": "Name",
-              "type": "string"
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memkit Session"
             }
           }
         ],
@@ -2536,7 +2804,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/EntityOut"
+                  "$ref": "#/components/schemas/ItemsOut"
                 }
               }
             },
@@ -2558,29 +2826,42 @@
             "APIKeyHeader": []
           }
         ],
-        "summary": "Get Collection"
-      }
-    },
-    "/v1/collections/{namespace}/{name}/records": {
+        "summary": "List Api Keys"
+      },
       "post": {
-        "operationId": "create_record_v1_collections__namespace___name__records_post",
+        "description": "Mint a key. The secret is returned once and never stored in the clear.",
+        "operationId": "create_api_key_v1_api_keys_post",
         "parameters": [
           {
-            "in": "path",
-            "name": "namespace",
-            "required": true,
+            "in": "header",
+            "name": "x-requested-with",
+            "required": false,
             "schema": {
-              "title": "Namespace",
-              "type": "string"
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Requested-With"
             }
           },
           {
-            "in": "path",
-            "name": "name",
-            "required": true,
+            "in": "cookie",
+            "name": "memkit_session",
+            "required": false,
             "schema": {
-              "title": "Name",
-              "type": "string"
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memkit Session"
             }
           }
         ],
@@ -2588,7 +2869,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/RecordIn"
+                "$ref": "#/components/schemas/ApiKeyIn"
               }
             }
           },
@@ -2599,7 +2880,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/EntityOut"
+                  "$ref": "#/components/schemas/KeyCreatedOut"
                 }
               }
             },
@@ -2621,394 +2902,1280 @@
             "APIKeyHeader": []
           }
         ],
-        "summary": "Create Record"
+        "summary": "Create Api Key"
       }
     },
-    "/v1/collections/{namespace}/{name}/records/{record_id}": {
+    "/v1/api-keys/{key_id}": {
       "delete": {
-        "operationId": "delete_record_v1_collections__namespace___name__records__record_id__delete",
+        "operationId": "revoke_api_key_v1_api_keys__key_id__delete",
         "parameters": [
           {
             "in": "path",
-            "name": "namespace",
+            "name": "key_id",
             "required": true,
             "schema": {
-              "title": "Namespace",
+              "title": "Key Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-requested-with",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Requested-With"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "memkit_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memkit Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedbackOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Revoke Api Key"
+      }
+    },
+    "/v1/attention/{item_id}/resolve": {
+      "post": {
+        "description": "Place an unresolved name, or dismiss the item.\n\nLinking does two things at once on purpose: it attributes the memory to the\nperson and teaches the alias, so the same name resolves by itself next time.",
+        "operationId": "resolve_attention_v1_attention__item_id__resolve_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "title": "Item Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-requested-with",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Requested-With"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "memkit_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memkit Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AttentionResolveIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FlexibleOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Resolve Attention"
+      }
+    },
+    "/v1/auth/login": {
+      "post": {
+        "description": "Exchange a password for a session cookie.\n\nFailures are counted per handle and per address and answered identically,\nso the endpoint cannot be used to discover which handles exist.",
+        "operationId": "login_v1_auth_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Login"
+      }
+    },
+    "/v1/auth/logout": {
+      "post": {
+        "operationId": "logout_v1_auth_logout_post",
+        "parameters": [
+          {
+            "in": "cookie",
+            "name": "memkit_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memkit Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedbackOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Logout"
+      }
+    },
+    "/v1/auth/me": {
+      "get": {
+        "operationId": "whoami_v1_auth_me_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-requested-with",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Requested-With"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "memkit_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memkit Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FlexibleOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Whoami"
+      }
+    },
+    "/v1/auth/password": {
+      "post": {
+        "description": "Change a password and sign the user out everywhere else.\n\nOther sessions are revoked because the usual reason to change a password is\nthat somebody else may have had it.",
+        "operationId": "change_password_v1_auth_password_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-requested-with",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Requested-With"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "memkit_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memkit Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasswordChangeIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedbackOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Change Password"
+      }
+    },
+    "/v1/entities": {
+      "get": {
+        "operationId": "list_entities_v1_entities_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kind"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-requested-with",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Requested-With"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "memkit_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memkit Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "List Entities"
+      },
+      "post": {
+        "operationId": "create_entity_v1_entities_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-requested-with",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Requested-With"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "memkit_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memkit Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntityIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FlexibleOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Create Entity"
+      }
+    },
+    "/v1/entities/resolve": {
+      "post": {
+        "description": "Turn a name from conversation into an entity, or nothing.\n\nExact alias match only. A near match would attach a claim to the wrong\nperson, which is worse than reporting that the name is unknown.",
+        "operationId": "resolve_entity_v1_entities_resolve_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-requested-with",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Requested-With"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "memkit_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memkit Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FlexibleOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Resolve Entity"
+      }
+    },
+    "/v1/entities/{slug}": {
+      "get": {
+        "operationId": "get_entity_v1_entities__slug__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-requested-with",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Requested-With"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "memkit_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memkit Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FlexibleOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Get Entity"
+      },
+      "patch": {
+        "operationId": "patch_entity_v1_entities__slug__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-requested-with",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Requested-With"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "memkit_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memkit Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntityPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FlexibleOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Patch Entity"
+      }
+    },
+    "/v1/entities/{slug}/aliases": {
+      "post": {
+        "operationId": "add_entity_alias_v1_entities__slug__aliases_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-requested-with",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Requested-With"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "memkit_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memkit Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AliasIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FlexibleOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Add Entity Alias"
+      }
+    },
+    "/v1/entities/{slug}/aliases/{alias}": {
+      "delete": {
+        "operationId": "remove_entity_alias_v1_entities__slug__aliases__alias__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
               "type": "string"
             }
           },
           {
             "in": "path",
-            "name": "name",
+            "name": "alias",
             "required": true,
             "schema": {
-              "title": "Name",
+              "title": "Alias",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-requested-with",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Requested-With"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "memkit_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memkit Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedbackOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Remove Entity Alias"
+      }
+    },
+    "/v1/entities/{slug}/archive": {
+      "post": {
+        "description": "Hide an entity without deleting its memory.\n\nArchiving rather than deleting because the memories in that scope cite real\nconversations; a project that ended is still a record of what was decided.",
+        "operationId": "archive_entity_v1_entities__slug__archive_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-requested-with",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Requested-With"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "memkit_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memkit Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FlexibleOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Archive Entity"
+      }
+    },
+    "/v1/entities/{slug}/members/{user_id}": {
+      "delete": {
+        "operationId": "delete_member_v1_entities__slug__members__user_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
               "type": "string"
             }
           },
           {
             "in": "path",
-            "name": "record_id",
+            "name": "user_id",
             "required": true,
             "schema": {
-              "title": "Record Id",
+              "title": "User Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-requested-with",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Requested-With"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "memkit_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memkit Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedbackOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Delete Member"
+      },
+      "put": {
+        "operationId": "put_member_v1_entities__slug__members__user_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-requested-with",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Requested-With"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "memkit_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memkit Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemberIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FlexibleOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Put Member"
+      }
+    },
+    "/v1/entities/{slug}/profile": {
+      "get": {
+        "description": "What is known about this entity, and what lives in its scope.\n\nTwo different questions, answered together because a page about a person\nneeds both: facts the team recorded about them, and facts they recorded\nthemselves in a scope the caller shares.",
+        "operationId": "entity_profile_v1_entities__slug__profile_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
               "type": "string"
             }
           },
           {
             "in": "query",
-            "name": "expected_revision",
-            "required": true,
+            "name": "budget_tokens",
+            "required": false,
             "schema": {
+              "default": 800,
+              "maximum": 20000,
               "minimum": 1,
-              "title": "Expected Revision",
+              "title": "Budget Tokens",
               "type": "integer"
             }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/EntityOut"
-                }
-              }
-            },
-            "description": "Successful Response"
           },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
           {
-            "APIKeyHeader": []
-          }
-        ],
-        "summary": "Delete Record"
-      },
-      "patch": {
-        "operationId": "update_record_v1_collections__namespace___name__records__record_id__patch",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "namespace",
-            "required": true,
+            "in": "header",
+            "name": "x-requested-with",
+            "required": false,
             "schema": {
-              "title": "Namespace",
-              "type": "string"
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Requested-With"
             }
           },
           {
-            "in": "path",
-            "name": "name",
-            "required": true,
+            "in": "cookie",
+            "name": "memkit_session",
+            "required": false,
             "schema": {
-              "title": "Name",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "record_id",
-            "required": true,
-            "schema": {
-              "title": "Record Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RecordPatch"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/EntityOut"
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
                 }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "APIKeyHeader": []
-          }
-        ],
-        "summary": "Update Record"
-      }
-    },
-    "/v1/collections/{namespace}/{name}/records/{record_id}/history": {
-      "get": {
-        "operationId": "record_history_v1_collections__namespace___name__records__record_id__history_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "namespace",
-            "required": true,
-            "schema": {
-              "title": "Namespace",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "name",
-            "required": true,
-            "schema": {
-              "title": "Name",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "record_id",
-            "required": true,
-            "schema": {
-              "title": "Record Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ItemsOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "APIKeyHeader": []
-          }
-        ],
-        "summary": "Record History"
-      }
-    },
-    "/v1/collections/{namespace}/{name}/search": {
-      "post": {
-        "operationId": "search_records_v1_collections__namespace___name__search_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "namespace",
-            "required": true,
-            "schema": {
-              "title": "Namespace",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "name",
-            "required": true,
-            "schema": {
-              "title": "Name",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RecordSearchIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CursorPageOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "APIKeyHeader": []
-          }
-        ],
-        "summary": "Search Records"
-      }
-    },
-    "/v1/erase": {
-      "post": {
-        "operationId": "erase_data_v1_erase_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/EraseIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "202": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/JobQueuedOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "APIKeyHeader": []
-          }
-        ],
-        "summary": "Erase Data"
-      }
-    },
-    "/v1/evaluations": {
-      "get": {
-        "operationId": "list_evaluations_v1_evaluations_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ItemsOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "security": [
-          {
-            "APIKeyHeader": []
-          }
-        ],
-        "summary": "List Evaluations"
-      },
-      "post": {
-        "operationId": "create_evaluation_v1_evaluations_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/EvaluationCreateIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/FlexibleOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "APIKeyHeader": []
-          }
-        ],
-        "summary": "Create Evaluation"
-      }
-    },
-    "/v1/evaluations/{evaluation_id}": {
-      "get": {
-        "operationId": "get_evaluation_v1_evaluations__evaluation_id__get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "evaluation_id",
-            "required": true,
-            "schema": {
-              "title": "Evaluation Id",
-              "type": "string"
+              ],
+              "title": "Memkit Session"
             }
           }
         ],
@@ -3039,216 +4206,46 @@
             "APIKeyHeader": []
           }
         ],
-        "summary": "Get Evaluation"
-      }
-    },
-    "/v1/evaluations/{evaluation_id}/cases": {
-      "get": {
-        "operationId": "list_evaluation_cases_v1_evaluations__evaluation_id__cases_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "evaluation_id",
-            "required": true,
-            "schema": {
-              "title": "Evaluation Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ItemsOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "APIKeyHeader": []
-          }
-        ],
-        "summary": "List Evaluation Cases"
-      }
-    },
-    "/v1/evaluations/{evaluation_id}/cases/{case_id}": {
-      "get": {
-        "operationId": "get_evaluation_case_v1_evaluations__evaluation_id__cases__case_id__get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "evaluation_id",
-            "required": true,
-            "schema": {
-              "title": "Evaluation Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "case_id",
-            "required": true,
-            "schema": {
-              "title": "Case Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/FlexibleOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "APIKeyHeader": []
-          }
-        ],
-        "summary": "Get Evaluation Case"
-      }
-    },
-    "/v1/evaluations/{evaluation_id}/cases/{case_id}/review": {
-      "post": {
-        "operationId": "review_evaluation_case_v1_evaluations__evaluation_id__cases__case_id__review_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "evaluation_id",
-            "required": true,
-            "schema": {
-              "title": "Evaluation Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "case_id",
-            "required": true,
-            "schema": {
-              "title": "Case Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/EvaluationReviewIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/FlexibleOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "APIKeyHeader": []
-          }
-        ],
-        "summary": "Review Evaluation Case"
-      }
-    },
-    "/v1/evaluations/{evaluation_id}/finalize": {
-      "post": {
-        "operationId": "finalize_evaluation_v1_evaluations__evaluation_id__finalize_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "evaluation_id",
-            "required": true,
-            "schema": {
-              "title": "Evaluation Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/FlexibleOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "APIKeyHeader": []
-          }
-        ],
-        "summary": "Finalize Evaluation"
+        "summary": "Entity Profile"
       }
     },
     "/v1/evidence/events": {
       "post": {
         "operationId": "post_message_v1_evidence_events_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-requested-with",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Requested-With"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "memkit_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memkit Session"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -3292,6 +4289,40 @@
     "/v1/evidence/events:batch": {
       "post": {
         "operationId": "post_evidence_batch_v1_evidence_events_batch_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-requested-with",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Requested-With"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "memkit_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memkit Session"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -3334,7 +4365,42 @@
     },
     "/v1/export": {
       "post": {
+        "description": "Export everything this user owns or authored.",
         "operationId": "export_data_v1_export_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-requested-with",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Requested-With"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "memkit_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memkit Session"
+            }
+          }
+        ],
         "responses": {
           "202": {
             "content": {
@@ -3345,6 +4411,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "security": [
@@ -3366,13 +4442,6 @@
             "schema": {
               "anyOf": [
                 {
-                  "enum": [
-                    "queued",
-                    "running",
-                    "complete",
-                    "failed",
-                    "cancelled"
-                  ],
                   "type": "string"
                 },
                 {
@@ -3380,6 +4449,22 @@
                 }
               ],
               "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kind"
             }
           },
           {
@@ -3395,8 +4480,8 @@
             }
           },
           {
-            "in": "query",
-            "name": "cursor",
+            "in": "header",
+            "name": "x-requested-with",
             "required": false,
             "schema": {
               "anyOf": [
@@ -3407,7 +4492,23 @@
                   "type": "null"
                 }
               ],
-              "title": "Cursor"
+              "title": "X-Requested-With"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "memkit_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memkit Session"
             }
           }
         ],
@@ -3416,7 +4517,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/CursorPageOut"
+                  "$ref": "#/components/schemas/ItemsOut"
                 }
               }
             },
@@ -3452,6 +4553,38 @@
             "schema": {
               "title": "Job Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-requested-with",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Requested-With"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "memkit_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memkit Session"
             }
           }
         ],
@@ -3497,6 +4630,38 @@
               "title": "Job Id",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "x-requested-with",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Requested-With"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "memkit_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memkit Session"
+            }
           }
         ],
         "responses": {
@@ -3531,8 +4696,25 @@
     },
     "/v1/memories": {
       "get": {
+        "description": "Filterable, sortable listing with a real total.\n\nOrdered by recency by default. The previous implementation paged by uuid\nwhile the dashboard called the result \"recent memories\", so the list was in\nan arbitrary order that looked chronological.",
         "operationId": "list_memories_v1_memories_get",
         "parameters": [
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
           {
             "in": "query",
             "name": "kind",
@@ -3555,31 +4737,13 @@
             "required": false,
             "schema": {
               "default": "active",
-              "enum": [
-                "active",
-                "archived",
-                "expired",
-                "superseded"
-              ],
               "title": "Status",
               "type": "string"
             }
           },
           {
             "in": "query",
-            "name": "limit",
-            "required": false,
-            "schema": {
-              "default": 100,
-              "maximum": 500,
-              "minimum": 1,
-              "title": "Limit",
-              "type": "integer"
-            }
-          },
-          {
-            "in": "query",
-            "name": "cursor",
+            "name": "source_role",
             "required": false,
             "schema": {
               "anyOf": [
@@ -3590,7 +4754,198 @@
                   "type": "null"
                 }
               ],
-              "title": "Cursor"
+              "title": "Source Role"
+            }
+          },
+          {
+            "in": "query",
+            "name": "scope",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Scope"
+            }
+          },
+          {
+            "in": "query",
+            "name": "subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject"
+            }
+          },
+          {
+            "in": "query",
+            "name": "review_status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Review Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "tag",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tag"
+            }
+          },
+          {
+            "in": "query",
+            "name": "importance_min",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 1,
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Importance Min"
+            }
+          },
+          {
+            "in": "query",
+            "name": "created_from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Created From"
+            }
+          },
+          {
+            "in": "query",
+            "name": "created_to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Created To"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "default": "updated_at",
+              "title": "Sort",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "order",
+            "required": false,
+            "schema": {
+              "default": "desc",
+              "title": "Order",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-requested-with",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Requested-With"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "memkit_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memkit Session"
             }
           }
         ],
@@ -3599,7 +4954,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/CursorPageOut"
+                  "$ref": "#/components/schemas/OffsetPageOut"
                 }
               }
             },
@@ -3624,7 +4979,42 @@
         "summary": "List Memories"
       },
       "post": {
+        "description": "Save one memory.\n\nA user's own manual save into their own scope is confirmed immediately:\nthey just said it, so asking them to confirm it again is noise. Anything\nelse -- a shared scope, or a model-authored write -- starts pending.",
         "operationId": "post_memory_v1_memories_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-requested-with",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Requested-With"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "memkit_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memkit Session"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -3668,6 +5058,40 @@
     "/v1/memories/search": {
       "post": {
         "operationId": "search_memories_v1_memories_search_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-requested-with",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Requested-With"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "memkit_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memkit Session"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -3710,6 +5134,7 @@
     },
     "/v1/memories/{memory_id}": {
       "delete": {
+        "description": "Archive a memory. Reversible, because a mistaken delete is common.",
         "operationId": "delete_memory_v1_memories__memory_id__delete",
         "parameters": [
           {
@@ -3719,6 +5144,38 @@
             "schema": {
               "title": "Memory Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-requested-with",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Requested-With"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "memkit_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memkit Session"
             }
           }
         ],
@@ -3752,7 +5209,7 @@
         "summary": "Delete Memory"
       },
       "get": {
-        "description": "One memory, including `revision`.\n\nA correction is a PATCH carrying `expected_revision`, so an agent needs a\nway to read the current revision of a single fact. Search results carry it\ntoo, but an id learned from a profile block or an earlier turn has nowhere\nelse to come from.",
+        "description": "One memory, including `revision`.\n\nA correction is a PATCH carrying `expected_revision`, so an agent needs a\nway to read the current revision of a single fact. Search results carry it\ntoo, but an id learned from a profile block has nowhere else to come from.",
         "operationId": "get_memory_v1_memories__memory_id__get",
         "parameters": [
           {
@@ -3762,6 +5219,38 @@
             "schema": {
               "title": "Memory Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-requested-with",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Requested-With"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "memkit_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memkit Session"
             }
           }
         ],
@@ -3804,6 +5293,38 @@
             "schema": {
               "title": "Memory Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-requested-with",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Requested-With"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "memkit_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memkit Session"
             }
           }
         ],
@@ -3859,6 +5380,38 @@
               "title": "Memory Id",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "x-requested-with",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Requested-With"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "memkit_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memkit Session"
+            }
           }
         ],
         "responses": {
@@ -3891,6 +5444,169 @@
         "summary": "Memory History"
       }
     },
+    "/v1/memories/{memory_id}/restore": {
+      "post": {
+        "operationId": "restore_memory_v1_memories__memory_id__restore_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "memory_id",
+            "required": true,
+            "schema": {
+              "title": "Memory Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-requested-with",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Requested-With"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "memkit_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memkit Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntityOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Restore Memory"
+      }
+    },
+    "/v1/memories/{memory_id}/review": {
+      "post": {
+        "description": "Confirm or delete an unreviewed memory, or undo that decision.",
+        "operationId": "review_memory_v1_memories__memory_id__review_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "memory_id",
+            "required": true,
+            "schema": {
+              "title": "Memory Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-requested-with",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Requested-With"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "memkit_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memkit Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntityOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Review Memory"
+      }
+    },
     "/v1/memories/{memory_id}/sources": {
       "get": {
         "operationId": "memory_sources_v1_memories__memory_id__sources_get",
@@ -3902,6 +5618,38 @@
             "schema": {
               "title": "Memory Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-requested-with",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Requested-With"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "memkit_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memkit Session"
             }
           }
         ],
@@ -3935,269 +5683,13 @@
         "summary": "Memory Sources"
       }
     },
-    "/v1/namespaces": {
-      "get": {
-        "operationId": "list_namespaces_v1_namespaces_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ItemsOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "security": [
-          {
-            "APIKeyHeader": []
-          }
-        ],
-        "summary": "List Namespaces"
-      },
-      "post": {
-        "operationId": "create_namespace_v1_namespaces_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/NamespaceIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/EntityOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "APIKeyHeader": []
-          }
-        ],
-        "summary": "Create Namespace"
-      }
-    },
-    "/v1/namespaces/{namespace}/collections": {
-      "get": {
-        "operationId": "list_collections_v1_namespaces__namespace__collections_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "namespace",
-            "required": true,
-            "schema": {
-              "title": "Namespace",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ItemsOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "APIKeyHeader": []
-          }
-        ],
-        "summary": "List Collections"
-      },
-      "post": {
-        "operationId": "create_collection_v1_namespaces__namespace__collections_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "namespace",
-            "required": true,
-            "schema": {
-              "title": "Namespace",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CollectionIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/EntityOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "APIKeyHeader": []
-          }
-        ],
-        "summary": "Create Collection"
-      }
-    },
-    "/v1/namespaces/{namespace}/links": {
-      "get": {
-        "operationId": "list_links_v1_namespaces__namespace__links_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "namespace",
-            "required": true,
-            "schema": {
-              "title": "Namespace",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ItemsOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "APIKeyHeader": []
-          }
-        ],
-        "summary": "List Links"
-      },
-      "post": {
-        "operationId": "create_link_v1_namespaces__namespace__links_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "namespace",
-            "required": true,
-            "schema": {
-              "title": "Namespace",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/LinkIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/EntityOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "APIKeyHeader": []
-          }
-        ],
-        "summary": "Create Link"
-      }
-    },
     "/v1/policies": {
       "get": {
         "operationId": "list_policies_v1_policies_get",
         "parameters": [
           {
             "in": "query",
-            "name": "namespace",
+            "name": "kind",
             "required": false,
             "schema": {
               "anyOf": [
@@ -4208,7 +5700,55 @@
                   "type": "null"
                 }
               ],
-              "title": "Namespace"
+              "title": "Kind"
+            }
+          },
+          {
+            "in": "query",
+            "name": "scope",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Scope"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-requested-with",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Requested-With"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "memkit_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memkit Session"
             }
           }
         ],
@@ -4243,6 +5783,40 @@
       },
       "post": {
         "operationId": "create_policy_v1_policies_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-requested-with",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Requested-With"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "memkit_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memkit Session"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -4285,7 +5859,42 @@
     },
     "/v1/profiles/render": {
       "post": {
+        "description": "The block an agent injects at the start of a session.",
         "operationId": "render_profile_v1_profiles_render_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-requested-with",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Requested-With"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "memkit_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memkit Session"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -4326,433 +5935,43 @@
         "summary": "Render Profile"
       }
     },
-    "/v1/replay-batches": {
-      "get": {
-        "operationId": "list_replay_batches_v1_replay_batches_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ItemsOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "security": [
-          {
-            "APIKeyHeader": []
-          }
-        ],
-        "summary": "List Replay Batches"
-      }
-    },
-    "/v1/replay-batches/{batch_id}": {
-      "get": {
-        "operationId": "replay_batch_v1_replay_batches__batch_id__get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "batch_id",
-            "required": true,
-            "schema": {
-              "title": "Batch Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/FlexibleOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "APIKeyHeader": []
-          }
-        ],
-        "summary": "Replay Batch"
-      }
-    },
-    "/v1/replay-batches/{batch_id}/approve": {
-      "post": {
-        "operationId": "approve_replay_batch_v1_replay_batches__batch_id__approve_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "batch_id",
-            "required": true,
-            "schema": {
-              "title": "Batch Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ChecksumIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/FlexibleOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "APIKeyHeader": []
-          }
-        ],
-        "summary": "Approve Replay Batch"
-      }
-    },
-    "/v1/replay-batches/{batch_id}/export": {
-      "post": {
-        "operationId": "export_replay_batch_v1_replay_batches__batch_id__export_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "batch_id",
-            "required": true,
-            "schema": {
-              "title": "Batch Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/FlexibleOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "APIKeyHeader": []
-          }
-        ],
-        "summary": "Export Replay Batch"
-      }
-    },
-    "/v1/replay-batches/{batch_id}/items": {
-      "get": {
-        "operationId": "replay_batch_items_v1_replay_batches__batch_id__items_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "batch_id",
-            "required": true,
-            "schema": {
-              "title": "Batch Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ItemsOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "APIKeyHeader": []
-          }
-        ],
-        "summary": "Replay Batch Items"
-      }
-    },
-    "/v1/replay-batches/{batch_id}/items/{item_id}/review": {
-      "patch": {
-        "operationId": "review_replay_item_v1_replay_batches__batch_id__items__item_id__review_patch",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "batch_id",
-            "required": true,
-            "schema": {
-              "title": "Batch Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "item_id",
-            "required": true,
-            "schema": {
-              "title": "Item Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ReplayReviewIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/FlexibleOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "APIKeyHeader": []
-          }
-        ],
-        "summary": "Review Replay Item"
-      }
-    },
-    "/v1/replay-batches/{batch_id}/promote": {
-      "post": {
-        "operationId": "promote_replay_batch_v1_replay_batches__batch_id__promote_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "batch_id",
-            "required": true,
-            "schema": {
-              "title": "Batch Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PromotionIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/FlexibleOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "APIKeyHeader": []
-          }
-        ],
-        "summary": "Promote Replay Batch"
-      }
-    },
-    "/v1/replay-batches/{batch_id}/promotion-gates": {
-      "post": {
-        "operationId": "replay_promotion_gates_v1_replay_batches__batch_id__promotion_gates_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "batch_id",
-            "required": true,
-            "schema": {
-              "title": "Batch Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ChecksumIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/FlexibleOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "APIKeyHeader": []
-          }
-        ],
-        "summary": "Replay Promotion Gates"
-      }
-    },
-    "/v1/replay-batches/{batch_id}/validate": {
-      "post": {
-        "operationId": "validate_replay_batch_v1_replay_batches__batch_id__validate_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "batch_id",
-            "required": true,
-            "schema": {
-              "title": "Batch Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/FlexibleOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "APIKeyHeader": []
-          }
-        ],
-        "summary": "Validate Replay Batch"
-      }
-    },
     "/v1/retrieval-feedback": {
       "post": {
         "operationId": "retrieval_feedback_v1_retrieval_feedback_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-requested-with",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Requested-With"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "memkit_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memkit Session"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -4808,6 +6027,38 @@
               "title": "Limit",
               "type": "integer"
             }
+          },
+          {
+            "in": "header",
+            "name": "x-requested-with",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Requested-With"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "memkit_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memkit Session"
+            }
           }
         ],
         "responses": {
@@ -4852,6 +6103,38 @@
               "title": "Retrieval Id",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "x-requested-with",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Requested-With"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "memkit_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memkit Session"
+            }
           }
         ],
         "requestBody": {
@@ -4894,6 +6177,113 @@
         "summary": "Retrieval Run Feedback"
       }
     },
+    "/v1/review": {
+      "get": {
+        "description": "Everything waiting on a person.\n\nFour different things share one queue because they share one question --\n\"is this right?\" -- and splitting them across screens is how a queue stops\nbeing read. Pending memories are found by their review status rather than\nduplicated into a work table, so confirming one cannot leave a stale row.",
+        "operationId": "review_queue_v1_review_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kind"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-requested-with",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Requested-With"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "memkit_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memkit Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Review Queue"
+      }
+    },
     "/v1/sessions/{session_id}/close": {
       "post": {
         "operationId": "close_session_v1_sessions__session_id__close_post",
@@ -4905,6 +6295,38 @@
             "schema": {
               "title": "Session Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-requested-with",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Requested-With"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "memkit_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memkit Session"
             }
           }
         ],
@@ -4936,6 +6358,323 @@
           }
         ],
         "summary": "Close Session"
+      }
+    },
+    "/v1/users": {
+      "get": {
+        "description": "Everyone on the team.\n\nNot admin-only: a team memory system is unusable if you cannot see who your\nteammates are, and a fact can name any of them as its subject. Only\nidentity is exposed here, never credentials.",
+        "operationId": "list_users_v1_users_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-requested-with",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Requested-With"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "memkit_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memkit Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "List Users"
+      },
+      "post": {
+        "operationId": "create_user_v1_users_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-requested-with",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Requested-With"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "memkit_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memkit Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FlexibleOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Create User"
+      }
+    },
+    "/v1/users/{user_id}": {
+      "patch": {
+        "description": "Change a role or disable an account.\n\nThe last enabled administrator cannot be demoted or disabled: an instance\nwith no administrator cannot create users, keys, or entities again.",
+        "operationId": "patch_user_v1_users__user_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-requested-with",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Requested-With"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "memkit_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memkit Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FlexibleOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Patch User"
+      }
+    },
+    "/v1/users/{user_id}/erase": {
+      "post": {
+        "description": "Erase one user's private data.\n\nA user may erase themselves; only an administrator may erase somebody else.\nMemories they authored in shared scopes are the team's record and are not\nremoved -- the job refuses rather than deleting them, and says how many.",
+        "operationId": "erase_user_data_v1_users__user_id__erase_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-requested-with",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Requested-With"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "memkit_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memkit Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EraseIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobQueuedOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Erase User Data"
       }
     }
   }

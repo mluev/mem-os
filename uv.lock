@@ -756,7 +756,7 @@ wheels = [
 
 [[package]]
 name = "memkit"
-version = "0.2.0"
+version = "0.3.0"
 source = { editable = "." }
 dependencies = [
     { name = "anthropic" },
@@ -767,6 +767,7 @@ dependencies = [
     { name = "h2" },
     { name = "httpx" },
     { name = "jsonschema" },
+    { name = "numpy" },
     { name = "psycopg", extra = ["binary", "pool"] },
     { name = "pydantic" },
     { name = "pydantic-settings" },
@@ -798,6 +799,7 @@ requires-dist = [
     { name = "h2", specifier = ">=4.4.1" },
     { name = "httpx", specifier = ">=0.28" },
     { name = "jsonschema", specifier = ">=4.25" },
+    { name = "numpy", specifier = ">=2.0" },
     { name = "psycopg", extras = ["binary", "pool"], specifier = ">=3.2" },
     { name = "pydantic", specifier = ">=2.9" },
     { name = "pydantic-settings", specifier = ">=2.6" },

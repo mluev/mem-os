@@ -8,20 +8,32 @@ from ... import errors
 from ...client import AuthenticatedClient, Client
 from ...models.http_validation_error import HTTPValidationError
 from ...models.job_out import JobOut
-from ...types import Response
+from ...types import UNSET, Response, Unset
 
 
 def _get_kwargs(
     job_id: str,
+    *,
+    x_requested_with: None | str | Unset = UNSET,
+    memkit_session: None | str | Unset = UNSET,
 ) -> dict[str, Any]:
+    headers: dict[str, Any] = {}
+    if not isinstance(x_requested_with, Unset):
+        headers["x-requested-with"] = x_requested_with
+
+    cookies = {}
+    if memkit_session is not UNSET:
+        cookies["memkit_session"] = memkit_session
 
     _kwargs: dict[str, Any] = {
         "method": "get",
         "url": "/v1/jobs/{job_id}".format(
             job_id=quote(str(job_id), safe=""),
         ),
+        "cookies": cookies,
     }
 
+    _kwargs["headers"] = headers
     return _kwargs
 
 
@@ -59,11 +71,15 @@ def sync_detailed(
     job_id: str,
     *,
     client: AuthenticatedClient,
+    x_requested_with: None | str | Unset = UNSET,
+    memkit_session: None | str | Unset = UNSET,
 ) -> Response[HTTPValidationError | JobOut]:
     """Get Job
 
     Args:
         job_id (str):
+        x_requested_with (None | str | Unset):
+        memkit_session (None | str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -75,6 +91,8 @@ def sync_detailed(
 
     kwargs = _get_kwargs(
         job_id=job_id,
+        x_requested_with=x_requested_with,
+        memkit_session=memkit_session,
     )
 
     response = client.get_httpx_client().request(
@@ -88,11 +106,15 @@ def sync(
     job_id: str,
     *,
     client: AuthenticatedClient,
+    x_requested_with: None | str | Unset = UNSET,
+    memkit_session: None | str | Unset = UNSET,
 ) -> HTTPValidationError | JobOut | None:
     """Get Job
 
     Args:
         job_id (str):
+        x_requested_with (None | str | Unset):
+        memkit_session (None | str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -105,6 +127,8 @@ def sync(
     return sync_detailed(
         job_id=job_id,
         client=client,
+        x_requested_with=x_requested_with,
+        memkit_session=memkit_session,
     ).parsed
 
 
@@ -112,11 +136,15 @@ async def asyncio_detailed(
     job_id: str,
     *,
     client: AuthenticatedClient,
+    x_requested_with: None | str | Unset = UNSET,
+    memkit_session: None | str | Unset = UNSET,
 ) -> Response[HTTPValidationError | JobOut]:
     """Get Job
 
     Args:
         job_id (str):
+        x_requested_with (None | str | Unset):
+        memkit_session (None | str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -128,6 +156,8 @@ async def asyncio_detailed(
 
     kwargs = _get_kwargs(
         job_id=job_id,
+        x_requested_with=x_requested_with,
+        memkit_session=memkit_session,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -139,11 +169,15 @@ async def asyncio(
     job_id: str,
     *,
     client: AuthenticatedClient,
+    x_requested_with: None | str | Unset = UNSET,
+    memkit_session: None | str | Unset = UNSET,
 ) -> HTTPValidationError | JobOut | None:
     """Get Job
 
     Args:
         job_id (str):
+        x_requested_with (None | str | Unset):
+        memkit_session (None | str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -157,5 +191,7 @@ async def asyncio(
         await asyncio_detailed(
             job_id=job_id,
             client=client,
+            x_requested_with=x_requested_with,
+            memkit_session=memkit_session,
         )
     ).parsed

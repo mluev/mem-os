@@ -212,11 +212,15 @@ def revoke_session(conn: psycopg.Connection, token: str) -> None:
 
 def revoke_all_sessions(conn: psycopg.Connection, *, user_id: str, keep: str | None = None) -> None:
     """Sign a user out everywhere. Used after a password change."""
+    # The cast is required, not cosmetic: an untyped NULL parameter in a
+    # comparison leaves Postgres unable to infer the type and the whole
+    # statement fails, which made every password change a 500.
+    kept = _token_hash(keep) if keep else None
     conn.execute(
         """UPDATE auth_sessions SET revoked_at=now()
             WHERE user_id=%s AND revoked_at IS NULL
-              AND (%s IS NULL OR token_hash <> %s)""",
-        (user_id, keep, _token_hash(keep) if keep else None),
+              AND (%s::text IS NULL OR token_hash <> %s::text)""",
+        (user_id, kept, kept),
     )
 
 

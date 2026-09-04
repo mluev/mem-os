@@ -36,6 +36,8 @@ import yaml
 
 TARGETS = ("raw", "memories")
 
+DEFAULT_QUERIES = Path(__file__).parent / "queries.yaml"
+
 # Metric keys, in report order. Shared by the single-target report and the
 # side-by-side comparison so the two cannot drift apart.
 METRICS = ("cases", "recall", "mrr", "top1", "rejects", "mean_tokens", "max_tokens")
@@ -98,13 +100,17 @@ def load_cases(queries_path: Path) -> list[Case]:
     ]
 
 
-def score(conn, client, embedder, settings, cases: list[Case], *, target: str, limit: int):
+def score(conn, client, embedder, scope_ids, cases: list[Case], *, target: str, limit: int):
     """Score one target over exactly the cases handed in.
 
     Case *selection* is the caller's job on purpose. Filtering inside the scorer
     is what made the two targets incomparable: `run_eval` narrows per target, so
     `--target raw` scored 47 cases against `--target memories`' 31 and the two
     printouts were read side by side as though they were the same questions.
+
+    `scope_ids` rather than an owner: on a team instance the eval measures what
+    one principal can reach, and a score computed over every scope in the
+    database would flatter retrieval by ranking against facts no caller sees.
     """
     from memkit import retrieval, store
 
@@ -120,7 +126,7 @@ def score(conn, client, embedder, settings, cases: list[Case], *, target: str, l
                 client,
                 embedder,
                 query=case.query,
-                owner_id=settings.owner_id,
+                scope_ids=scope_ids,
                 expression={
                     "all": [
                         {"field": f"context.{key}", "op": "eq", "value": value}
@@ -139,7 +145,7 @@ def score(conn, client, embedder, settings, cases: list[Case], *, target: str, l
                 client,
                 embedder,
                 query=case.query,
-                owner_id=settings.owner_id,
+                scope_ids=scope_ids,
                 limit=max(limit, 50),
             )
             if case.context:
@@ -192,8 +198,25 @@ def score(conn, client, embedder, settings, cases: list[Case], *, target: str, l
     }
 
 
+def _principal_scopes(conn) -> list[str]:
+    """The scopes of the instance's administrator.
+
+    The eval has no request behind it, so it borrows an identity rather than
+    inventing one. The administrator is the widest legitimate view, which makes
+    the score an upper bound on what any caller would see.
+    """
+    from memkit import principal, users
+
+    admins = [
+        row for row in users.listing(conn) if row["role"] == "admin" and not row["disabled_at"]
+    ]
+    if not admins:
+        raise ValueError("no enabled administrator to run the eval as")
+    return principal.load(conn, str(admins[0]["id"])).scopes()
+
+
 def _setup(queries_path: Path):
-    """Shared preamble: parse the file, open Qdrant, load the embedder."""
+    """Shared preamble: parse the file, open Postgres and Qdrant, load the model."""
     from memkit import vectors
     from memkit.config import get_settings
     from memkit.db import connect
@@ -205,16 +228,19 @@ def _setup(queries_path: Path):
     if not cases:
         raise ValueError("eval file is empty")
     settings = get_settings()
+    conn = connect(settings.database_url)
     return (
         cases,
-        settings,
-        connect(settings.db_path),
+        _principal_scopes(conn),
+        conn,
         vectors.get_client(settings.qdrant_url),
         get_embedder(),
     )
 
 
-def run_eval(queries_path: Path, limit: int = 10, target: str = "raw") -> int:
+def run_eval(
+    queries_path: Path | None = None, *, limit: int | None = None, target: str = "memories"
+) -> dict[str, Any]:
     """Run the eval against raw turns or extracted facts.
 
     `raw` is the stage-1 baseline: semantic search over the user's own messages.
@@ -228,11 +254,13 @@ def run_eval(queries_path: Path, limit: int = 10, target: str = "raw") -> int:
     """
     from memkit import vectors
 
+    queries_path = queries_path or DEFAULT_QUERIES
+    limit = limit or 10
     try:
-        all_cases, settings, conn, client, embedder = _setup(queries_path)
+        all_cases, scope_ids, conn, client, embedder = _setup(queries_path)
     except (FileNotFoundError, ValueError) as exc:
         print(exc, file=sys.stderr)
-        return 1
+        return {"error": str(exc)}
 
     # A question the extractor is *right* to have no answer for must not be
     # scored against the memory store. Measured before this split: 19 of 22
@@ -244,7 +272,7 @@ def run_eval(queries_path: Path, limit: int = 10, target: str = "raw") -> int:
     skipped = [c for c in all_cases if target not in c.answerable_by]
     if not cases:
         print(f"no cases answerable by {target!r}", file=sys.stderr)
-        return 1
+        return {"error": f"no cases answerable by {target!r}"}
 
     if target == "memories":
         n_facts = vectors.count(client, vectors.MEMORIES)
@@ -256,12 +284,12 @@ def run_eval(queries_path: Path, limit: int = 10, target: str = "raw") -> int:
                 "`memkit drain-index`",
                 file=sys.stderr,
             )
-            return 1
+            return {"error": "no extracted facts in the store"}
         print(f"target            memories ({n_facts} facts)")
     else:
         print(f"target            raw ({vectors.count(client, vectors.RAW)} turns)")
 
-    m = score(conn, client, embedder, settings, cases, target=target, limit=limit)
+    m = score(conn, client, embedder, scope_ids, cases, target=target, limit=limit)
     print(f"cases             {m['cases']}")
     if skipped:
         # Named, never silent: a suppressed case is a coverage claim not being
@@ -283,10 +311,10 @@ def run_eval(queries_path: Path, limit: int = 10, target: str = "raw") -> int:
         print("\nfailures:")
         for line in m["failures"]:
             print(line)
-    return 0
+    return {"target": target, "skipped": [c.id for c in skipped], **m}
 
 
-def run_compare(queries_path: Path, limit: int = 10) -> int:
+def run_compare(queries_path: Path | None = None, *, limit: int | None = None) -> dict[str, Any]:
     """Score both targets over the cases both can answer.
 
     This is the number the stage-2 exit gate turns on, so it has to be the same
@@ -294,20 +322,22 @@ def run_compare(queries_path: Path, limit: int = 10) -> int:
     wide margin per token; which of those matters is a judgement call, and the
     point of printing both is that the call is made in the open.
     """
+    queries_path = queries_path or DEFAULT_QUERIES
+    limit = limit or 10
     try:
-        all_cases, settings, conn, client, embedder = _setup(queries_path)
+        all_cases, scope_ids, conn, client, embedder = _setup(queries_path)
     except (FileNotFoundError, ValueError) as exc:
         print(exc, file=sys.stderr)
-        return 1
+        return {"error": str(exc)}
 
     shared = [c for c in all_cases if set(TARGETS) <= set(c.answerable_by)]
     if not shared:
         print("no case is answerable by both targets", file=sys.stderr)
-        return 1
+        return {"error": "no case is answerable by both targets"}
     excluded = [c for c in all_cases if c not in shared]
 
     results = {
-        t: score(conn, client, embedder, settings, shared, target=t, limit=limit) for t in TARGETS
+        t: score(conn, client, embedder, scope_ids, shared, target=t, limit=limit) for t in TARGETS
     }
 
     print(f"shared cases      {len(shared)} of {len(all_cases)}")
@@ -338,14 +368,16 @@ def run_compare(queries_path: Path, limit: int = 10) -> int:
     for t in TARGETS:
         misses = [f.split(":")[0].strip() for f in results[t]["failures"]]
         print(f"{t} misses: {', '.join(misses) or 'none'}")
-    return 0
+    return {"shared_cases": [c.id for c in shared], "targets": results}
 
 
 if __name__ == "__main__":
     argv = sys.argv[1:]
     if "--compare" in argv:
         argv.remove("--compare")
-        path = Path(argv[0] if argv else "eval/queries.yaml")
-        raise SystemExit(run_compare(path))
-    path = Path(argv[0] if argv else "eval/queries.yaml")
-    raise SystemExit(run_eval(path, target=argv[1] if len(argv) > 1 else "raw"))
+        outcome = run_compare(Path(argv[0]) if argv else None)
+    else:
+        outcome = run_eval(
+            Path(argv[0]) if argv else None, target=argv[1] if len(argv) > 1 else "raw"
+        )
+    raise SystemExit(int("error" in outcome))

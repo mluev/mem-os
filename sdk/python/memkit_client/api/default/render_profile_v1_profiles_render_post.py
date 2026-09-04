@@ -8,18 +8,27 @@ from ...client import AuthenticatedClient, Client
 from ...models.http_validation_error import HTTPValidationError
 from ...models.profile_in import ProfileIn
 from ...models.profile_out import ProfileOut
-from ...types import Response
+from ...types import UNSET, Response, Unset
 
 
 def _get_kwargs(
     *,
     body: ProfileIn,
+    x_requested_with: None | str | Unset = UNSET,
+    memkit_session: None | str | Unset = UNSET,
 ) -> dict[str, Any]:
     headers: dict[str, Any] = {}
+    if not isinstance(x_requested_with, Unset):
+        headers["x-requested-with"] = x_requested_with
+
+    cookies = {}
+    if memkit_session is not UNSET:
+        cookies["memkit_session"] = memkit_session
 
     _kwargs: dict[str, Any] = {
         "method": "post",
         "url": "/v1/profiles/render",
+        "cookies": cookies,
     }
 
     _kwargs["json"] = body.to_dict()
@@ -64,10 +73,16 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
     body: ProfileIn,
+    x_requested_with: None | str | Unset = UNSET,
+    memkit_session: None | str | Unset = UNSET,
 ) -> Response[HTTPValidationError | ProfileOut]:
     """Render Profile
 
+     The block an agent injects at the start of a session.
+
     Args:
+        x_requested_with (None | str | Unset):
+        memkit_session (None | str | Unset):
         body (ProfileIn):
 
     Raises:
@@ -80,6 +95,8 @@ def sync_detailed(
 
     kwargs = _get_kwargs(
         body=body,
+        x_requested_with=x_requested_with,
+        memkit_session=memkit_session,
     )
 
     response = client.get_httpx_client().request(
@@ -93,10 +110,16 @@ def sync(
     *,
     client: AuthenticatedClient,
     body: ProfileIn,
+    x_requested_with: None | str | Unset = UNSET,
+    memkit_session: None | str | Unset = UNSET,
 ) -> HTTPValidationError | ProfileOut | None:
     """Render Profile
 
+     The block an agent injects at the start of a session.
+
     Args:
+        x_requested_with (None | str | Unset):
+        memkit_session (None | str | Unset):
         body (ProfileIn):
 
     Raises:
@@ -110,6 +133,8 @@ def sync(
     return sync_detailed(
         client=client,
         body=body,
+        x_requested_with=x_requested_with,
+        memkit_session=memkit_session,
     ).parsed
 
 
@@ -117,10 +142,16 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
     body: ProfileIn,
+    x_requested_with: None | str | Unset = UNSET,
+    memkit_session: None | str | Unset = UNSET,
 ) -> Response[HTTPValidationError | ProfileOut]:
     """Render Profile
 
+     The block an agent injects at the start of a session.
+
     Args:
+        x_requested_with (None | str | Unset):
+        memkit_session (None | str | Unset):
         body (ProfileIn):
 
     Raises:
@@ -133,6 +164,8 @@ async def asyncio_detailed(
 
     kwargs = _get_kwargs(
         body=body,
+        x_requested_with=x_requested_with,
+        memkit_session=memkit_session,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -144,10 +177,16 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
     body: ProfileIn,
+    x_requested_with: None | str | Unset = UNSET,
+    memkit_session: None | str | Unset = UNSET,
 ) -> HTTPValidationError | ProfileOut | None:
     """Render Profile
 
+     The block an agent injects at the start of a session.
+
     Args:
+        x_requested_with (None | str | Unset):
+        memkit_session (None | str | Unset):
         body (ProfileIn):
 
     Raises:
@@ -162,5 +201,7 @@ async def asyncio(
         await asyncio_detailed(
             client=client,
             body=body,
+            x_requested_with=x_requested_with,
+            memkit_session=memkit_session,
         )
     ).parsed

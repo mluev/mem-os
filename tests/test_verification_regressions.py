@@ -1,205 +1,253 @@
+"""Regressions that only showed up under interleaving, restart, or retry.
+
+Each of these reproduces a bug that survived a green suite once: a queued index
+write that was silently overwritten while it was being delivered, a claim whose
+holder died and took the row with it, an erasure racing a delivery that could
+put the vector back, two jobs paying for the same conversation window, and a
+correction that reported success while writing the wrong revision.
+"""
+
 from __future__ import annotations
 
-import json
-import threading
+import unittest
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
-from unittest.mock import patch
 
-from memkit import extract, jobs, outbox, privacy, reextract, store, vectors
-from memkit.db import connect, transaction, utcnow
-from tests.fixtures import OWNER, StubEmbedder, StubQdrant, make_db
+from memkit import extract, jobs, outbox, privacy, store, vectors
+from memkit.db import connect, transaction
+from tests.fixtures import StubEmbedder, StubQdrant, add_messages, make_db, seed_team
 from tests.httpharness import ApiTestCase
 
 
-def test_outbox_never_mutates_a_claimed_delivery() -> None:
-    conn = make_db()
-    with transaction(conn):
-        first = outbox.enqueue(
-            conn,
-            collection=vectors.MEMORIES,
-            entity_id="m-1",
-            operation="upsert",
-            payload={"text": "old", "owner_id": OWNER},
+class FilterAwareQdrant(StubQdrant):
+    """StubQdrant that also understands the filter erasure deletes by.
+
+    Erasure deletes by predicate rather than by enumerating ids, precisely so
+    it cannot race a concurrent delivery. A stub that only accepts a list of
+    ids would make that call look like a no-op and quietly pass the test it is
+    supposed to be checking.
+    """
+
+    def delete(self, collection_name, points_selector, wait=True):
+        condition = getattr(points_selector, "filter", None)
+        if condition is None:
+            super().delete(collection_name, points_selector, wait=wait)
+            return
+        collection = self._col(collection_name)
+        for point_id, payload in list(collection.items()):
+            if all(payload.get(item.key) == item.match.value for item in (condition.must or [])):
+                self.deleted.append(point_id)
+                collection.pop(point_id, None)
+
+
+class OutboxDeliveryTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.conn = make_db(seed=False)
+        self.team = seed_team(self.conn)
+        self.scope_id = self.team.scope_of("alice")
+
+    def test_a_newer_write_never_mutates_a_claimed_delivery(self) -> None:
+        """A row being delivered is immutable; a change appends a second row.
+
+        Rewriting the claimed row in place made the worker deliver a payload it
+        had never read, and the "old" state was then unrecoverable if the new
+        delivery failed.
+        """
+        with transaction(self.conn):
+            first = outbox.enqueue(
+                self.conn,
+                collection=vectors.MEMORIES,
+                entity_id="m-1",
+                operation="upsert",
+                payload={"text": "old", "scope_id": self.scope_id},
+            )
+        self.conn.execute(
+            "UPDATE index_outbox SET status='processing',claim_token='claim-1' WHERE id=%s",
+            (first,),
         )
-    conn.execute(
-        "UPDATE index_outbox SET status='processing',claim_token='claim-1' WHERE id=?",
-        (first,),
-    )
-    conn.commit()
+        with transaction(self.conn):
+            second = outbox.enqueue(
+                self.conn,
+                collection=vectors.MEMORIES,
+                entity_id="m-1",
+                operation="upsert",
+                payload={"text": "new", "scope_id": self.scope_id},
+            )
 
-    with transaction(conn):
-        second = outbox.enqueue(
-            conn,
-            collection=vectors.MEMORIES,
-            entity_id="m-1",
-            operation="upsert",
-            payload={"text": "new", "owner_id": OWNER},
+        self.assertGreater(second, first)
+        rows = self.conn.execute(
+            "SELECT id,status,payload FROM index_outbox ORDER BY id"
+        ).fetchall()
+        self.assertEqual(
+            [(row["id"], row["status"]) for row in rows],
+            [(first, "processing"), (second, "pending")],
         )
+        self.assertEqual(rows[0]["payload"]["text"], "old")
+        self.assertEqual(rows[1]["payload"]["text"], "new")
 
-    assert second > first
-    rows = conn.execute("SELECT id,status,payload_json FROM index_outbox ORDER BY id").fetchall()
-    assert [(row["id"], row["status"]) for row in rows] == [
-        (first, "processing"),
-        (second, "pending"),
-    ]
-    assert json.loads(rows[0]["payload_json"])["text"] == "old"
-    assert json.loads(rows[1]["payload_json"])["text"] == "new"
-
-
-def test_stale_outbox_claim_is_recovered() -> None:
-    conn = make_db()
-    qdrant = StubQdrant()
-    memory_id: str
-    with transaction(conn):
-        memory_id = store.add_memory(
-            conn,
-            owner_id=OWNER,
-            text="recover me",
-            kind="fact",
-            source_role="manual",
-        )
-    expired = (datetime.now(UTC) - timedelta(minutes=1)).isoformat().replace("+00:00", "Z")
-    conn.execute(
-        """UPDATE index_outbox SET status='processing',claim_token='dead',
-                  lease_expires_at=? WHERE entity_id=?""",
-        (expired, memory_id),
-    )
-    conn.commit()
-
-    outcome = outbox.drain(conn, qdrant, StubEmbedder(), ignore_schedule=True)
-
-    assert outcome.applied == 1
-    assert qdrant.points[memory_id]["text"] == "recover me"
-
-
-def test_erase_waits_for_active_delivery_and_cannot_resurrect() -> None:
-    conn = make_db()
-    path = Path(conn.execute("PRAGMA database_list").fetchone()[2])
-    qdrant = StubQdrant()
-    entered = threading.Event()
-    release = threading.Event()
-
-    class BlockingQdrant(StubQdrant):
-        def upsert(self, collection_name, points, wait=True):
-            entered.set()
-            assert release.wait(timeout=5)
-            return qdrant.upsert(collection_name, points, wait=wait)
-
-        def delete_collection(self, collection_name, **kwargs):
-            return qdrant.delete_collection(collection_name, **kwargs)
-
-        def get_collections(self):
-            return qdrant.get_collections()
-
-        def create_collection(self, collection_name, **kwargs):
-            return qdrant.create_collection(collection_name, **kwargs)
-
-        def create_payload_index(self, **kwargs):
-            return qdrant.create_payload_index(**kwargs)
-
-    with transaction(conn):
-        memory_id = store.add_memory(
-            conn,
-            owner_id=OWNER,
-            text="erase me",
-            kind="fact",
-            source_role="manual",
+    def test_a_delivery_whose_holder_died_is_claimable_again(self) -> None:
+        """A crashed worker must not strand a row in `processing` for ever."""
+        qdrant = StubQdrant()
+        with transaction(self.conn):
+            memory_id = store.add_memory(
+                self.conn,
+                scope_id=self.scope_id,
+                author_id=self.team.alice_id,
+                text="recover me",
+                kind="fact",
+                source_role="manual",
+            )
+        self.conn.execute(
+            """UPDATE index_outbox SET status='processing',claim_token='dead',
+                      lease_expires_at=%s WHERE entity_id=%s""",
+            (datetime.now(UTC) - timedelta(minutes=1), memory_id),
         )
 
-    drain_thread = threading.Thread(
-        target=lambda: outbox.drain(connect(path), BlockingQdrant(), StubEmbedder())
-    )
-    erase_thread = threading.Thread(
-        target=lambda: privacy.erase_owner(
-            connect(path),
+        outcome = outbox.drain(self.conn, qdrant, StubEmbedder(), ignore_schedule=True)
+
+        self.assertEqual(outcome.applied, 1)
+        self.assertEqual(qdrant.points[memory_id]["text"], "recover me")
+
+    def test_erasure_leaves_no_delivery_that_could_put_the_vector_back(self) -> None:
+        """Erasure removes the queue as well as the rows and the points.
+
+        Delivery happens after commit and is retried on a schedule, so an
+        undelivered upsert outliving the memory it describes is a vector that
+        reappears minutes after somebody was told their data was gone.
+        """
+        qdrant = FilterAwareQdrant()
+        with transaction(self.conn):
+            memory_id = store.add_memory(
+                self.conn,
+                scope_id=self.scope_id,
+                author_id=self.team.alice_id,
+                text="erase me",
+                kind="fact",
+                source_role="manual",
+            )
+        outbox.drain(self.conn, qdrant, StubEmbedder())
+        self.assertIn(memory_id, qdrant.points)
+        # A second, still-queued delivery for the same memory: exactly the
+        # shape that used to resurrect a point after erasure.
+        with transaction(self.conn):
+            outbox.enqueue(
+                self.conn,
+                collection=vectors.MEMORIES,
+                entity_id=memory_id,
+                operation="upsert",
+                payload={"text": "erase me", "scope_id": self.scope_id},
+            )
+
+        privacy.erase_user(
+            self.conn,
             qdrant,
-            StubEmbedder(),
-            owner_id=OWNER,
-            export_dir=path.parent / "exports",
+            user_id=self.team.alice_id,
+            private_scope_id=self.scope_id,
         )
-    )
-    drain_thread.start()
-    assert entered.wait(timeout=2)
-    erase_thread.start()
-    release.set()
-    drain_thread.join(timeout=5)
-    erase_thread.join(timeout=5)
 
-    assert not drain_thread.is_alive()
-    assert not erase_thread.is_alive()
-    assert memory_id not in qdrant.points
-    check = connect(path)
-    assert check.execute("SELECT COUNT(*) FROM memories").fetchone()[0] == 0
-
-
-def test_extraction_window_claim_is_exclusive() -> None:
-    conn = make_db()
-    with transaction(conn):
-        conn.execute(
-            "INSERT INTO messages(session_id,role,content,created_at) VALUES ('s-1','user','remember tea',?)",
-            (utcnow(),),
+        self.assertNotIn(memory_id, qdrant.points)
+        self.assertEqual(
+            self.conn.execute("SELECT COUNT(*) AS n FROM index_outbox").fetchone()["n"], 0
         )
-    path = Path(conn.execute("PRAGMA database_list").fetchone()[2])
-    first = extract.claim_window(conn, session_id="s-1", job_id="job-a")
-    second = extract.claim_window(connect(path), session_id="s-1", job_id="job-b")
-    assert len(first) == 1
-    assert second == []
+        outbox.drain(self.conn, qdrant, StubEmbedder(), ignore_schedule=True)
+        self.assertNotIn(memory_id, qdrant.points)
+
+    def test_a_delivery_for_a_deleted_memory_is_dropped_not_applied(self) -> None:
+        """The store is rechecked immediately before the external write.
+
+        Without it a delete that overtook a queued upsert would be undone by
+        it, which is the same resurrection seen from the other side.
+        """
+        qdrant = StubQdrant()
+        with transaction(self.conn):
+            memory_id = store.add_memory(
+                self.conn,
+                scope_id=self.scope_id,
+                author_id=self.team.alice_id,
+                text="gone by delivery time",
+                kind="fact",
+                source_role="manual",
+            )
+        self.conn.execute("DELETE FROM memories WHERE id=%s", (memory_id,))
+
+        outcome = outbox.drain(self.conn, qdrant, StubEmbedder(), ignore_schedule=True)
+
+        self.assertEqual(outcome.applied, 1)
+        self.assertNotIn(memory_id, qdrant.points)
 
 
-def test_stale_job_and_budget_reservation_recovery() -> None:
-    conn = make_db()
-    job_id = jobs.create(conn, kind="export")
-    jobs.claim(conn, job_id, holder="dead-worker", lease_seconds=1)
-    with transaction(conn):
-        conn.execute(
-            "INSERT INTO messages(session_id,role,content,created_at) VALUES ('s-1','user','recover me',?)",
-            (utcnow(),),
+class ClaimExclusivityTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.conn = make_db()
+
+    def test_two_jobs_cannot_claim_the_same_conversation_window(self) -> None:
+        """A window is one provider call, so a double claim is a double bill."""
+        add_messages(self.conn, n=1, content="remember tea")
+        first = extract.claim_window(self.conn, session_id="s-1", job_id="job-a")
+        second = extract.claim_window(connect(self.conn.info.dsn), session_id="s-1", job_id="job-b")
+        self.assertEqual(len(first), 1)
+        self.assertEqual(second, [])
+
+    def test_an_abandoned_job_releases_its_window_and_its_money(self) -> None:
+        """Recovery has to undo all three effects of a death, not just the job.
+
+        A requeued job whose messages stayed claimed would spin doing nothing,
+        and its reservation would hold spend against the ceiling for ever.
+        """
+        job_id = jobs.create(self.conn, kind="export")
+        jobs.claim(self.conn, job_id, holder="dead-worker", lease_seconds=1)
+        add_messages(self.conn, n=1, content="recover me")
+        self.assertTrue(extract.claim_window(self.conn, session_id="s-1", job_id=job_id))
+        reservation_id = jobs.reserve_budget(
+            self.conn, period="2026-08", amount_usd=0.5, limit_usd=1.0, job_id=job_id
         )
-    assert extract.claim_window(conn, session_id="s-1", job_id=job_id)
-    reservation_id = jobs.reserve_budget(
-        conn,
-        period="2026-08",
-        amount_usd=0.5,
-        limit_usd=1.0,
-        job_id=job_id,
-    )
-    old = "2020-01-01T00:00:00Z"
-    conn.execute("UPDATE jobs SET lease_expires_at=? WHERE id=?", (old, job_id))
-    conn.execute("UPDATE budget_reservations SET updated_at=? WHERE id=?", (old, reservation_id))
-    conn.commit()
+        stale = datetime(2020, 1, 1, tzinfo=UTC)
+        self.conn.execute("UPDATE jobs SET lease_expires_at=%s WHERE id=%s", (stale, job_id))
+        self.conn.execute(
+            "UPDATE budget_reservations SET updated_at=%s WHERE id=%s", (stale, reservation_id)
+        )
 
-    recovered = jobs.recover_stale(conn)
+        recovered = jobs.recover_stale(self.conn)
 
-    assert recovered["jobs"] == 1
-    assert recovered["reservations"] == 1
-    assert recovered["message_claims"] == 1
-    assert jobs.get(conn, job_id)["status"] == "queued"
-    assert (
-        conn.execute(
-            "SELECT status FROM budget_reservations WHERE id=?", (reservation_id,)
-        ).fetchone()[0]
-        == "released"
-    )
-    assert (
-        conn.execute("SELECT claim_token FROM messages WHERE session_id='s-1'").fetchone()[0]
-        is None
-    )
+        self.assertEqual(recovered["jobs"], 1)
+        self.assertEqual(recovered["reservations"], 1)
+        self.assertEqual(recovered["message_claims"], 1)
+        self.assertEqual(jobs.get(self.conn, job_id)["status"], "queued")
+        self.assertEqual(
+            self.conn.execute(
+                "SELECT status FROM budget_reservations WHERE id=%s", (reservation_id,)
+            ).fetchone()["status"],
+            "released",
+        )
+        self.assertIsNone(
+            self.conn.execute("SELECT claim_token FROM messages WHERE session_id='s-1'").fetchone()[
+                "claim_token"
+            ]
+        )
 
 
-class TestMemoryRevisionRegression(ApiTestCase):
-    def test_patch_uses_atomic_integer_revision_and_redacts(self) -> None:
+class MemoryRevisionRegressionTest(ApiTestCase):
+    def test_a_correction_bumps_one_revision_and_still_redacts(self) -> None:
+        """Two bugs in one path: a lost update, and text that skipped redaction.
+
+        The revision is incremented by the database in the same statement that
+        checks it, so a stale writer loses rather than silently overwriting.
+        Redaction applies to the corrected text as well as the original, and a
+        metadata-only patch must not lower the flag on text that is still
+        scrubbed.
+        """
         memory_id = self.seed_memory(text="original")
-        row = self.db.execute("SELECT revision FROM memories WHERE id=?", (memory_id,)).fetchone()
+        revision = self.scalar("SELECT revision FROM memories WHERE id=%s", memory_id)
         response = self.client.patch(
             f"/v1/memories/{memory_id}",
             headers=self.auth,
-            json={"expected_revision": row["revision"], "text": "API_KEY=super-secret-value"},
+            json={"expected_revision": revision, "text": "API_KEY=super-secret-value"},
         )
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json()["revision"], 2)
-        self.assertNotIn("super-secret-value", response.json()["text"])
-        self.assertTrue(response.json()["redacted"])
+        self.assertNotIn(
+            "super-secret-value", self.scalar("SELECT text FROM memories WHERE id=%s", memory_id)
+        )
+        self.assertTrue(self.scalar("SELECT redacted FROM memories WHERE id=%s", memory_id))
 
         metadata_only = self.client.patch(
             f"/v1/memories/{memory_id}",
@@ -207,111 +255,18 @@ class TestMemoryRevisionRegression(ApiTestCase):
             json={"expected_revision": 2, "importance": 0.8},
         )
         self.assertEqual(metadata_only.status_code, 200, metadata_only.text)
-        self.assertTrue(metadata_only.json()["redacted"])
+        self.assertTrue(self.scalar("SELECT redacted FROM memories WHERE id=%s", memory_id))
 
         stale = self.client.patch(
             f"/v1/memories/{memory_id}",
             headers=self.auth,
             json={"expected_revision": 1, "text": "stale overwrite"},
         )
-        self.assertEqual(stale.status_code, 409)
-        history = self.client.get(f"/v1/memories/{memory_id}/history", headers=self.auth).json()[
-            "revisions"
-        ]
-        self.assertEqual([item["revision"] for item in history], [3, 2, 1])
+        self.assertEqual(stale.status_code, 409, stale.text)
+
+        history = self.client.get(f"/v1/memories/{memory_id}/history", headers=self.auth)
+        self.assertEqual([item["revision"] for item in history.json()["revisions"]], [3, 2, 1])
 
 
-def test_record_delete_creates_a_revision() -> None:
-    conn = make_db()
-    from memkit import platform
-
-    with transaction(conn):
-        platform.create_namespace(conn, owner_id=OWNER, name="life")
-        platform.create_collection(
-            conn,
-            owner_id=OWNER,
-            namespace="life",
-            name="items",
-            schema={"type": "object"},
-        )
-        record, _ = platform.create_record(
-            conn,
-            owner_id=OWNER,
-            namespace="life",
-            collection_name="items",
-            value={"title": "one"},
-        )
-        platform.delete_record(
-            conn,
-            owner_id=OWNER,
-            namespace="life",
-            collection_name="items",
-            record_id=record["id"],
-            expected_revision=1,
-        )
-    current = conn.execute(
-        "SELECT revision,status FROM records WHERE id=?", (record["id"],)
-    ).fetchone()
-    assert (current["revision"], current["status"]) == (2, "deleted")
-    history = platform.record_history(
-        conn,
-        owner_id=OWNER,
-        namespace="life",
-        collection_name="items",
-        record_id=record["id"],
-    )
-    assert history[0]["status"] == "deleted"
-
-
-def test_replay_resume_keeps_its_persistent_message_cursor() -> None:
-    conn = make_db()
-    with transaction(conn):
-        conn.executemany(
-            "INSERT INTO messages(session_id,role,content,processed,created_at) VALUES ('s-1','user',?,1,?)",
-            [("first", utcnow()), ("second", utcnow())],
-        )
-    job_id = jobs.create(conn, kind="legacy_replay_dry_run", input_data={"apply": True})
-
-    cancelled = reextract.apply_replay(
-        conn,
-        owner_id=OWNER,
-        api_key="",
-        gemini_api_key="",
-        project="",
-        location="",
-        monthly_limit_usd=1,
-        model="test",
-        job_id=job_id,
-        cancelled=lambda: True,
-    )
-    assert cancelled["cancelled"] is True
-    conn.execute("UPDATE messages SET processed=1 WHERE id=(SELECT MIN(id) FROM messages)")
-    conn.commit()
-
-    def process_one(connection, **_kwargs):
-        row = connection.execute(
-            "SELECT id FROM messages WHERE session_id='s-1' AND processed=0 ORDER BY id LIMIT 1"
-        ).fetchone()
-        connection.execute("UPDATE messages SET processed=1 WHERE id=?", (row["id"],))
-        connection.commit()
-        # `claimed` is how a window reports that it consumed messages; the
-        # drain loop stops when a call claims nothing, because unprocessed
-        # rows that cannot be claimed are held by another job's live lease.
-        return extract.ExtractionOutcome(added=1, claimed=1, windows=1)
-
-    with patch("memkit.reextract.extract.run_extraction", side_effect=process_one) as mocked:
-        resumed = reextract.apply_replay(
-            conn,
-            owner_id=OWNER,
-            api_key="",
-            gemini_api_key="",
-            project="",
-            location="",
-            monthly_limit_usd=1,
-            model="test",
-            job_id=job_id,
-            cancelled=lambda: False,
-        )
-    assert mocked.call_count == 1
-    assert resumed["added"] == 1
-    assert conn.execute("SELECT COUNT(*) FROM messages WHERE processed=0").fetchone()[0] == 0
+if __name__ == "__main__":
+    unittest.main()

@@ -231,11 +231,18 @@ CREATE TABLE IF NOT EXISTS memories (
     tags                jsonb NOT NULL DEFAULT '[]' CHECK (jsonb_typeof(tags) = 'array'),
     redacted            boolean NOT NULL DEFAULT false,
     legacy_imported     boolean NOT NULL DEFAULT false,
+    -- Case folding is pinned to ICU rather than left to the database's ctype.
+    -- Under the C locale Postgres folds ASCII and leaves Cyrillic alone, so
+    -- `ПРЕДПОЧИТАЕТ` never matched a query for `предпочитает` -- which is every
+    -- sentence-initial word and every name. Nothing in a connection string
+    -- says which locale a database was created with, so the schema states it.
+    text_folded         text GENERATED ALWAYS AS (lower(text COLLATE "und-x-icu")) STORED,
     -- The 'russian' configuration stems Cyrillic with russian_stem and ASCII
     -- with english_stem, so one column covers both languages. SQLite's FTS5
     -- tokenizer had no stemming at all, which left the lexical arm blind to
     -- Russian morphology.
-    search_tsv          tsvector GENERATED ALWAYS AS (to_tsvector('russian', text)) STORED,
+    search_tsv          tsvector GENERATED ALWAYS AS
+                        (to_tsvector('russian', lower(text COLLATE "und-x-icu"))) STORED,
     CHECK (
         length(btrim(text)) BETWEEN 1 AND 2000
         OR (legacy_imported AND length(btrim(text)) BETWEEN 1 AND 100000)
@@ -253,7 +260,7 @@ CREATE INDEX IF NOT EXISTS memories_updated ON memories(scope_id, updated_at DES
 CREATE INDEX IF NOT EXISTS memories_author ON memories(author_id);
 CREATE INDEX IF NOT EXISTS memories_tsv ON memories USING gin (search_tsv)
     WHERE status = 'active';
-CREATE INDEX IF NOT EXISTS memories_trgm ON memories USING gin (text gin_trgm_ops)
+CREATE INDEX IF NOT EXISTS memories_trgm ON memories USING gin (text_folded gin_trgm_ops)
     WHERE status = 'active';
 
 CREATE TABLE IF NOT EXISTS memory_revisions (
@@ -622,9 +629,30 @@ class ConnectionPool:
             self._pool.close()
 
 
+def _require_icu(conn: psycopg.Connection) -> None:
+    """Refuse a database that cannot fold case the way the schema assumes.
+
+    The searchable columns are generated with an explicit ICU collation, so a
+    build without ICU would fail at DDL time with a message about a missing
+    collation rather than about search. Checked first, and named, because the
+    failure it prevents is silent: half the corpus becomes unfindable and
+    nothing errors.
+    """
+    row = conn.execute(
+        "SELECT lower('ПРЕДПОЧИТАЕТ' COLLATE \"und-x-icu\") = 'предпочитает' AS ok"
+    ).fetchone()
+    if row is None or not row["ok"]:
+        raise RuntimeError(
+            "this PostgreSQL build cannot case-fold Cyrillic with the und-x-icu "
+            "collation, which the memories search columns require. Use a build "
+            "with ICU support (the official postgres images have it)."
+        )
+
+
 def init_db(dsn: str) -> None:
     """Create or verify the schema. Safe to call from every process at once."""
     with connect(dsn) as conn:
+        _require_icu(conn)
         with conn.transaction():
             # Two containers starting together must not both run the DDL.
             conn.execute("SELECT pg_advisory_xact_lock(hashtext('memkit:migrate'))")

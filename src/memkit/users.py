@@ -91,13 +91,17 @@ def update(
     """
     if role is not None and role not in {"admin", "member"}:
         raise ValueError("role must be 'admin' or 'member'")
+    # Every nullable parameter is cast. An untyped NULL in a comparison or a
+    # CASE leaves Postgres unable to infer the type and the statement fails, so
+    # patching anything *except* `disabled` used to raise -- promoting a member
+    # to administrator among them.
     row = conn.execute(
         """UPDATE users SET
-              display_name = COALESCE(%s, display_name),
-              role = COALESCE(%s, role),
+              display_name = COALESCE(%s::text, display_name),
+              role = COALESCE(%s::text, role),
               disabled_at = CASE
-                  WHEN %s IS NULL THEN disabled_at
-                  WHEN %s THEN COALESCE(disabled_at, now())
+                  WHEN %s::boolean IS NULL THEN disabled_at
+                  WHEN %s::boolean THEN COALESCE(disabled_at, now())
                   ELSE NULL END
             WHERE id=%s RETURNING *""",
         (
@@ -118,9 +122,13 @@ def update(
 
 def count_admins(conn: psycopg.Connection, *, excluding: str | None = None) -> int:
     """Enabled admins, so the last one cannot lock everyone out."""
+    # The casts are required: an untyped NULL parameter in a comparison leaves
+    # Postgres unable to infer the type and the statement fails outright, which
+    # turned the last-administrator guard into a 500.
     row = conn.execute(
         """SELECT count(*) AS n FROM users
-            WHERE role='admin' AND disabled_at IS NULL AND (%s IS NULL OR id <> %s)""",
+            WHERE role='admin' AND disabled_at IS NULL
+              AND (%s::uuid IS NULL OR id <> %s::uuid)""",
         (excluding, excluding),
     ).fetchone()
     return int(row["n"]) if row else 0

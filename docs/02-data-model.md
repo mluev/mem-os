@@ -1,22 +1,24 @@
 # Data model
 
-Schema version is 6. Ordered migrations have recorded SHA-256 checksums and run only after a verified online backup and SQLite integrity checks.
+Schema version is 1. It is a fresh start on Postgres, not a port of the SQLite v1–v6 ladder: every table is multi-tenant from the first migration, because retrofitting tenancy onto a schema is how isolation bugs are made — a query that forgets the predicate still returns rows. Existing data arrives once through `memkit import-sqlite` (decisions/0066). `schema_migrations` records each applied version with the SHA-256 of its DDL; a checksum mismatch or a gap in the sequence is a startup failure, not a surprise at the first query.
 
-- `owners`, `sessions`, `messages`: single-owner normalized source evidence. Messages are redacted and retained until explicit erasure.
-- `memories`, `memory_revisions`, `memory_sources`, `memory_evidence`: free-form `kind`, tags, neutral JSON context, integer optimistic revisions, trust role, validity, exact message spans, and immutable mutation history.
-- `index_outbox`: immutable, sequenced SQLite→Qdrant operations with claim-token and stale-lease recovery.
-- `jobs`, `job_events`, `leases`, `budget_reservations`: durable long work, cooperative cancellation, locks, and atomic spend control.
-- `namespaces`, `collections`, `records`, `record_revisions`, `links`: caller-defined structured data.
-- `policies`: immutable versioned extraction, retrieval, retention, and consolidation configuration.
-- `memories_fts`: FTS5 lexical projection maintained by insert/update/delete triggers.
-- `retrieval_runs`, `retrieval_run_feedback`: HMAC query identity, safe result/rank/component telemetry, timings, token use, abstention, and explicit labels. Raw queries are never stored; runs expire after 90 days.
-- `replay_batches`, `replay_items`: shadow-replay cursor, immutable provenance/evidence, editable review fields, decisions, approval checksum, and release-gate audit.
-- `evaluation_runs`, `evaluation_cases`: blinded four-arm outputs and human-only reviews.
-- `backup_artifacts`: verified recovery points, checksums, retention kind, and protection state.
-- `judge_runs`: redacted model-call audit, token use, cost, latency, errors, request owner, and job.
+- `users`, `api_keys`, `auth_sessions`: people, agent credentials, and dashboard sessions. Passwords are argon2id; keys and session tokens are stored only as sha256 of the secret, so a leaked database is not a list of usable credentials. `api_keys.key_prefix` is clear text so a key can be listed and revoked without keeping anything that would let it be used.
+- `entities`, `entity_aliases`, `memberships`: everything a memory can belong to or be about — `user`, `team`, `project`, `product`, `company`, `person`, `custom`. Exactly one `team` row exists, enforced by a partial unique index, and every user belongs to it. A `user` entity exists for each user and is that user's private scope; the check constraint ties the two together in both directions. Aliases are case-folded and globally unique. Membership roles are `owner`, `member`, `viewer`; only the first two may write.
+- `sessions`, `messages`: source evidence. User, scope, and agent are fixed at session creation. `messages.user_id` is denormalised so an isolation check never depends on remembering to join `sessions`; idempotency is `(user_id, external_source, external_id)`, scoped by user because two people on one machine collide on transcript line ids otherwise. `claim_token`/`claim_expires_at` lease a window to one extraction job.
+- `memories`, `memory_revisions`, `memory_sources`, `memory_evidence`: free-form `kind`, tags, neutral JSON context, integer optimistic revisions, source trust, validity, exact message spans with their excerpt hash, and immutable mutation history. `scope_id` is the authorization boundary, `subject_id` is what the fact is about (`NULL` means the scope itself), `author_id` is who wrote it. `source_role` has no default, so an insert that forgets it fails rather than labelling model-authored text as something a human typed. `review_status` is `pending` by default. `content_hash` is the case-folded, whitespace-collapsed sha256 used for exact-duplicate rejection within a scope.
+- `memories.search_tsv`: a stored generated column, `to_tsvector('russian', text)`, with a GIN index over active rows. The `russian` configuration stems Cyrillic with `russian_stem` and ASCII with `english_stem`, so one column covers both languages. A second GIN index over `text gin_trgm_ops` serves exact identifiers, which have no lexeme to stem. This replaces FTS5 and its triggers (decisions/0065).
+- `needs_attention`: work that requires a person — `unresolved_mention`, `conflict`, `failed_job`, `budget`. Pending memories are deliberately *not* duplicated here; they are found by `memories.review_status`, so confirming one cannot leave a stale row behind.
+- `index_outbox`: immutable, sequenced Postgres→Qdrant operations with claim tokens and stale-lease recovery. Per-entity ordering is a query predicate, not a table: an operation is only claimable when no earlier one for the same point is still outstanding.
+- `jobs`, `job_events`, `leases`, `budget_reservations`: durable long work, cooperative cancellation, named locks, and atomic spend control against the monthly ceiling.
+- `policies`: versioned, immutable extraction, retrieval, retention, and consolidation configuration, keyed by `(scope_id, kind, name, version)`. A `NULL` scope is instance-wide.
+- `judge_runs`: every model call with its redacted input, output, tokens, cost, latency, error, requesting user, and job — including the failures, which are usually the informative rows.
+- `retrieval_runs`, `retrieval_run_feedback`, `retrieval_feedback`: HMAC query identity, safe result/rank/component telemetry, timings, token use, abstention, and explicit labels. Raw queries are never stored; runs are pruned after 90 days. Telemetry is keyed by user rather than scope, because one query may span several scopes, so reading a run back re-checks what the caller may see.
+- `backup_artifacts`: verified `pg_dump` recovery points, checksums, retention kind, and protection state.
 
-All JSON columns have SQLite validity checks. Memory text/kind, probabilities, status, roles, revisions, and job state have database constraints in addition to API validation.
+Timestamps are `timestamptz` at full precision. The precision is load-bearing: SQLite stored ISO text truncated to whole seconds, so two writes in the same second tied on `updated_at` and the dashboard's "recent" ordering fell back on a random uuid. API output still renders to the second.
 
-## v3 migration
+Every JSON column is `jsonb` with an object/array check. Memory text and kind, probabilities, statuses, roles, revisions, and job state have database constraints in addition to API validation. Text is capped at 2,000 characters, except for rows carrying `legacy_imported`, which keep whatever the SQLite store held.
 
-Migration first creates a source-identified SQLite backup and JSON export of the retired board. Former task memories become archived `observation` rows, are excluded from search, and lose misused expiry values. Project scope becomes neutral `context.source_workspace`. The old table is then removed. Importing that handoff into a task authority remains the responsibility of the external Life OS workspace.
+## Qdrant
+
+Two collections, both derived (decisions/0019). `memories` holds exactly one point per active memory; `raw` holds indexed user turns over the length floor. Payload indexes exist on `scope_id`, `subject_id`, and `author_id`, so the authorization predicate is a filter the index can execute rather than a scan. Both collections declare an unused `bm25` sparse slot, because Qdrant cannot add a named vector to an existing collection.

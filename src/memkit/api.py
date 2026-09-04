@@ -558,6 +558,18 @@ def get_conn(request: Request) -> psycopg.Connection:
     return request.app.state.db()
 
 
+def _memory_id(value: str) -> str:
+    """Reject an id that cannot exist before Postgres is asked about it.
+
+    `memories.id` is a uuid column, so a malformed string is a type error, and
+    an unparseable id would surface as a 500 rather than the miss it is.
+    """
+    try:
+        return str(uuid.UUID(str(value)))
+    except ValueError as exc:
+        raise HTTPException(404, "unknown memory") from exc
+
+
 def get_principal(
     request: Request,
     x_api_key: Annotated[str | None, Depends(_api_key_header)] = None,
@@ -1524,6 +1536,8 @@ def post_message(
                 context=body.context,
                 created_at=body.created_at,
             )
+    except store.SessionNotAvailable as exc:
+        raise HTTPException(404, "unknown session") from exc
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
     # Indexing is the worker's job. Draining inline made the response wait for
@@ -1587,6 +1601,8 @@ def post_evidence_batch(
                     created_at=event.created_at,
                 )
                 stored.append((event, message_id, duplicate, redacted))
+    except store.SessionNotAvailable as exc:
+        raise HTTPException(404, "unknown session") from exc
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
     _wake_worker()
@@ -1723,6 +1739,7 @@ def patch_memory(
     principal: Principal = Depends(get_principal),
     conn: psycopg.Connection = Depends(get_conn),
 ) -> EntityOut:
+    memory_id = _memory_id(memory_id)
     current = conn.execute(
         "SELECT * FROM memories WHERE id=%s AND scope_id = ANY(%s)",
         (memory_id, principal.scopes()),
@@ -1787,6 +1804,7 @@ def delete_memory(
     conn: psycopg.Connection = Depends(get_conn),
 ) -> EntityOut:
     """Archive a memory. Reversible, because a mistaken delete is common."""
+    memory_id = _memory_id(memory_id)
     try:
         with conn.transaction():
             saved = store.set_memory_status(
@@ -1809,6 +1827,7 @@ def restore_memory(
     principal: Principal = Depends(get_principal),
     conn: psycopg.Connection = Depends(get_conn),
 ) -> EntityOut:
+    memory_id = _memory_id(memory_id)
     try:
         with conn.transaction():
             saved = store.set_memory_status(
@@ -1833,6 +1852,7 @@ def review_memory(
     conn: psycopg.Connection = Depends(get_conn),
 ) -> EntityOut:
     """Confirm or delete an unreviewed memory, or undo that decision."""
+    memory_id = _memory_id(memory_id)
     status = {"confirm": "confirmed", "decline": "declined", "undo": "pending"}[body.decision]
     try:
         with conn.transaction():
@@ -1987,6 +2007,7 @@ def get_memory(
     way to read the current revision of a single fact. Search results carry it
     too, but an id learned from a profile block has nowhere else to come from.
     """
+    memory_id = _memory_id(memory_id)
     row = conn.execute(
         """SELECT m.*, sc.name AS scope_name, sc.slug AS scope_slug,
                   sub.name AS subject_name, sub.slug AS subject_slug,
@@ -2035,6 +2056,7 @@ def memory_sources(
     principal: Principal = Depends(get_principal),
     conn: psycopg.Connection = Depends(get_conn),
 ) -> MemorySourcesOut:
+    memory_id = _memory_id(memory_id)
     memory = conn.execute(
         "SELECT * FROM memories WHERE id=%s AND scope_id = ANY(%s)",
         (memory_id, principal.scopes()),
@@ -2071,6 +2093,7 @@ def memory_history(
     principal: Principal = Depends(get_principal),
     conn: psycopg.Connection = Depends(get_conn),
 ) -> MemoryHistoryOut:
+    memory_id = _memory_id(memory_id)
     memory = conn.execute(
         "SELECT * FROM memories WHERE id=%s AND scope_id = ANY(%s)",
         (memory_id, principal.scopes()),

@@ -13,7 +13,16 @@ from ...types import UNSET, Response, Unset
 def _get_kwargs(
     *,
     limit: int | Unset = 20,
+    x_requested_with: None | str | Unset = UNSET,
+    memkit_session: None | str | Unset = UNSET,
 ) -> dict[str, Any]:
+    headers: dict[str, Any] = {}
+    if not isinstance(x_requested_with, Unset):
+        headers["x-requested-with"] = x_requested_with
+
+    cookies = {}
+    if memkit_session is not UNSET:
+        cookies["memkit_session"] = memkit_session
 
     params: dict[str, Any] = {}
 
@@ -25,8 +34,10 @@ def _get_kwargs(
         "method": "get",
         "url": "/v1/retrieval-runs",
         "params": params,
+        "cookies": cookies,
     }
 
+    _kwargs["headers"] = headers
     return _kwargs
 
 
@@ -64,11 +75,15 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
     limit: int | Unset = 20,
+    x_requested_with: None | str | Unset = UNSET,
+    memkit_session: None | str | Unset = UNSET,
 ) -> Response[HTTPValidationError | ItemsOut]:
     """Recent Retrieval Runs
 
     Args:
         limit (int | Unset):  Default: 20.
+        x_requested_with (None | str | Unset):
+        memkit_session (None | str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -80,6 +95,8 @@ def sync_detailed(
 
     kwargs = _get_kwargs(
         limit=limit,
+        x_requested_with=x_requested_with,
+        memkit_session=memkit_session,
     )
 
     response = client.get_httpx_client().request(
@@ -93,11 +110,15 @@ def sync(
     *,
     client: AuthenticatedClient,
     limit: int | Unset = 20,
+    x_requested_with: None | str | Unset = UNSET,
+    memkit_session: None | str | Unset = UNSET,
 ) -> HTTPValidationError | ItemsOut | None:
     """Recent Retrieval Runs
 
     Args:
         limit (int | Unset):  Default: 20.
+        x_requested_with (None | str | Unset):
+        memkit_session (None | str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -110,6 +131,8 @@ def sync(
     return sync_detailed(
         client=client,
         limit=limit,
+        x_requested_with=x_requested_with,
+        memkit_session=memkit_session,
     ).parsed
 
 
@@ -117,11 +140,15 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
     limit: int | Unset = 20,
+    x_requested_with: None | str | Unset = UNSET,
+    memkit_session: None | str | Unset = UNSET,
 ) -> Response[HTTPValidationError | ItemsOut]:
     """Recent Retrieval Runs
 
     Args:
         limit (int | Unset):  Default: 20.
+        x_requested_with (None | str | Unset):
+        memkit_session (None | str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -133,6 +160,8 @@ async def asyncio_detailed(
 
     kwargs = _get_kwargs(
         limit=limit,
+        x_requested_with=x_requested_with,
+        memkit_session=memkit_session,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -144,11 +173,15 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
     limit: int | Unset = 20,
+    x_requested_with: None | str | Unset = UNSET,
+    memkit_session: None | str | Unset = UNSET,
 ) -> HTTPValidationError | ItemsOut | None:
     """Recent Retrieval Runs
 
     Args:
         limit (int | Unset):  Default: 20.
+        x_requested_with (None | str | Unset):
+        memkit_session (None | str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -162,5 +195,7 @@ async def asyncio(
         await asyncio_detailed(
             client=client,
             limit=limit,
+            x_requested_with=x_requested_with,
+            memkit_session=memkit_session,
         )
     ).parsed

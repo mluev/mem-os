@@ -1,11 +1,13 @@
 """Operational command line for the team memory service.
 
-Two audiences, deliberately not separated into two binaries: an operator
-setting an instance up (`users create`, `backup`, `doctor`, `reindex`) and a
-person or agent using it (`remember`, `search`, `profile`). The second group
-talks HTTP so it works against the deployed instance; the first talks to the
-database directly, because half of it exists to fix an instance whose HTTP
-layer will not start.
+Everything here talks to the database directly rather than over HTTP, because
+most of it exists to set an instance up or to repair one whose HTTP layer will
+not start: creating the first administrator, minting a key, rebuilding the
+index, taking a backup.
+
+Reading and writing memory is deliberately absent. That belongs to a client
+holding one user's key, not to a process holding the database password, and it
+is not worth blurring the two to save a round trip.
 """
 
 from __future__ import annotations

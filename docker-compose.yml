@@ -1,21 +1,59 @@
+# Coolify deploys this file. Only `app` gets a domain; Postgres and Qdrant stay
+# on the internal network, which is why neither publishes a port.
 services:
-  qdrant:
-    image: qdrant/qdrant:v1.18.2
-    container_name: memkit-qdrant
-    # Bound to loopback only. The service is single-user and must not be
-    # reachable from the network.
-    ports:
-      - "127.0.0.1:6333:6333"
-      - "127.0.0.1:6334:6334"
-    volumes:
-      - qdrant_storage:/qdrant/storage
+  app:
+    build: .
     restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+    environment:
+      MEMKIT_DATABASE_URL: postgresql://memkit:${POSTGRES_PASSWORD}@postgres:5432/memkit
+      MEMKIT_QDRANT_URL: http://qdrant:6333
+      MEMKIT_HOST: 0.0.0.0
+      # TLS terminates at the proxy, so the app must be told it is behind one:
+      # the session cookie is Secure and would otherwise never be set.
+      MEMKIT_ALLOW_REMOTE: "true"
+      MEMKIT_COOKIE_SECURE: "true"
+      MEMKIT_TELEMETRY_HMAC_KEY: ${MEMKIT_TELEMETRY_HMAC_KEY}
+      MEMKIT_TEAM_NAME: ${MEMKIT_TEAM_NAME:-Team}
+      MEMKIT_EMBED_DEVICE: cpu
+      MEMKIT_MONTHLY_COST_LIMIT_USD: ${MEMKIT_MONTHLY_COST_LIMIT_USD:-15}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    volumes:
+      - models:/models
+      - backups:/backups
+    ports:
+      - "8077:8077"
+
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: memkit
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: memkit
+    volumes:
+      - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/6333'"]
-      interval: 10s
-      timeout: 3s
-      retries: 10
-      start_period: 15s
+      test: ["CMD-SHELL", "pg_isready -U memkit -d memkit"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  qdrant:
+    # Pinned: the client and server are tested as a pair, and an index built by
+    # one version is not guaranteed readable by another.
+    image: qdrant/qdrant:v1.18.2
+    restart: unless-stopped
+    volumes:
+      - qdrant:/qdrant/storage
 
 volumes:
-  qdrant_storage:
+  pgdata:
+  qdrant:
+  models:
+  backups:

@@ -17,10 +17,10 @@ Two consequences of that, both load-bearing:
 wants to know whether a number still holds should be able to re-run it rather
 than trust it. A measurement without a reproduction command is an anecdote.
 
-**The corpus is live.** memkit runs as a launchd agent on the author's machine
-and ingests real conversations continuously, so every count below moves. Treat
-them as an order of magnitude and a shape, not as a fixed quantity. Anything that
-depends on an exact count should read it from `GET /v1/admin/stats`.
+**The corpus is live.** memkit ingests real conversations continuously, so every
+count below moves. Treat them as an order of magnitude and a shape, not as a
+fixed quantity. Anything that depends on an exact count should read it from
+`GET /v1/admin/metrics` and `GET /v1/admin/health`.
 
 Results that cannot be reproduced — because they measured a prompt version no
 longer in production, or a one-off run — are not here. They are dated and frozen
@@ -30,7 +30,31 @@ in `experiments/` and is never updated.**
 
 ---
 
+## Status, 2026-09-04
+
+Every measurement below was taken on the single-owner build: SQLite as the source
+of truth, an FTS5 lexical arm with no stemming, one owner, and a Mac with Metal.
+That system no longer exists. The sections marked **superseded** are kept for the
+shape they show and the reasoning that was built on them; **none of their numbers
+describe the current system**, and none of the commands that produced them will
+run — `sqlite3 data/memkit.db` has no database to open, `/v1/admin/stats` is now
+`/v1/admin/metrics` and `/v1/admin/health`, and `/healthz` returns `{"ok": true}`
+and nothing else.
+
+What has to be re-measured before the next release, and with which command, is at
+[the end of this file](#to-be-re-measured). Until each of those is run, the
+thresholds they justify — the 0.30 lexical weight, the 0.18 abstention floor, the
+0.90 dedup cosine, the 300 ms embedding gate — stand on evidence from a different
+system.
+
+---
+
 ## Snapshot: corpus and store
+
+**Superseded 2026-09-04.** Counted in SQLite, for one owner, and split by a
+`scope` field that no longer means what it meant here (it was the project
+context; scope is now the authorization boundary). Re-measure with
+`memkit doctor --json` and `curl -H "X-API-Key: …" localhost:8077/v1/admin/metrics`.
 
 <!-- measured: 2026-07-31 · sqlite3 data/memkit.db + curl localhost:8077/v1/admin/stats -->
 
@@ -77,6 +101,12 @@ read them.
 
 ## Latency
 
+**Superseded 2026-09-04** as a deployment figure. The command still reproduces —
+`uv run memkit bench` — but 36.9 ms is BGE-M3 on Apple Metal, and the service now
+runs on a CPU VPS where the same model is the one real performance risk
+([`decisions/0069`](decisions/0069-docker-compose-on-coolify.md)). The MPS number
+describes a development laptop and nothing that serves traffic.
+
 <!-- measured: 2026-07-31 · uv run memkit bench -->
 
 | | |
@@ -100,6 +130,14 @@ the `prefetch_timeout` default.
 ---
 
 ## Cost
+
+**Superseded 2026-09-04.** The spend total and the per-call token averages are
+from prompt versions up to v8 on a single-owner corpus; v9 adds the ENTITIES
+block to every call, so input tokens per call are higher by an unmeasured amount.
+Re-measure with
+`psql "$MEMKIT_DATABASE_URL" -c "select kind, model, count(*), sum(cost_usd) from judge_runs group by 1,2"`.
+The per-model rate card in [`04-judge.md`](04-judge.md) is generated from code and
+remains current.
 
 <!-- measured: 2026-07-31 · sqlite3 data/memkit.db "select kind, model, count(*), sum(cost_usd) from judge_runs group by 1,2" -->
 
@@ -132,6 +170,15 @@ pay for asynchronous complexity
 ---
 
 ## Retrieval eval
+
+**Superseded 2026-09-04.** Every figure here was produced against the FTS5
+lexical arm, which did no stemming, over a single owner's store. The 0.30-weight
+arm now stems Cyrillic and ASCII
+([`decisions/0065`](decisions/0065-postgres-russian-fulltext-replaces-fts5.md)),
+which changes the input to the fusion the stage-2 gate turns on, and the corpus is
+now scope-partitioned. The head-to-head shape — extracted facts beating raw turns
+on MRR per token — is the claim worth re-testing, not the digits. Re-measure with
+`uv run memkit eval --compare`.
 
 <!-- measured: 2026-08-28 · uv run memkit eval --compare -->
 
@@ -191,6 +238,13 @@ memories` scores the 31 it can answer. **Those two printouts are not comparable*
 
 ## Consolidation
 
+**Superseded 2026-09-04.** Clustering grouped by owner and context; it now groups
+by scope and context, so a store with several scopes produces a different cluster
+set from the same facts, and the timing was measured on a corpus a tenth the size
+a team instance will hold. The BGE-M3 cosines in the sub-section below are a
+property of the model, not of the store, and remain valid. Re-measure with
+`uv run memkit consolidate` (dry run) and `--apply --merge`.
+
 <!-- measured: 2026-08-28 · uv run memkit consolidate --apply --merge -->
 
 Semantic clustering runs at cosine 0.92 over active facts sharing an owner and a
@@ -235,6 +289,12 @@ indistinguishable from something the user typed.
 
 ## Index consistency
 
+**Superseded 2026-09-04.** The counterpart column is Postgres, not SQLite, and
+neither the endpoint nor the field exists: `/healthz` returns `{"ok": true}` and
+nothing else, and parity is now `memkit doctor`'s `index_parity` check, which
+fails when active memories, indexed points and pending outbox rows disagree.
+Re-measure with `memkit doctor --json`.
+
 <!-- measured: 2026-07-31 · curl localhost:8077/healthz -->
 
 | collection | points | SQLite counterpart | drift |
@@ -254,6 +314,15 @@ disagrees with the source of truth and a `POST /v1/admin/reindex` is due.
 ---
 
 ## Tests
+
+**Superseded 2026-09-04.** The count, the coverage and the wall clock all predate
+the port. The suite now requires a real Postgres and truncates between tests
+([`08-testing.md`](08-testing.md)), which changes the wall clock, and whole
+modules were added for entities, full text and routing while the records-platform
+and replay suites were deleted. Re-measure with
+`uv run pytest -q --cov=memkit --cov-fail-under=75` and `pnpm --dir web test`.
+The reasoning below — why pytest is the runner, and why the harness asserts on
+blanked credentials — still holds.
 
 <!-- measured: 2026-09-03 · uv run pytest -q --cov=memkit --cov-fail-under=75 ; pnpm --dir web test -->
 
@@ -306,3 +375,26 @@ The extractor bench has documented run-to-run variance of more than 2× on the
 same prompt and corpus (0.24 to 0.60 facts per window across five runs of v4).
 Any single run of it distinguishes nothing. This is the main reason measurements
 here are dated rather than treated as settled.
+
+---
+
+## To be re-measured
+
+Nothing below has a value yet, deliberately. Each row names what must be run
+before the next release and the command that runs it; a row stays empty until
+somebody runs it, because a guessed number here is worse than a blank one. Every
+one of them was settled on the single-owner build and is now unevidenced.
+
+| what | command | why it cannot be carried over |
+|---|---|---|
+| CPU embedding latency on the target VPS | `docker compose exec app memkit bench` | The only figure on record is 36.9 ms on Apple Metal. The gate is 300 ms; which rung of the ladder in [`decisions/0069`](decisions/0069-docker-compose-on-coolify.md) is needed — torch CPU, ONNX, more vCPU, a smaller model — is decided by this number and nothing else. Measure a cold load as well: it is what `/readyz` waits for on every redeploy. |
+| retrieval eval on Postgres full text | `uv run memkit eval --compare` | The 0.30 lexical weight and the 0.18 abstention floor were tuned against an arm that did no stemming ([`decisions/0065`](decisions/0065-postgres-russian-fulltext-replaces-fts5.md)). Report the arms separately: a fused score that improves while the dense arm degrades is indistinguishable from one that improves both. |
+| golden set, v8 against v9 | `uv run python -m eval.golden --variant gemini-3.5-flash-lite:v8 --variant gemini-3.5-flash-lite:v9` (paid; `--budget-usd` caps it) | v9 adds the ENTITIES block and the routing rules to every call. Three things need numbers: recall and false positives against v8, the added input tokens per call, and how often routing sends a fact somewhere the reviewer then moves. |
+| consolidation over several scopes | `uv run memkit consolidate` then `--apply --merge` | Clustering is now per scope rather than per owner, so the cluster count and the wall clock both change shape. The 0.92 threshold and the six-member cap are unaffected in principle and unverified in practice. |
+| suite size and coverage | `uv run pytest -q --cov=memkit --cov-fail-under=75` | The suite now needs a real Postgres and truncates between tests, whole modules were added and others deleted, so the count, the coverage and the wall clock in [Tests](#tests) are all stale. |
+
+Two further numbers have no home yet and should get one when the instance has
+been running for a week: the median and p95 of `/v1/memories/search`
+(`retrieval_runs.timings`, which already records every arm separately), and the
+share of pending memories a human actually reviews — the review queue is only
+worth its complexity if it is read.

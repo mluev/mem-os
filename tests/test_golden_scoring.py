@@ -5,6 +5,10 @@
 what counts as a leak, what counts as valid evidence, and which variant wins --
 were never exercised. A scorer that silently stops detecting failures turns
 every comparison green.
+
+Nothing here calls a provider. The scorer is pure: cases in, operations in,
+counters out, which is exactly why it can be tested offline and why it is the
+only part of the paid harness that has to be right before spending anything.
 """
 
 from __future__ import annotations
@@ -13,6 +17,10 @@ import importlib.util
 import sys
 import unittest
 from pathlib import Path
+
+import yaml
+
+from memkit import prompts
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -179,6 +187,55 @@ class WinnerTest(unittest.TestCase):
         noisy = self._score(model="noisy", false_positives=3)
         clean = self._score(model="clean", false_positives=0)
         self.assertEqual(golden._winner([noisy, clean]), "clean")
+
+
+class GoldenFileTest(unittest.TestCase):
+    """The committed golden set, checked against the prompt it will be run with.
+
+    This is what `--schema-only` does before a paid run. Running it here means a
+    new placeholder in the active prompt fails offline rather than after the
+    budget reservation.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        raw = yaml.safe_load(golden.GOLDEN.read_text(encoding="utf-8")) or []
+        cls.raw = raw
+        cls.cases = [golden.Case.parse(item, index) for index, item in enumerate(raw)]
+
+    def test_the_golden_set_is_not_empty(self) -> None:
+        self.assertGreater(len(self.cases), 20)
+
+    def test_every_case_renders_against_the_active_prompt(self) -> None:
+        for case in self.cases:
+            prompts.render(
+                prompts.DEFAULT_VERSION,
+                today="2026-01-01",
+                window=judge.render_window(case.messages),
+                candidates=judge.render_candidates(case.candidates),
+                context="{}",
+                session_date=case.session_date,
+            )
+
+    def test_no_case_still_expects_a_retired_key(self) -> None:
+        """`scope`, `type` and `holds_in_other_repos` belonged to the old
+        single-owner schema; an expectation on one would score nothing and
+        quietly inflate recall."""
+        retired = {"scope", "type", "holds_in_other_repos"}
+        offenders = [
+            item.get("id")
+            for item in self.raw
+            for expected in item.get("expect") or []
+            if retired & set(expected)
+        ]
+        self.assertEqual(offenders, [])
+
+    def test_a_case_may_declare_its_own_recording_date(self) -> None:
+        """v8 onwards resolves relative time against the window's date, so a
+        case probing that has to be able to differ from today."""
+        case = _case(session_date="2026-03-10")
+        self.assertEqual(case.session_date, "2026-03-10")
+        self.assertIsNone(_case().session_date)
 
 
 if __name__ == "__main__":

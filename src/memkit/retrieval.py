@@ -165,22 +165,31 @@ def _lexical_candidates(
 ) -> dict[str, float]:
     """A bounded, normalised full-text candidate set.
 
-    Terms come from ``WORD_RE`` and are combined with `plainto_tsquery` per
-    term, so caller input is never interpreted as query syntax. `ts_rank_cd`
-    is higher-is-better and unbounded, so scores are normalised by the best
-    hit: that keeps this arm comparable with the dense arm's cosine without
-    pushing an equally relevant second result below the abstention floor.
+    Terms come from ``WORD_RE`` and each becomes its own `plainto_tsquery`,
+    OR'd together, so caller input is never interpreted as query syntax and a
+    memory matching some of the words still surfaces. Passing the whole query
+    to one `plainto_tsquery` would AND every term, which is the wrong trade in
+    a hybrid ranker: the dense arm supplies precision, and this arm exists for
+    the exact word the embedding rounded away.
+
+    `ts_rank_cd` is higher-is-better and unbounded, so scores are normalised by
+    the best hit: that keeps this arm comparable with the dense arm's cosine
+    without pushing an equally relevant second result below the floor.
     """
     terms = list(dict.fromkeys(_terms(query)))[:32]
     if not terms or not scope_ids:
         return {}
+    # One placeholder per term, OR'd with tsquery's `||`.
+    tsquery = " || ".join(["plainto_tsquery('russian', %s)"] * len(terms))
     rows = conn.execute(
-        """SELECT id, ts_rank_cd(search_tsv, q) AS rank
-             FROM memories, plainto_tsquery('russian', %s) AS q
-            WHERE scope_id = ANY(%s) AND status='active' AND search_tsv @@ q
-            ORDER BY rank DESC, id
-            LIMIT %s""",
-        (" ".join(terms), [uuid.UUID(str(s)) for s in scope_ids], limit),
+        f"""WITH q AS (SELECT {tsquery} AS query)
+            SELECT m.id, ts_rank_cd(m.search_tsv, q.query) AS rank
+              FROM memories m, q
+             WHERE m.scope_id = ANY(%s) AND m.status='active'
+               AND m.search_tsv @@ q.query
+             ORDER BY rank DESC, m.id
+             LIMIT %s""",
+        (*terms, [uuid.UUID(str(scope)) for scope in scope_ids], limit),
     ).fetchall()
     if not rows:
         return {}
@@ -195,9 +204,13 @@ def _entity_candidates(
     """Exact identifier matches: ticket numbers, error codes, repo names.
 
     Stemming is the wrong tool for these -- `ERR_X91Q` has no lexeme -- so this
-    arm matches the literal substring with the trigram index instead, which is
-    also what makes it independent of the lexical arm rather than a subset of
-    it, as it was under a shared FTS table.
+    arm matches the literal substring against the folded column with the
+    trigram index, which is also what makes it independent of the lexical arm
+    rather than a subset of it, as it was under a shared FTS table.
+
+    `_` and `%` are escaped. They are LIKE wildcards, and `WORD_RE` admits an
+    underscore, so the arm whose whole purpose is exactness was matching
+    `ERRXX91Q` for `ERR_X91Q`.
     """
     tokens = list(
         dict.fromkeys(
@@ -209,17 +222,17 @@ def _entity_candidates(
     )[:16]
     if not tokens or not scope_ids:
         return {}
+    patterns = [
+        "%" + token.lower().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+        for token in tokens
+    ]
     rows = conn.execute(
         """SELECT id FROM memories
             WHERE scope_id = ANY(%s) AND status='active'
-              AND text ILIKE ANY(%s)
+              AND text_folded LIKE ANY(%s)
             ORDER BY updated_at DESC, id
             LIMIT %s""",
-        (
-            [uuid.UUID(str(s)) for s in scope_ids],
-            [f"%{token}%" for token in tokens],
-            limit,
-        ),
+        ([uuid.UUID(str(scope)) for scope in scope_ids], patterns, limit),
     ).fetchall()
     return {str(row["id"]): 1.0 for row in rows}
 

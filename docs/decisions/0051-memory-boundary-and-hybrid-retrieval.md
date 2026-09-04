@@ -3,7 +3,8 @@
     Status:        accepted
     Date:          2026-08-09
     Supersedes:    0028, 0039, 0050 and the task-domain architecture
-    Superseded by: —
+    Superseded by: 0065, in part — the lexical arm is Postgres full text, not BM25;
+                   the boundary, the fusion weights and the silence threshold stand
     Evidence:      ../audits/2026-08-09-comprehensive-audit.md
     Code:          src/memkit/retrieval.py, src/memkit/db.py
     Contract:      ../01-architecture.md, ../05-retrieval.md

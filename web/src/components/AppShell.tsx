@@ -5,7 +5,6 @@ import {
   Command,
   Database,
   Gauge,
-  GitCompareArrows,
   KeyRound,
   Menu,
   Moon,
@@ -14,7 +13,6 @@ import {
   Sun,
   TerminalSquare,
   UsersRound,
-  Vote,
   X,
 } from "lucide-react";
 import { Link, Outlet, useRouter, useRouterState } from "@tanstack/react-router";
@@ -42,8 +40,6 @@ const NAV = [
   { to: "/memories", label: "Memories", icon: Brain },
   { to: "/search", label: "Search", icon: Search },
   { to: "/feedback", label: "Feedback", icon: ThumbsUp },
-  { to: "/replay", label: "Replay review", icon: GitCompareArrows },
-  { to: "/evaluations", label: "Evaluation", icon: Vote },
   { to: "/judge-runs", label: "Judge runs", icon: BookOpen },
   { to: "/sessions", label: "Sessions", icon: UsersRound },
   { to: "/ops", label: "Operations", icon: TerminalSquare },

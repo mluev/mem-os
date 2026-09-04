@@ -11,4 +11,6 @@ Normative reading order:
 7. [Hermes adapter](07-hermes-adapter.md)
 8. [Testing](08-testing.md)
 
+Every measured number lives in [measurements.md](measurements.md), with its date and the command that produced it, and nowhere else; every "why not the alternative" lives in [decisions/](decisions/README.md).
+
 The audit inputs remain under `audits/`; accepted design is in `plans/`. ADRs are append-only. Superseded ADRs retain their original reasoning and link to the replacement decision.

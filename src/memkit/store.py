@@ -28,6 +28,15 @@ from .limits import MAX_MEMORY_CHARS, MAX_MESSAGE_CHARS, MIN_INDEX_CHARS
 REVIEW_STATUSES = frozenset({"pending", "confirmed", "declined"})
 
 
+class SessionNotAvailable(LookupError):
+    """This session is not the caller's to write into.
+
+    Deliberately not distinguished from "no such session" at the boundary: a
+    different answer for a session that exists would let anyone enumerate other
+    people's conversation ids.
+    """
+
+
 def content_hash(text: str) -> str:
     """Identity of a claim's wording, for exact-duplicate rejection.
 
@@ -78,7 +87,7 @@ def _session(
     if existing is None:  # pragma: no cover - only under concurrent deletion
         raise RuntimeError(f"session vanished during creation: {session_id}")
     if str(existing["user_id"]) != str(user_id):
-        raise ValueError("session belongs to another user")
+        raise SessionNotAvailable(session_id)
     if existing["agent_id"] != agent_id:
         raise ValueError("session belongs to another agent")
     return existing

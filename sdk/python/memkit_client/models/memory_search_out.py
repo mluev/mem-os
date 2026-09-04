@@ -27,11 +27,10 @@ class MemorySearchOut:
         embed_ms (float):
         memories (list[MemorySearchOutMemoriesItem]):
         policy_id (str):
-        raw (list[MemorySearchOutRawItem]):
-        took_ms (float):
+        timings (MemorySearchOutTimings):
         used_tokens (int):
+        raw (list[MemorySearchOutRawItem] | Unset):
         retrieval_id (None | str | Unset):
-        timings (MemorySearchOutTimings | Unset):
     """
 
     dropped_filter: list[str]
@@ -41,11 +40,10 @@ class MemorySearchOut:
     embed_ms: float
     memories: list[MemorySearchOutMemoriesItem]
     policy_id: str
-    raw: list[MemorySearchOutRawItem]
-    took_ms: float
+    timings: MemorySearchOutTimings
     used_tokens: int
+    raw: list[MemorySearchOutRawItem] | Unset = UNSET
     retrieval_id: None | str | Unset = UNSET
-    timings: MemorySearchOutTimings | Unset = UNSET
 
     def to_dict(self) -> dict[str, Any]:
         dropped_filter = self.dropped_filter
@@ -65,24 +63,22 @@ class MemorySearchOut:
 
         policy_id = self.policy_id
 
-        raw = []
-        for raw_item_data in self.raw:
-            raw_item = raw_item_data.to_dict()
-            raw.append(raw_item)
-
-        took_ms = self.took_ms
+        timings = self.timings.to_dict()
 
         used_tokens = self.used_tokens
+
+        raw: list[dict[str, Any]] | Unset = UNSET
+        if not isinstance(self.raw, Unset):
+            raw = []
+            for raw_item_data in self.raw:
+                raw_item = raw_item_data.to_dict()
+                raw.append(raw_item)
 
         retrieval_id: None | str | Unset
         if isinstance(self.retrieval_id, Unset):
             retrieval_id = UNSET
         else:
             retrieval_id = self.retrieval_id
-
-        timings: dict[str, Any] | Unset = UNSET
-        if not isinstance(self.timings, Unset):
-            timings = self.timings.to_dict()
 
         field_dict: dict[str, Any] = {}
 
@@ -95,15 +91,14 @@ class MemorySearchOut:
                 "embed_ms": embed_ms,
                 "memories": memories,
                 "policy_id": policy_id,
-                "raw": raw,
-                "took_ms": took_ms,
+                "timings": timings,
                 "used_tokens": used_tokens,
             }
         )
+        if raw is not UNSET:
+            field_dict["raw"] = raw
         if retrieval_id is not UNSET:
             field_dict["retrieval_id"] = retrieval_id
-        if timings is not UNSET:
-            field_dict["timings"] = timings
 
         return field_dict
 
@@ -133,16 +128,18 @@ class MemorySearchOut:
 
         policy_id = d.pop("policy_id")
 
-        raw = []
-        _raw = d.pop("raw")
-        for raw_item_data in _raw:
-            raw_item = MemorySearchOutRawItem.from_dict(raw_item_data)
-
-            raw.append(raw_item)
-
-        took_ms = d.pop("took_ms")
+        timings = MemorySearchOutTimings.from_dict(d.pop("timings"))
 
         used_tokens = d.pop("used_tokens")
+
+        _raw = d.pop("raw", UNSET)
+        raw: list[MemorySearchOutRawItem] | Unset = UNSET
+        if _raw is not UNSET:
+            raw = []
+            for raw_item_data in _raw:
+                raw_item = MemorySearchOutRawItem.from_dict(raw_item_data)
+
+                raw.append(raw_item)
 
         def _parse_retrieval_id(data: object) -> None | str | Unset:
             if data is None:
@@ -153,13 +150,6 @@ class MemorySearchOut:
 
         retrieval_id = _parse_retrieval_id(d.pop("retrieval_id", UNSET))
 
-        _timings = d.pop("timings", UNSET)
-        timings: MemorySearchOutTimings | Unset
-        if isinstance(_timings, Unset):
-            timings = UNSET
-        else:
-            timings = MemorySearchOutTimings.from_dict(_timings)
-
         memory_search_out = cls(
             dropped_filter=dropped_filter,
             dropped_relevance=dropped_relevance,
@@ -168,11 +158,10 @@ class MemorySearchOut:
             embed_ms=embed_ms,
             memories=memories,
             policy_id=policy_id,
-            raw=raw,
-            took_ms=took_ms,
-            used_tokens=used_tokens,
-            retrieval_id=retrieval_id,
             timings=timings,
+            used_tokens=used_tokens,
+            raw=raw,
+            retrieval_id=retrieval_id,
         )
 
         return memory_search_out
