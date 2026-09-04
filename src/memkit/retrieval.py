@@ -1,19 +1,29 @@
-"""Trust-aware hybrid retrieval with an explicit abstention policy."""
+"""Trust-aware hybrid retrieval with an explicit abstention policy.
+
+Three candidate arms, fused and then filtered. Every arm is bounded, and every
+arm is scope-filtered: a query can only ever reach memories in the scopes its
+principal belongs to. Lexical matching uses Postgres full text with the
+`russian` configuration, which stems Cyrillic and ASCII alike -- the SQLite
+FTS5 tokenizer had no stemming at all, so this arm used to be blind to Russian
+morphology.
+"""
 
 from __future__ import annotations
 
-import json
 import math
 import re
-import sqlite3
 import time
+import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Protocol
 
+import psycopg
 from qdrant_client import QdrantClient
 
 from . import filters, vectors
+from .db import Row, as_datetime, iso
 from .embed import Embedder
 from .store import memory_active
 
@@ -34,15 +44,15 @@ class RetrievalPolicy:
     default_half_life_days: float = 180.0
 
 
-def load_policy(conn: sqlite3.Connection, policy_id: str) -> RetrievalPolicy:
+def load_policy(conn: psycopg.Connection, policy_id: str) -> RetrievalPolicy:
     aliases = {"neutral-v1": "core-retrieval-neutral-v1"}
     resolved = aliases.get(policy_id, policy_id)
     row = conn.execute(
-        "SELECT id,config_json FROM policies WHERE id=? AND kind='retrieval'", (resolved,)
+        "SELECT id,config FROM policies WHERE id=%s AND kind='retrieval'", (resolved,)
     ).fetchone()
     if row is None:
         raise ValueError("unknown retrieval policy")
-    config = json.loads(row["config_json"])
+    config = dict(row["config"])
     return RetrievalPolicy(
         id=row["id"],
         dense_weight=float(config.get("dense_weight", 0.60)),
@@ -72,6 +82,14 @@ class Scored:
     score: float
     updated_at: str
     revision: int = 1
+    # Where the fact lives and who it is about. A team instance returns facts
+    # from several scopes in one result, so a caller that cannot tell them
+    # apart cannot say "the team decided" versus "you decided".
+    review_status: str = "confirmed"
+    scope: str | None = None
+    scope_slug: str | None = None
+    subject: str | None = None
+    subject_slug: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -84,6 +102,11 @@ class Scored:
             # A correction is a PATCH with `expected_revision`; without this an
             # agent that found a wrong fact by searching cannot fix it.
             "revision": self.revision,
+            "review_status": self.review_status,
+            "scope": self.scope,
+            "scope_slug": self.scope_slug,
+            "subject": self.subject,
+            "subject_slug": self.subject_slug,
             "score": round(self.score, 4),
             "similarity": round(self.similarity, 4),
             "lexical": round(self.lexical, 4),
@@ -137,86 +160,100 @@ def _terms(text: str) -> list[str]:
     return [term.casefold() for term in WORD_RE.findall(text)]
 
 
-def _fts_candidates(
-    conn: sqlite3.Connection, *, query: str, owner_id: str, limit: int
+def _lexical_candidates(
+    conn: psycopg.Connection, *, query: str, scope_ids: Sequence[str], limit: int
 ) -> dict[str, float]:
-    """Return a bounded, normalized FTS5 candidate set.
+    """A bounded, normalised full-text candidate set.
 
-    Tokens come from ``WORD_RE`` and are quoted individually, so user input is
-    never interpreted as FTS syntax. SQLite's BM25 is lower-is-better; ranking
-    by reciprocal position keeps the lexical component stable and bounded.
+    Terms come from ``WORD_RE`` and are combined with `plainto_tsquery` per
+    term, so caller input is never interpreted as query syntax. `ts_rank_cd`
+    is higher-is-better and unbounded, so scores are normalised by the best
+    hit: that keeps this arm comparable with the dense arm's cosine without
+    pushing an equally relevant second result below the abstention floor.
     """
-    terms = list(dict.fromkeys(_terms(query)))
-    if not terms:
+    terms = list(dict.fromkeys(_terms(query)))[:32]
+    if not terms or not scope_ids:
         return {}
-    match = " OR ".join(f'"{term}"' for term in terms[:32])
     rows = conn.execute(
-        """SELECT memory_id,bm25(memories_fts,0.0,0.0,1.0,0.35,0.2) AS rank
-           FROM memories_fts
-           WHERE memories_fts MATCH ? AND owner_id=?
-           ORDER BY rank,memory_id LIMIT ?""",
-        (match, owner_id, limit),
+        """SELECT id, ts_rank_cd(search_tsv, q) AS rank
+             FROM memories, plainto_tsquery('russian', %s) AS q
+            WHERE scope_id = ANY(%s) AND status='active' AND search_tsv @@ q
+            ORDER BY rank DESC, id
+            LIMIT %s""",
+        (" ".join(terms), [uuid.UUID(str(s)) for s in scope_ids], limit),
     ).fetchall()
     if not rows:
         return {}
-    # FTS5's BM25 is negative/lower-is-better. Normalize the bounded result
-    # scores by the strongest magnitude; unlike reciprocal rank this does not
-    # arbitrarily push the second equally relevant document below abstention.
-    magnitudes = [abs(float(row["rank"])) for row in rows]
-    maximum = max(magnitudes, default=1.0) or 1.0
-    return {
-        str(row["memory_id"]): magnitude / maximum
-        for row, magnitude in zip(rows, magnitudes, strict=True)
-    }
+    ranks = [float(row["rank"]) for row in rows]
+    best = max(ranks, default=1.0) or 1.0
+    return {str(row["id"]): rank / best for row, rank in zip(rows, ranks, strict=True)}
 
 
 def _entity_candidates(
-    conn: sqlite3.Connection, *, query: str, owner_id: str, limit: int
+    conn: psycopg.Connection, *, query: str, scope_ids: Sequence[str], limit: int
 ) -> dict[str, float]:
-    entities = list(
+    """Exact identifier matches: ticket numbers, error codes, repo names.
+
+    Stemming is the wrong tool for these -- `ERR_X91Q` has no lexeme -- so this
+    arm matches the literal substring with the trigram index instead, which is
+    also what makes it independent of the lexical arm rather than a subset of
+    it, as it was under a shared FTS table.
+    """
+    tokens = list(
         dict.fromkeys(
-            token.casefold()
+            token
             for token in WORD_RE.findall(query)
             if any(char.isdigit() or char in "./:@#_-" for char in token)
             or (len(token) > 1 and token.isupper())
         )
     )[:16]
-    if not entities:
+    if not tokens or not scope_ids:
         return {}
-    # Use the transactional FTS projection instead of scanning every memory
-    # with ``instr(lowerx(text), ...)``. Quoted entity phrases preserve exact
-    # identifier matching while the LIMIT keeps this arm bounded at 100k+ rows.
-    match = " OR ".join(f'"{entity}"' for entity in entities)
     rows = conn.execute(
-        """SELECT memory_id FROM memories_fts
-            WHERE memories_fts MATCH ? AND owner_id=?
-            ORDER BY bm25(memories_fts),memory_id LIMIT ?""",
-        (match, owner_id, limit),
+        """SELECT id FROM memories
+            WHERE scope_id = ANY(%s) AND status='active'
+              AND text ILIKE ANY(%s)
+            ORDER BY updated_at DESC, id
+            LIMIT %s""",
+        (
+            [uuid.UUID(str(s)) for s in scope_ids],
+            [f"%{token}%" for token in tokens],
+            limit,
+        ),
     ).fetchall()
-    return {str(row["memory_id"]): 1.0 for row in rows}
+    return {str(row["id"]): 1.0 for row in rows}
 
 
 def _candidate_rows(
-    conn: sqlite3.Connection, *, owner_id: str, candidate_ids: set[str]
-) -> dict[str, sqlite3.Row]:
-    if not candidate_ids:
+    conn: psycopg.Connection, *, scope_ids: Sequence[str], candidate_ids: set[str]
+) -> dict[str, Row]:
+    """Fetch the candidates, re-checking the scope predicate.
+
+    The dense arm's filter lives in Qdrant, which is a derived index and can
+    lag. Re-applying the predicate here means a stale point can never leak a
+    memory from a scope the caller has lost access to.
+    """
+    if not candidate_ids or not scope_ids:
         return {}
-    ordered = sorted(candidate_ids)
-    placeholders = ",".join("?" for _ in ordered)
     rows = conn.execute(
-        f"SELECT * FROM memories WHERE owner_id=? AND id IN ({placeholders})",
-        (owner_id, *ordered),
+        """SELECT m.*, sc.name AS scope_name, sc.slug AS scope_slug,
+                  sub.name AS subject_name, sub.slug AS subject_slug
+             FROM memories m
+             JOIN entities sc ON sc.id = m.scope_id
+             LEFT JOIN entities sub ON sub.id = m.subject_id
+            WHERE m.id = ANY(%s) AND m.scope_id = ANY(%s)""",
+        (
+            [uuid.UUID(str(cid)) for cid in sorted(candidate_ids)],
+            [uuid.UUID(str(s)) for s in scope_ids],
+        ),
     ).fetchall()
     return {str(row["id"]): row for row in rows}
 
 
-def _age_days(value: str, now: datetime) -> float:
-    try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
+def _age_days(value: Any, now: datetime) -> float:
+    parsed = as_datetime(value)
+    if parsed is None:
         return 0.0
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=UTC)
     return max(0.0, (now - parsed).total_seconds() / 86_400)
 
 
@@ -244,12 +281,12 @@ def _fill_budget(rows: list[Scored], budget_tokens: int) -> tuple[list[Scored], 
 
 
 def explain(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     client: QdrantClient,
     embedder: Embedder,
     *,
     query: str,
-    owner_id: str,
+    scope_ids: Sequence[str],
     expression: dict[str, Any] | None = None,
     kinds: list[str] | None = None,
     limit: int = 30,
@@ -273,20 +310,23 @@ def explain(
         memory_collection,
         dense_vector,
         limit=max(50, limit * 3),
-        must=[vectors.keyword("owner_id", owner_id), vectors.keyword("status", "active")],
+        must=[
+            vectors.keyword("scope_id", list(scope_ids)),
+            vectors.keyword("status", "active"),
+        ],
     )
     dense_ms = (time.perf_counter() - dense_started) * 1000
     dense = {str(hit.id): max(0.0, float(hit.score)) for hit in dense_hits}
     candidate_limit = max(50, limit * 3)
     lexical_started = time.perf_counter()
-    lexical = _fts_candidates(conn, query=query, owner_id=owner_id, limit=candidate_limit)
+    lexical = _lexical_candidates(conn, query=query, scope_ids=scope_ids, limit=candidate_limit)
     lexical_ms = (time.perf_counter() - lexical_started) * 1000
     entity_started = time.perf_counter()
-    entity = _entity_candidates(conn, query=query, owner_id=owner_id, limit=candidate_limit)
+    entity = _entity_candidates(conn, query=query, scope_ids=scope_ids, limit=candidate_limit)
     entity_ms = (time.perf_counter() - entity_started) * 1000
     candidate_ids = set(dense) | set(lexical) | set(entity)
     fetch_started = time.perf_counter()
-    row_by_id = _candidate_rows(conn, owner_id=owner_id, candidate_ids=candidate_ids)
+    row_by_id = _candidate_rows(conn, scope_ids=scope_ids, candidate_ids=candidate_ids)
     fetch_ms = (time.perf_counter() - fetch_started) * 1000
 
     dropped_trust: list[str] = []
@@ -308,8 +348,8 @@ def explain(
         if kinds and row["kind"] not in kinds:
             dropped_filter.append(memory_id)
             continue
-        context = json.loads(row["context_json"] or "{}")
-        tags = json.loads(row["tags_json"] or "[]")
+        context = dict(row["context"] or {})
+        tags = list(row["tags"] or [])
         document = {
             "kind": row["kind"],
             "agent_id": row["agent_id"],
@@ -350,8 +390,13 @@ def explain(
                 importance=float(row["importance"]),
                 recency=recency,
                 score=score,
-                updated_at=row["updated_at"],
+                updated_at=iso(row["updated_at"]) or "",
                 revision=int(row["revision"]),
+                review_status=str(row["review_status"]),
+                scope=str(row["scope_name"]),
+                scope_slug=str(row["scope_slug"]),
+                subject=str(row["subject_name"]) if row["subject_name"] else None,
+                subject_slug=str(row["subject_slug"]) if row["subject_slug"] else None,
             )
         )
     scored.sort(key=lambda item: (-item.score, item.id))

@@ -1,7 +1,7 @@
 [project]
 name = "memkit"
 version = "0.2.0"
-description = "Local memory service for agents: SQLite truth, Qdrant index, local embeddings, LLM judge"
+description = "Team memory service for agents: Postgres truth, Qdrant index, local embeddings, LLM judge"
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "fastapi>=0.115",
@@ -9,6 +9,8 @@ dependencies = [
     "pydantic>=2.9",
     "pydantic-settings>=2.6",
     "qdrant-client==1.18.0",
+    "psycopg[binary,pool]>=3.2",
+    "argon2-cffi>=23.1",
     "sentence-transformers>=3.3",
     "anthropic>=0.40",
     "google-genai>=1.0",
@@ -26,6 +28,7 @@ dev = [
     "openapi-python-client>=0.26",
     "pytest>=8.3",
     "pytest-cov>=6.0",
+    "pytest-xdist>=3.6",
     "pip-audit>=2.9",
     "ruff>=0.12",
 ]

@@ -1,17 +1,27 @@
-"""SQLite access. This is the source of truth; Qdrant is derived from it.
+"""Postgres access. This is the source of truth; Qdrant is derived from it.
 
-The schema is documented in docs/02-data-model.md, which generates its table
-listing from this module rather than restating it.
+Schema version 1 is a fresh start, not a port of the SQLite ladder. The old
+database was single-owner by construction: one `owners` row, an `owner_id` on
+every table, and no way for a request to name a different one. Every table here
+is multi-tenant from the first migration instead, because retrofitting tenancy
+onto a schema is how isolation bugs are made -- a query that forgets the
+predicate still returns rows.
 
-Two columns exist here that an early draft of the design left out, and both are
-load-bearing rather than conveniences:
+Two identifiers carry that tenancy, and the distinction between them is the
+whole model:
 
-* ``messages.external_source`` / ``external_id`` are in the base schema, not
-  bolted on later. The transcript importer needs them for idempotency from the
-  first import, so they cannot wait for a migration.
-* ``memories.judge_run_id`` is what lets ``GET /v1/memories/{id}/sources``
-  return the judge run it advertises. Without it the endpoint cannot answer the
-  one question it exists for.
+    scope_id    the entity whose space holds this row. The authorization
+                boundary: a request may only read scopes its principal belongs
+                to, and asking for another is refused rather than filtered.
+    subject_id  the entity a fact is *about*. Attribution, not permission.
+                NULL means the fact is about the scope itself.
+
+A user's private memory is a scope whose entity is that user. A fact about a
+teammate lives in the team scope with the teammate as subject, so the team can
+see it and the teammate can delete it. Nothing else needs a new namespace.
+
+Existing SQLite data is imported once by `memkit import-sqlite`, which is the
+only module still allowed to touch sqlite3.
 """
 
 from __future__ import annotations
@@ -19,686 +29,652 @@ from __future__ import annotations
 import json
 import logging
 import os
-import sqlite3
+import re
 import threading
-import uuid
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager, suppress
 from datetime import UTC, datetime
 from hashlib import sha256
-from pathlib import Path
+from typing import Any
+
+import psycopg
+from psycopg import sql
+from psycopg.rows import dict_row
+from psycopg_pool import ConnectionPool as _PsycopgPool
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 1
 
-MIGRATION_V6 = """
+DDL_V1 = """
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
 CREATE TABLE IF NOT EXISTS schema_migrations (
-    version     INTEGER PRIMARY KEY,
-    checksum    TEXT NOT NULL,
-    applied_at  TEXT NOT NULL
+    version     integer PRIMARY KEY,
+    checksum    text NOT NULL,
+    applied_at  timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
-    memory_id UNINDEXED,
-    owner_id UNINDEXED,
-    text,
-    kind,
-    tags,
-    tokenize='unicode61 remove_diacritics 2'
+-- People. A user is not an entity, but every user has one (see entities).
+CREATE TABLE IF NOT EXISTS users (
+    id             uuid PRIMARY KEY,
+    handle         text NOT NULL UNIQUE
+                   CHECK (handle ~ '^[a-z0-9][a-z0-9_.-]{1,62}$'),
+    display_name   text NOT NULL CHECK (length(btrim(display_name)) BETWEEN 1 AND 200),
+    email          text UNIQUE,
+    password_hash  text NOT NULL,
+    role           text NOT NULL CHECK (role IN ('admin','member')),
+    created_at     timestamptz NOT NULL DEFAULT now(),
+    disabled_at    timestamptz
 );
 
-CREATE TRIGGER IF NOT EXISTS memories_fts_insert AFTER INSERT ON memories
-WHEN NEW.status='active'
-BEGIN
-    INSERT INTO memories_fts(memory_id,owner_id,text,kind,tags)
-    VALUES (NEW.id,NEW.owner_id,NEW.text,NEW.kind,NEW.tags_json);
-END;
-
-CREATE TRIGGER IF NOT EXISTS memories_fts_update
-AFTER UPDATE OF text,kind,tags_json,status,owner_id ON memories
-BEGIN
-    DELETE FROM memories_fts WHERE memory_id=OLD.id;
-    INSERT INTO memories_fts(memory_id,owner_id,text,kind,tags)
-    SELECT NEW.id,NEW.owner_id,NEW.text,NEW.kind,NEW.tags_json
-    WHERE NEW.status='active';
-END;
-
-CREATE TRIGGER IF NOT EXISTS memories_fts_delete AFTER DELETE ON memories
-BEGIN
-    DELETE FROM memories_fts WHERE memory_id=OLD.id;
-END;
-
-CREATE TABLE IF NOT EXISTS retrieval_runs (
-    id            TEXT PRIMARY KEY,
-    owner_id      TEXT NOT NULL REFERENCES owners(id) ON DELETE CASCADE,
-    query_hash    TEXT NOT NULL,
-    policy_id     TEXT NOT NULL,
-    result_json   TEXT NOT NULL CHECK(json_valid(result_json)),
-    timings_json  TEXT NOT NULL CHECK(json_valid(timings_json)),
-    used_tokens   INTEGER NOT NULL CHECK(used_tokens >= 0),
-    abstained     INTEGER NOT NULL CHECK(abstained IN (0,1)),
-    created_at    TEXT NOT NULL
+-- Agents and hooks authenticate with these; the dashboard uses auth_sessions.
+-- Only the hash is stored, so a leaked database cannot be used to call the API.
+CREATE TABLE IF NOT EXISTS api_keys (
+    id            uuid PRIMARY KEY,
+    user_id       uuid NOT NULL REFERENCES users ON DELETE CASCADE,
+    name          text NOT NULL CHECK (length(btrim(name)) BETWEEN 1 AND 200),
+    key_prefix    text NOT NULL UNIQUE,
+    key_hash      text NOT NULL,
+    created_at    timestamptz NOT NULL DEFAULT now(),
+    last_used_at  timestamptz,
+    revoked_at    timestamptz
 );
-CREATE INDEX IF NOT EXISTS idx_retrieval_runs_owner_created
-    ON retrieval_runs(owner_id,created_at);
+CREATE INDEX IF NOT EXISTS api_keys_user ON api_keys(user_id);
 
-CREATE TABLE IF NOT EXISTS retrieval_run_feedback (
-    id                INTEGER PRIMARY KEY AUTOINCREMENT,
-    retrieval_run_id  TEXT NOT NULL REFERENCES retrieval_runs(id) ON DELETE CASCADE,
-    memory_id         TEXT NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
-    useful            INTEGER CHECK(useful IN (0,1)),
-    correct           INTEGER CHECK(correct IN (0,1)),
-    created_at        TEXT NOT NULL,
-    UNIQUE(retrieval_run_id,memory_id)
+CREATE TABLE IF NOT EXISTS auth_sessions (
+    id            uuid PRIMARY KEY,
+    user_id       uuid NOT NULL REFERENCES users ON DELETE CASCADE,
+    token_hash    text NOT NULL UNIQUE,
+    created_at    timestamptz NOT NULL DEFAULT now(),
+    expires_at    timestamptz NOT NULL,
+    last_seen_at  timestamptz,
+    ip            inet,
+    user_agent    text,
+    revoked_at    timestamptz
 );
+CREATE INDEX IF NOT EXISTS auth_sessions_user ON auth_sessions(user_id);
 
-CREATE TABLE IF NOT EXISTS replay_batches (
-    id                 TEXT PRIMARY KEY,
-    owner_id           TEXT NOT NULL REFERENCES owners(id) ON DELETE CASCADE,
-    job_id             TEXT REFERENCES jobs(id) ON DELETE SET NULL,
-    status             TEXT NOT NULL CHECK(status IN (
-                           'queued','running','review','validated','approved',
-                           'promoting','promoted','failed','cancelled')),
-    model              TEXT NOT NULL,
-    prompt_version     TEXT NOT NULL,
-    source_checksum    TEXT NOT NULL,
-    shadow_path        TEXT,
-    stats_json         TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(stats_json)),
-    approval_checksum  TEXT,
-    error              TEXT,
-    created_at         TEXT NOT NULL,
-    updated_at         TEXT NOT NULL
+-- Everything a memory can belong to or be about: a person, the team, a product,
+-- a company, a project. `kind='user'` rows are created with their user and are
+-- that user's private space.
+CREATE TABLE IF NOT EXISTS entities (
+    id           uuid PRIMARY KEY,
+    kind         text NOT NULL
+                 CHECK (kind IN ('user','team','project','product','company','person','custom')),
+    name         text NOT NULL CHECK (length(btrim(name)) BETWEEN 1 AND 200),
+    slug         text NOT NULL UNIQUE CHECK (slug ~ '^[a-z0-9][a-z0-9_-]{0,62}$'),
+    description  text NOT NULL DEFAULT '',
+    visibility   text NOT NULL DEFAULT 'members' CHECK (visibility IN ('members','team')),
+    user_id      uuid UNIQUE REFERENCES users ON DELETE CASCADE,
+    created_by   uuid REFERENCES users,
+    created_at   timestamptz NOT NULL DEFAULT now(),
+    archived_at  timestamptz,
+    CHECK ((kind = 'user') = (user_id IS NOT NULL))
 );
-CREATE INDEX IF NOT EXISTS idx_replay_batches_owner_created
-    ON replay_batches(owner_id,created_at);
+-- Exactly one team entity: it is the shared scope every user belongs to.
+CREATE UNIQUE INDEX IF NOT EXISTS entities_single_team ON entities((kind)) WHERE kind = 'team';
 
-CREATE TABLE IF NOT EXISTS replay_items (
-    id                 TEXT PRIMARY KEY,
-    batch_id           TEXT NOT NULL REFERENCES replay_batches(id) ON DELETE CASCADE,
-    sequence           INTEGER NOT NULL CHECK(sequence >= 0),
-    action             TEXT NOT NULL CHECK(action IN ('ADD','UPDATE','DELETE')),
-    target_memory_id   TEXT,
-    source_revision    INTEGER,
-    before_json        TEXT CHECK(before_json IS NULL OR json_valid(before_json)),
-    proposed_json      TEXT CHECK(proposed_json IS NULL OR json_valid(proposed_json)),
-    evidence_json      TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(evidence_json)),
-    source_role        TEXT NOT NULL CHECK(source_role IN ('user','assistant','tool','manual','agent')),
-    decision           TEXT NOT NULL DEFAULT 'pending'
-                       CHECK(decision IN ('pending','accepted','rejected','edited')),
-    reviewed_json      TEXT CHECK(reviewed_json IS NULL OR json_valid(reviewed_json)),
-    reviewed_at        TEXT,
-    created_at         TEXT NOT NULL,
-    UNIQUE(batch_id,sequence)
+-- Alternate names the extractor may see in conversation ("Саша", "the shop").
+-- Normalised for case-insensitive lookup in either language.
+CREATE TABLE IF NOT EXISTS entity_aliases (
+    entity_id   uuid NOT NULL REFERENCES entities ON DELETE CASCADE,
+    alias_norm  text PRIMARY KEY CHECK (length(btrim(alias_norm)) BETWEEN 1 AND 200),
+    alias       text NOT NULL,
+    created_at  timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS idx_replay_items_batch_decision
-    ON replay_items(batch_id,decision,sequence);
+CREATE INDEX IF NOT EXISTS entity_aliases_entity ON entity_aliases(entity_id);
 
-CREATE TABLE IF NOT EXISTS evaluation_runs (
-    id            TEXT PRIMARY KEY,
-    status        TEXT NOT NULL CHECK(status IN ('draft','ready','reviewing','complete','failed')),
-    model         TEXT NOT NULL,
-    rubric_json   TEXT NOT NULL CHECK(json_valid(rubric_json)),
-    summary_json  TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(summary_json)),
-    created_at    TEXT NOT NULL,
-    updated_at    TEXT NOT NULL
+CREATE TABLE IF NOT EXISTS memberships (
+    entity_id   uuid NOT NULL REFERENCES entities ON DELETE CASCADE,
+    user_id     uuid NOT NULL REFERENCES users ON DELETE CASCADE,
+    role        text NOT NULL CHECK (role IN ('owner','member','viewer')),
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (entity_id, user_id)
 );
-
-CREATE TABLE IF NOT EXISTS evaluation_cases (
-    id              TEXT PRIMARY KEY,
-    evaluation_id   TEXT NOT NULL REFERENCES evaluation_runs(id) ON DELETE CASCADE,
-    case_key        TEXT NOT NULL,
-    prompt          TEXT NOT NULL,
-    arms_json       TEXT NOT NULL CHECK(json_valid(arms_json)),
-    order_json      TEXT NOT NULL CHECK(json_valid(order_json)),
-    review_json     TEXT CHECK(review_json IS NULL OR json_valid(review_json)),
-    reviewed_at     TEXT,
-    UNIQUE(evaluation_id,case_key)
-);
-
-CREATE TABLE IF NOT EXISTS backup_artifacts (
-    id            TEXT PRIMARY KEY,
-    kind          TEXT NOT NULL CHECK(kind IN ('daily','weekly','pre-migration','pre-promotion','emergency')),
-    path          TEXT NOT NULL UNIQUE,
-    sha256        TEXT NOT NULL,
-    size_bytes    INTEGER NOT NULL CHECK(size_bytes >= 0),
-    verified_at   TEXT NOT NULL,
-    protected     INTEGER NOT NULL DEFAULT 0 CHECK(protected IN (0,1)),
-    created_at    TEXT NOT NULL
-);
-"""
-
-MIGRATION_CHECKSUMS = {6: sha256(MIGRATION_V6.encode()).hexdigest()}
-
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS owners (
-    id          TEXT PRIMARY KEY,
-    name        TEXT NOT NULL,
-    created_at  TEXT NOT NULL
-);
+CREATE INDEX IF NOT EXISTS memberships_user ON memberships(user_id);
 
 CREATE TABLE IF NOT EXISTS sessions (
-    id          TEXT PRIMARY KEY,
-    owner_id    TEXT NOT NULL REFERENCES owners(id),
-    agent_id    TEXT NOT NULL,
-    started_at  TEXT NOT NULL,
-    ended_at    TEXT,
-    meta        TEXT,
-    context_json TEXT NOT NULL DEFAULT '{}'
-                 CHECK(json_valid(context_json))
+    id          text PRIMARY KEY,
+    user_id     uuid NOT NULL REFERENCES users,
+    scope_id    uuid NOT NULL REFERENCES entities,
+    agent_id    text NOT NULL,
+    started_at  timestamptz NOT NULL DEFAULT now(),
+    ended_at    timestamptz,
+    context     jsonb NOT NULL DEFAULT '{}' CHECK (jsonb_typeof(context) = 'object')
 );
-CREATE INDEX IF NOT EXISTS idx_sessions_owner ON sessions(owner_id, agent_id);
+CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id, started_at DESC);
 
--- Raw messages. Never deleted: every extractor prompt rewrite must be able to
--- replay the entire history.
+-- Raw evidence. Never deleted except by erasure: every extractor prompt rewrite
+-- must be able to replay the entire history. `user_id` is denormalised so an
+-- isolation check never depends on remembering to join sessions.
 CREATE TABLE IF NOT EXISTS messages (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id      TEXT NOT NULL REFERENCES sessions(id),
-    role            TEXT NOT NULL,
-    content         TEXT NOT NULL,
-    created_at      TEXT NOT NULL,
-    processed       INTEGER NOT NULL DEFAULT 0,
-    external_source TEXT,
-    external_id     TEXT,
-    context_json    TEXT NOT NULL DEFAULT '{}'
-                    CHECK(json_valid(context_json)),
-    redacted        INTEGER NOT NULL DEFAULT 0 CHECK(redacted IN (0,1)),
-    claim_token     TEXT,
-    claim_expires_at TEXT
+    id                bigint GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+    session_id        text NOT NULL REFERENCES sessions,
+    user_id           uuid NOT NULL REFERENCES users,
+    role              text NOT NULL CHECK (role IN ('user','assistant','tool')),
+    content           text NOT NULL,
+    created_at        timestamptz NOT NULL,
+    processed         boolean NOT NULL DEFAULT false,
+    external_source   text,
+    external_id       text,
+    context           jsonb NOT NULL DEFAULT '{}' CHECK (jsonb_typeof(context) = 'object'),
+    redacted          boolean NOT NULL DEFAULT false,
+    claim_token       text,
+    claim_expires_at  timestamptz
 );
-CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, id);
-CREATE INDEX IF NOT EXISTS idx_messages_unprocessed
-    ON messages(processed) WHERE processed = 0;
--- Idempotency for every writer that can replay: the transcript importer, and
--- Hermes, which has three independent paths that deliver the same turn.
-CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_external
-    ON messages(external_source, external_id) WHERE external_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS messages_session ON messages(session_id, id);
+CREATE INDEX IF NOT EXISTS messages_unprocessed ON messages(session_id, id)
+    WHERE NOT processed;
+-- Idempotency for every writer that can replay. Scoped by user because two
+-- people on one machine would otherwise collide on transcript line ids.
+CREATE UNIQUE INDEX IF NOT EXISTS messages_external
+    ON messages(user_id, external_source, external_id) WHERE external_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS judge_runs (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    owner_id        TEXT REFERENCES owners(id),
-    job_id          TEXT,
-    kind            TEXT NOT NULL,
-    model           TEXT NOT NULL,
-    prompt_version  TEXT NOT NULL,
-    input_json      TEXT NOT NULL,
-    output_json     TEXT,
-    error           TEXT,
-    input_tokens    INTEGER,
-    output_tokens   INTEGER,
-    cost_usd        REAL,
-    latency_ms      INTEGER,
-    created_at      TEXT NOT NULL
+    id              bigint GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+    user_id         uuid REFERENCES users,
+    job_id          uuid,
+    kind            text NOT NULL,
+    model           text NOT NULL,
+    prompt_version  text NOT NULL,
+    input           jsonb NOT NULL,
+    output          jsonb,
+    error           text,
+    input_tokens    integer,
+    output_tokens   integer,
+    cost_usd        numeric(12,6),
+    latency_ms      integer,
+    created_at      timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS idx_judge_runs_created ON judge_runs(created_at);
+CREATE INDEX IF NOT EXISTS judge_runs_created ON judge_runs(created_at);
+CREATE INDEX IF NOT EXISTS judge_runs_user ON judge_runs(user_id, created_at);
 
 CREATE TABLE IF NOT EXISTS memories (
-    id                 TEXT PRIMARY KEY,
-    owner_id           TEXT NOT NULL REFERENCES owners(id),
-    agent_id           TEXT,
-    kind               TEXT NOT NULL CHECK(length(trim(kind)) BETWEEN 1 AND 64),
-    text               TEXT NOT NULL,
-    importance         REAL NOT NULL CHECK(importance BETWEEN 0.0 AND 1.0),
-    confidence         REAL NOT NULL CHECK(confidence BETWEEN 0.0 AND 1.0),
-    status             TEXT NOT NULL
-                       CHECK(status IN ('active','archived','expired','superseded')),
-    superseded_by      TEXT REFERENCES memories(id),
-    valid_from         TEXT NOT NULL,
-    valid_until        TEXT,
-    created_at         TEXT NOT NULL,
-    updated_at         TEXT NOT NULL,
-    last_retrieved_at  TEXT,
-    retrieval_count    INTEGER NOT NULL DEFAULT 0,
-    revision           INTEGER NOT NULL DEFAULT 1 CHECK(revision >= 1),
-    extraction_version TEXT NOT NULL,
-    judge_run_id       INTEGER REFERENCES judge_runs(id),
+    id                  uuid PRIMARY KEY,
+    scope_id            uuid NOT NULL REFERENCES entities,
+    subject_id          uuid REFERENCES entities,
+    author_id           uuid NOT NULL REFERENCES users,
+    agent_id            text,
+    kind                text NOT NULL CHECK (length(btrim(kind)) BETWEEN 1 AND 64),
+    text                text NOT NULL,
+    importance          real NOT NULL CHECK (importance BETWEEN 0 AND 1),
+    confidence          real NOT NULL CHECK (confidence BETWEEN 0 AND 1),
+    status              text NOT NULL
+                        CHECK (status IN ('active','archived','expired','superseded')),
+    superseded_by       uuid REFERENCES memories,
+    valid_from          timestamptz NOT NULL,
+    valid_until         timestamptz,
+    created_at          timestamptz NOT NULL DEFAULT now(),
+    updated_at          timestamptz NOT NULL DEFAULT now(),
+    last_retrieved_at   timestamptz,
+    retrieval_count     integer NOT NULL DEFAULT 0,
+    revision            integer NOT NULL DEFAULT 1 CHECK (revision >= 1),
+    extraction_version  text NOT NULL,
+    judge_run_id        bigint REFERENCES judge_runs,
     -- Who the claim came from: the highest-authority role among the messages
     -- this fact cites, or 'manual' when it cites none and the caller asserted
-    -- it. NOT NULL and CHECKed so no write path can leave the question open --
-    -- that is the whole point, see provenance.py and decisions/0006.
-    --
-    -- Deliberately no DEFAULT. A default would make an INSERT that forgets this
-    -- column succeed and label model-authored text as something a human typed,
-    -- which is the precise failure the column exists to detect. Omitting it is
-    -- an error, and it should read like one.
-    source_role        TEXT NOT NULL
-                       CHECK(source_role IN ('user','assistant','tool','manual','agent')),
-    context_json       TEXT NOT NULL DEFAULT '{}'
-                       CHECK(json_valid(context_json) AND json_type(context_json)='object'),
-    tags_json          TEXT NOT NULL DEFAULT '[]'
-                       CHECK(json_valid(tags_json) AND json_type(tags_json)='array'),
-    redacted           INTEGER NOT NULL DEFAULT 0 CHECK(redacted IN (0,1)),
-    legacy_imported    INTEGER NOT NULL DEFAULT 0 CHECK(legacy_imported IN (0,1)),
-    CHECK(
-        length(trim(text)) BETWEEN 1 AND 2000
-        OR (legacy_imported=1 AND length(trim(text)) BETWEEN 1 AND 100000)
+    -- it. Deliberately no default: an INSERT that forgets this column must
+    -- fail rather than label model-authored text as something a human typed.
+    source_role         text NOT NULL
+                        CHECK (source_role IN ('user','assistant','tool','manual','agent')),
+    -- Every automatic write starts unconfirmed and is fully usable anyway; the
+    -- dashboard confirms or deletes. A user's own manual save is confirmed on
+    -- arrival, because they just said it.
+    review_status       text NOT NULL DEFAULT 'pending'
+                        CHECK (review_status IN ('pending','confirmed','declined')),
+    reviewed_by         uuid REFERENCES users,
+    reviewed_at         timestamptz,
+    -- sha256 of the normalised text, for exact-duplicate rejection on write.
+    content_hash        text NOT NULL,
+    context             jsonb NOT NULL DEFAULT '{}' CHECK (jsonb_typeof(context) = 'object'),
+    tags                jsonb NOT NULL DEFAULT '[]' CHECK (jsonb_typeof(tags) = 'array'),
+    redacted            boolean NOT NULL DEFAULT false,
+    legacy_imported     boolean NOT NULL DEFAULT false,
+    -- The 'russian' configuration stems Cyrillic with russian_stem and ASCII
+    -- with english_stem, so one column covers both languages. SQLite's FTS5
+    -- tokenizer had no stemming at all, which left the lexical arm blind to
+    -- Russian morphology.
+    search_tsv          tsvector GENERATED ALWAYS AS (to_tsvector('russian', text)) STORED,
+    CHECK (
+        length(btrim(text)) BETWEEN 1 AND 2000
+        OR (legacy_imported AND length(btrim(text)) BETWEEN 1 AND 100000)
     )
 );
-CREATE INDEX IF NOT EXISTS idx_memories_owner ON memories(owner_id, status);
-CREATE INDEX IF NOT EXISTS idx_memories_kind ON memories(owner_id, kind, status);
+CREATE INDEX IF NOT EXISTS memories_scope
+    ON memories(scope_id, status, importance DESC, updated_at DESC);
+CREATE INDEX IF NOT EXISTS memories_scope_kind ON memories(scope_id, kind, status);
+CREATE INDEX IF NOT EXISTS memories_subject ON memories(subject_id)
+    WHERE subject_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS memories_pending ON memories(scope_id, created_at)
+    WHERE review_status = 'pending' AND status = 'active';
+CREATE INDEX IF NOT EXISTS memories_hash ON memories(scope_id, content_hash);
+CREATE INDEX IF NOT EXISTS memories_updated ON memories(scope_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS memories_author ON memories(author_id);
+CREATE INDEX IF NOT EXISTS memories_tsv ON memories USING gin (search_tsv)
+    WHERE status = 'active';
+CREATE INDEX IF NOT EXISTS memories_trgm ON memories USING gin (text gin_trgm_ops)
+    WHERE status = 'active';
+
+CREATE TABLE IF NOT EXISTS memory_revisions (
+    memory_id           uuid NOT NULL REFERENCES memories ON DELETE CASCADE,
+    revision            integer NOT NULL CHECK (revision >= 1),
+    scope_id            uuid NOT NULL,
+    subject_id          uuid,
+    author_id           uuid NOT NULL,
+    kind                text NOT NULL,
+    text                text NOT NULL,
+    importance          real NOT NULL,
+    confidence          real NOT NULL,
+    status              text NOT NULL,
+    superseded_by       uuid,
+    valid_until         timestamptz,
+    extraction_version  text NOT NULL,
+    judge_run_id        bigint,
+    source_role         text NOT NULL,
+    review_status       text NOT NULL,
+    context             jsonb NOT NULL,
+    tags                jsonb NOT NULL,
+    redacted            boolean NOT NULL,
+    created_at          timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (memory_id, revision)
+);
 
 CREATE TABLE IF NOT EXISTS memory_sources (
-    memory_id   TEXT NOT NULL REFERENCES memories(id),
-    message_id  INTEGER NOT NULL REFERENCES messages(id),
+    memory_id   uuid NOT NULL REFERENCES memories ON DELETE CASCADE,
+    message_id  bigint NOT NULL REFERENCES messages,
     PRIMARY KEY (memory_id, message_id)
 );
 
 CREATE TABLE IF NOT EXISTS memory_evidence (
-    memory_id   TEXT NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
-    message_id  INTEGER NOT NULL REFERENCES messages(id),
-    start_char  INTEGER NOT NULL CHECK(start_char >= 0),
-    end_char    INTEGER NOT NULL CHECK(end_char > start_char),
-    excerpt_sha256 TEXT NOT NULL,
+    memory_id       uuid NOT NULL REFERENCES memories ON DELETE CASCADE,
+    message_id      bigint NOT NULL REFERENCES messages,
+    start_char      integer NOT NULL CHECK (start_char >= 0),
+    end_char        integer NOT NULL CHECK (end_char > start_char),
+    excerpt_sha256  text NOT NULL,
     PRIMARY KEY (memory_id, message_id, start_char, end_char)
 );
 
-CREATE TABLE IF NOT EXISTS memory_revisions (
-    memory_id          TEXT NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
-    revision           INTEGER NOT NULL CHECK(revision >= 1),
-    kind               TEXT NOT NULL,
-    text               TEXT NOT NULL,
-    importance         REAL NOT NULL,
-    confidence         REAL NOT NULL,
-    status             TEXT NOT NULL,
-    superseded_by      TEXT,
-    valid_until        TEXT,
-    extraction_version TEXT NOT NULL,
-    judge_run_id       INTEGER,
-    source_role        TEXT NOT NULL,
-    context_json       TEXT NOT NULL CHECK(json_valid(context_json)),
-    tags_json          TEXT NOT NULL CHECK(json_valid(tags_json)),
-    redacted           INTEGER NOT NULL CHECK(redacted IN (0,1)),
-    created_at         TEXT NOT NULL,
-    PRIMARY KEY (memory_id, revision)
+-- Work the dashboard surfaces as "needs attention". Pending memories are not
+-- duplicated here: they are found by memories.review_status.
+CREATE TABLE IF NOT EXISTS needs_attention (
+    id             uuid PRIMARY KEY,
+    user_id        uuid NOT NULL REFERENCES users ON DELETE CASCADE,
+    scope_id       uuid REFERENCES entities ON DELETE CASCADE,
+    kind           text NOT NULL
+                   CHECK (kind IN ('unresolved_mention','conflict','failed_job','budget')),
+    ref_memory_id  uuid REFERENCES memories ON DELETE CASCADE,
+    ref_job_id     uuid,
+    payload        jsonb NOT NULL DEFAULT '{}' CHECK (jsonb_typeof(payload) = 'object'),
+    status         text NOT NULL DEFAULT 'open' CHECK (status IN ('open','resolved')),
+    created_at     timestamptz NOT NULL DEFAULT now(),
+    resolved_at    timestamptz,
+    resolved_by    uuid REFERENCES users
 );
+CREATE INDEX IF NOT EXISTS needs_attention_open
+    ON needs_attention(user_id, status, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS index_outbox (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    collection    TEXT NOT NULL,
-    entity_id     TEXT NOT NULL,
-    operation     TEXT NOT NULL CHECK(operation IN ('upsert','delete')),
-    payload_json  TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(payload_json)),
-    status        TEXT NOT NULL DEFAULT 'pending'
-                  CHECK(status IN ('pending','processing','done','failed')),
-    attempts      INTEGER NOT NULL DEFAULT 0 CHECK(attempts >= 0),
-    available_at  TEXT NOT NULL,
-    last_error    TEXT,
-    claim_token   TEXT,
-    lease_expires_at TEXT,
-    created_at    TEXT NOT NULL,
-    updated_at    TEXT NOT NULL
+    id                bigint GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+    collection        text NOT NULL,
+    entity_id         text NOT NULL,
+    operation         text NOT NULL CHECK (operation IN ('upsert','delete')),
+    payload           jsonb NOT NULL DEFAULT '{}',
+    status            text NOT NULL DEFAULT 'pending'
+                      CHECK (status IN ('pending','processing','done','failed')),
+    attempts          integer NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+    available_at      timestamptz NOT NULL DEFAULT now(),
+    last_error        text,
+    claim_token       text,
+    lease_expires_at  timestamptz,
+    created_at        timestamptz NOT NULL DEFAULT now(),
+    updated_at        timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS idx_outbox_pending
-    ON index_outbox(status, available_at, id);
-CREATE INDEX IF NOT EXISTS idx_outbox_entity_sequence
-    ON index_outbox(collection, entity_id, id);
+CREATE INDEX IF NOT EXISTS outbox_pending ON index_outbox(status, available_at, id);
+CREATE INDEX IF NOT EXISTS outbox_entity_sequence ON index_outbox(collection, entity_id, id);
 
 CREATE TABLE IF NOT EXISTS jobs (
-    id              TEXT PRIMARY KEY,
-    kind            TEXT NOT NULL,
-    status          TEXT NOT NULL
-                    CHECK(status IN ('queued','running','complete','failed','cancelled')),
-    input_json      TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(input_json)),
-    result_json     TEXT CHECK(result_json IS NULL OR json_valid(result_json)),
-    error_code      TEXT,
-    error           TEXT,
-    call_limit      INTEGER NOT NULL DEFAULT 0 CHECK(call_limit >= 0),
-    calls_completed INTEGER NOT NULL DEFAULT 0 CHECK(calls_completed >= 0),
-    cancel_requested INTEGER NOT NULL DEFAULT 0 CHECK(cancel_requested IN (0,1)),
-    holder          TEXT,
-    lease_expires_at TEXT,
-    attempts        INTEGER NOT NULL DEFAULT 0 CHECK(attempts >= 0),
-    created_at      TEXT NOT NULL,
-    started_at      TEXT,
-    finished_at     TEXT,
-    updated_at      TEXT NOT NULL
+    id                uuid PRIMARY KEY,
+    user_id           uuid REFERENCES users,
+    kind              text NOT NULL,
+    status            text NOT NULL
+                      CHECK (status IN ('queued','running','complete','failed','cancelled')),
+    input             jsonb NOT NULL DEFAULT '{}',
+    result            jsonb,
+    error_code        text,
+    error             text,
+    call_limit        integer NOT NULL DEFAULT 0 CHECK (call_limit >= 0),
+    calls_completed   integer NOT NULL DEFAULT 0 CHECK (calls_completed >= 0),
+    cancel_requested  boolean NOT NULL DEFAULT false,
+    holder            text,
+    lease_expires_at  timestamptz,
+    attempts          integer NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+    created_at        timestamptz NOT NULL DEFAULT now(),
+    started_at        timestamptz,
+    finished_at       timestamptz,
+    updated_at        timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status, created_at);
+CREATE INDEX IF NOT EXISTS jobs_status ON jobs(status, created_at);
 
 CREATE TABLE IF NOT EXISTS job_events (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    job_id      TEXT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
-    status      TEXT NOT NULL,
-    detail_json TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(detail_json)),
-    created_at  TEXT NOT NULL
+    id          bigint GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+    job_id      uuid NOT NULL REFERENCES jobs ON DELETE CASCADE,
+    status      text NOT NULL,
+    detail      jsonb NOT NULL DEFAULT '{}',
+    created_at  timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS idx_job_events_job ON job_events(job_id, id);
+CREATE INDEX IF NOT EXISTS job_events_job ON job_events(job_id, id);
 
 CREATE TABLE IF NOT EXISTS leases (
-    name        TEXT PRIMARY KEY,
-    holder      TEXT NOT NULL,
-    expires_at  TEXT NOT NULL,
-    updated_at  TEXT NOT NULL
+    name        text PRIMARY KEY,
+    holder      text NOT NULL,
+    expires_at  timestamptz NOT NULL,
+    updated_at  timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE TABLE IF NOT EXISTS budget_reservations (
-    id              TEXT PRIMARY KEY,
-    job_id          TEXT REFERENCES jobs(id),
-    period          TEXT NOT NULL,
-    reserved_usd    REAL NOT NULL CHECK(reserved_usd >= 0),
-    actual_usd      REAL CHECK(actual_usd IS NULL OR actual_usd >= 0),
-    status          TEXT NOT NULL CHECK(status IN ('active','reconciled','released')),
-    created_at      TEXT NOT NULL,
-    updated_at      TEXT NOT NULL
+    id            uuid PRIMARY KEY,
+    job_id        uuid REFERENCES jobs,
+    user_id       uuid REFERENCES users,
+    period        text NOT NULL,
+    reserved_usd  numeric(12,6) NOT NULL CHECK (reserved_usd >= 0),
+    actual_usd    numeric(12,6) CHECK (actual_usd IS NULL OR actual_usd >= 0),
+    status        text NOT NULL CHECK (status IN ('active','reconciled','released')),
+    created_at    timestamptz NOT NULL DEFAULT now(),
+    updated_at    timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS idx_budget_period ON budget_reservations(period, status);
-
-CREATE TABLE IF NOT EXISTS namespaces (
-    id          TEXT PRIMARY KEY,
-    owner_id    TEXT NOT NULL REFERENCES owners(id),
-    name        TEXT NOT NULL CHECK(length(trim(name)) BETWEEN 1 AND 128),
-    description TEXT NOT NULL DEFAULT '',
-    created_at  TEXT NOT NULL,
-    updated_at  TEXT NOT NULL,
-    UNIQUE(owner_id, name)
-);
-
-CREATE TABLE IF NOT EXISTS collections (
-    id              TEXT PRIMARY KEY,
-    namespace_id    TEXT NOT NULL REFERENCES namespaces(id) ON DELETE CASCADE,
-    name            TEXT NOT NULL CHECK(length(trim(name)) BETWEEN 1 AND 128),
-    schema_version  INTEGER NOT NULL DEFAULT 1 CHECK(schema_version >= 1),
-    schema_json     TEXT NOT NULL CHECK(json_valid(schema_json)),
-    indexed_fields_json TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(indexed_fields_json)),
-    embedding_fields_json TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(embedding_fields_json)),
-    policy_json     TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(policy_json)),
-    created_at      TEXT NOT NULL,
-    updated_at      TEXT NOT NULL,
-    UNIQUE(namespace_id, name)
-);
-
-CREATE TABLE IF NOT EXISTS records (
-    id              TEXT PRIMARY KEY,
-    collection_id   TEXT NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
-    revision        INTEGER NOT NULL DEFAULT 1 CHECK(revision >= 1),
-    value_json      TEXT NOT NULL CHECK(json_valid(value_json)),
-    metadata_json   TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(metadata_json)),
-    context_json    TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(context_json)),
-    status          TEXT NOT NULL DEFAULT 'active'
-                    CHECK(status IN ('active','archived','deleted')),
-    idempotency_key TEXT,
-    created_at      TEXT NOT NULL,
-    updated_at      TEXT NOT NULL,
-    UNIQUE(collection_id, idempotency_key)
-);
-CREATE INDEX IF NOT EXISTS idx_records_collection
-    ON records(collection_id, status, updated_at);
-
-CREATE TABLE IF NOT EXISTS record_revisions (
-    record_id      TEXT NOT NULL REFERENCES records(id) ON DELETE CASCADE,
-    revision       INTEGER NOT NULL,
-    value_json     TEXT NOT NULL CHECK(json_valid(value_json)),
-    metadata_json  TEXT NOT NULL CHECK(json_valid(metadata_json)),
-    context_json   TEXT NOT NULL CHECK(json_valid(context_json)),
-    status         TEXT NOT NULL DEFAULT 'active'
-                   CHECK(status IN ('active','archived','deleted')),
-    created_at     TEXT NOT NULL,
-    PRIMARY KEY(record_id, revision)
-);
-
-CREATE TABLE IF NOT EXISTS links (
-    id            TEXT PRIMARY KEY,
-    namespace_id  TEXT NOT NULL REFERENCES namespaces(id) ON DELETE CASCADE,
-    from_ref      TEXT NOT NULL,
-    relation      TEXT NOT NULL CHECK(length(trim(relation)) BETWEEN 1 AND 128),
-    to_ref        TEXT NOT NULL,
-    metadata_json TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(metadata_json)),
-    created_at    TEXT NOT NULL
-);
+CREATE INDEX IF NOT EXISTS budget_period ON budget_reservations(period, status);
 
 CREATE TABLE IF NOT EXISTS policies (
-    id          TEXT PRIMARY KEY,
-    namespace_id TEXT REFERENCES namespaces(id) ON DELETE CASCADE,
-    kind        TEXT NOT NULL CHECK(kind IN ('extraction','retrieval','retention','consolidation')),
-    name        TEXT NOT NULL,
-    version     INTEGER NOT NULL CHECK(version >= 1),
-    config_json TEXT NOT NULL CHECK(json_valid(config_json)),
-    created_at  TEXT NOT NULL,
-    UNIQUE(namespace_id, kind, name, version)
+    id          text PRIMARY KEY,
+    scope_id    uuid REFERENCES entities ON DELETE CASCADE,
+    kind        text NOT NULL
+                CHECK (kind IN ('extraction','retrieval','retention','consolidation')),
+    name        text NOT NULL,
+    version     integer NOT NULL CHECK (version >= 1),
+    config      jsonb NOT NULL,
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (scope_id, kind, name, version)
 );
+
+CREATE TABLE IF NOT EXISTS retrieval_runs (
+    id           uuid PRIMARY KEY,
+    user_id      uuid REFERENCES users ON DELETE CASCADE,
+    query_hash   text NOT NULL,
+    policy_id    text NOT NULL,
+    results      jsonb NOT NULL DEFAULT '[]',
+    timings      jsonb NOT NULL DEFAULT '{}',
+    used_tokens  integer NOT NULL DEFAULT 0,
+    abstained    boolean NOT NULL DEFAULT false,
+    created_at   timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS retrieval_runs_created ON retrieval_runs(created_at);
+
+CREATE TABLE IF NOT EXISTS retrieval_run_feedback (
+    id          bigint GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+    run_id      uuid NOT NULL REFERENCES retrieval_runs ON DELETE CASCADE,
+    memory_id   uuid,
+    useful      boolean,
+    correct     boolean,
+    label       text,
+    created_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS retrieval_run_feedback_run ON retrieval_run_feedback(run_id);
 
 CREATE TABLE IF NOT EXISTS retrieval_feedback (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    memory_id   TEXT NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
-    query_hash  TEXT NOT NULL,
-    useful      INTEGER CHECK(useful IN (0,1)),
-    correct     INTEGER CHECK(correct IN (0,1)),
-    created_at  TEXT NOT NULL
+    id          bigint GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+    memory_id   uuid NOT NULL REFERENCES memories ON DELETE CASCADE,
+    query_hash  text NOT NULL,
+    useful      boolean,
+    correct     boolean,
+    created_at  timestamptz NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS backup_artifacts (
+    id           uuid PRIMARY KEY,
+    path         text NOT NULL,
+    kind         text NOT NULL,
+    sha256       text NOT NULL,
+    bytes        bigint NOT NULL CHECK (bytes >= 0),
+    protected    boolean NOT NULL DEFAULT false,
+    created_at   timestamptz NOT NULL DEFAULT now(),
+    verified_at  timestamptz
+);
 """
 
+MIGRATIONS: dict[int, str] = {1: DDL_V1}
+MIGRATION_CHECKSUMS = {
+    version: sha256(ddl.encode()).hexdigest() for version, ddl in MIGRATIONS.items()
+}
 
-def utcnow() -> str:
-    """ISO8601 UTC. Stored as TEXT so SQLite comparisons stay lexicographic."""
-    return datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
+# Timestamps are `timestamptz` and come back as aware datetimes. Callers that
+# put one in JSON use `iso`.
+_ISO_Z = "%Y-%m-%dT%H:%M:%SZ"
 
 
-def connect(db_path: Path) -> sqlite3.Connection:
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(db_path, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    # WAL lets the importer write while the API reads. Without it, a long
-    # import blocks every search.
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
-    conn.execute("PRAGMA busy_timeout=5000")
-    conn.execute("PRAGMA secure_delete=ON")
-    # SQLite's built-in lower()/NOCASE only handle ASCII. Admin substring
-    # search must case-fold Russian text too.
-    conn.create_function(
-        "lowerx", 1, lambda value: value.lower() if value else value, deterministic=True
-    )
+def utcnow() -> datetime:
+    """Now, at full precision.
+
+    The SQLite build truncated this to whole seconds because timestamps were
+    ISO text and comparisons were lexicographic. `timestamptz` keeps
+    microseconds, and the precision is load-bearing: `updated_at` orders the
+    dashboard's recent list and two writes in one second used to tie, leaving
+    the order to fall back on a random uuid. `iso` still renders to the second,
+    so API output is unchanged.
+    """
+    return datetime.now(UTC)
+
+
+def iso(value: datetime | str | None) -> str | None:
+    """ISO-8601 UTC with a trailing Z, for JSON and for API responses."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+    return value.astimezone(UTC).replace(microsecond=0).strftime(_ISO_Z)
+
+
+def as_datetime(value: datetime | str | None) -> datetime | None:
+    """Accept either shape; return an aware datetime.
+
+    Clients send ISO strings and the database returns datetimes, so the write
+    paths take both rather than making every caller convert.
+    """
+    if value is None or isinstance(value, datetime):
+        return value.astimezone(UTC) if isinstance(value, datetime) and value.tzinfo else value
+    text = value.strip().replace("Z", "+00:00")
+    parsed = datetime.fromisoformat(text)
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+
+
+class Row(dict[str, Any]):
+    """A result row that also supports positional access.
+
+    The codebase reads rows three ways -- `row["column"]`, `row[0]`, and
+    `dict(row)` -- because sqlite3.Row supported all three. Keeping that
+    contract means the port does not have to touch every read site.
+    """
+
+    __slots__ = ()
+
+    def __getitem__(self, key: Any) -> Any:
+        if isinstance(key, int):
+            return list(self.values())[key]
+        return super().__getitem__(key)
+
+    def keys(self) -> Any:  # type: ignore[override]
+        return super().keys()
+
+
+def _row_factory(cursor: Any) -> Any:
+    make = dict_row(cursor)
+
+    def build(values: Sequence[Any]) -> Row:
+        return Row(make(values))
+
+    return build
+
+
+def connect(dsn: str) -> psycopg.Connection:
+    """One connection, autocommit, dict-like rows.
+
+    Autocommit is the default because most reads are single statements; a unit
+    of work is an explicit `transaction()` block.
+    """
+    conn = psycopg.connect(dsn, autocommit=True, row_factory=_row_factory)
+    conn.execute("SET lock_timeout = '5s'")
+    conn.execute("SET idle_in_transaction_session_timeout = '60s'")
     return conn
 
 
-def init_db(db_path: Path) -> None:
-    with connect(db_path) as conn:
-        current = int(conn.execute("PRAGMA user_version").fetchone()[0])
-        if current > SCHEMA_VERSION:
-            raise RuntimeError(
-                f"database schema {current} is newer than supported {SCHEMA_VERSION}"
-            )
-        has_legacy_data = bool(
-            conn.execute(
-                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='memories'"
-            ).fetchone()
+@contextmanager
+def transaction(conn: psycopg.Connection) -> Iterator[psycopg.Connection]:
+    """Commit on success, roll back on failure.
+
+    Kept as a wrapper with the old name and shape so the sixty-odd call sites
+    that use it do not move. Nested use is safe: psycopg opens a savepoint.
+    """
+    with conn.transaction():
+        yield conn
+
+
+def advisory_lock(conn: psycopg.Connection, name: str) -> None:
+    """Serialise a critical section across processes for this transaction.
+
+    Replaces SQLite's `BEGIN IMMEDIATE`, which serialised writers by taking the
+    whole database, and the file lock the outbox used as an owner barrier. Must
+    be called inside a transaction: the lock is released when it ends.
+    """
+    conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (name,))
+
+
+class ConnectionPool:
+    """Pooled connections, handed out per caller.
+
+    Postgres connections are expensive to open (process fork plus handshake),
+    unlike the SQLite file handles this replaces, so they are pooled rather than
+    made per thread. A unit of work is still a `transaction()` block on one
+    connection, which is why callers take a connection and keep it for the
+    duration of their work.
+    """
+
+    def __init__(self, dsn: str, *, max_size: int = 10) -> None:
+        self.dsn = dsn
+        self._pool = _PsycopgPool(
+            dsn,
+            min_size=1,
+            max_size=max_size,
+            kwargs={"autocommit": True, "row_factory": _row_factory},
+            configure=self._configure,
+            open=True,
+            name="memkit",
         )
-        if current == 0 and not has_legacy_data:
-            conn.executescript(SCHEMA)
-            conn.executescript(MIGRATION_V6)
-            _sync_fts(conn)
-            _record_migration_history(conn, through=SCHEMA_VERSION)
-            _seed_core_policies(conn)
-            conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
+        self._local = threading.local()
+        self._lock = threading.Lock()
+        self._checked_out: list[psycopg.Connection] = []
+
+    @staticmethod
+    def _configure(conn: psycopg.Connection) -> None:
+        conn.execute("SET lock_timeout = '5s'")
+        conn.execute("SET idle_in_transaction_session_timeout = '60s'")
+
+    def __call__(self) -> psycopg.Connection:
+        """A connection for this thread, kept until the pool is closed.
+
+        Mirrors the previous per-thread behaviour so that code holding a
+        connection across several statements keeps seeing its own work.
+        """
+        conn: psycopg.Connection | None = getattr(self._local, "conn", None)
+        if conn is not None and not conn.closed:
+            return conn
+        conn = self._pool.getconn()
+        self._local.conn = conn
+        with self._lock:
+            self._checked_out.append(conn)
+        return conn
+
+    @contextmanager
+    def borrow(self) -> Iterator[psycopg.Connection]:
+        """A connection for one short piece of work, returned immediately."""
+        with self._pool.connection() as conn:
+            yield conn
+
+    def release(self) -> None:
+        """Return this thread's connection to the pool."""
+        conn: psycopg.Connection | None = getattr(self._local, "conn", None)
+        if conn is None:
             return
+        self._local.conn = None
+        with self._lock, suppress(ValueError):
+            self._checked_out.remove(conn)
+        with suppress(Exception):
+            self._pool.putconn(conn)
 
-        # Databases from versions 1 and 2 are first normalised to the known v3
-        # layout. This keeps the destructive boundary migration single-shaped.
-        if current < 2:
-            conn.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS task_board (
-                    memory_id TEXT PRIMARY KEY REFERENCES memories(id) ON DELETE CASCADE,
-                    workflow_status TEXT NOT NULL,
-                    project_key TEXT, position REAL NOT NULL,
-                    version INTEGER NOT NULL DEFAULT 1,
-                    created_at TEXT NOT NULL, updated_at TEXT NOT NULL
-                );
-                """
-            )
-            _backfill_task_board(conn)
-            current = 2
-        if current < 3:
-            _migrate_source_role(conn)
-            current = 3
-        if current == 3:
-            _backup_and_export_v3(conn, db_path)
-            _migrate_v4(conn)
-            current = 4
-        memory_columns = {row["name"] for row in conn.execute("PRAGMA table_info(memories)")}
-        if "kind" in memory_columns and "legacy_imported" not in memory_columns:
-            conn.execute(
-                "ALTER TABLE memories ADD COLUMN legacy_imported "
-                "INTEGER NOT NULL DEFAULT 0 CHECK(legacy_imported IN (0,1))"
-            )
-        conn.executescript(SCHEMA)
-        if current < 5:
-            _migrate_v5(conn)
-            conn.executescript(SCHEMA)
-            current = 5
-        if current < 6:
-            _assert_database_integrity(conn, stage="before migration v6")
-            artifact = _create_pre_migration_backup(conn, db_path, source_version=current)
-            conn.executescript(MIGRATION_V6)
-            _sync_fts(conn)
-            _record_migration_history(conn, through=6)
-            conn.execute(
-                """INSERT OR IGNORE INTO backup_artifacts
-                   (id,kind,path,sha256,size_bytes,verified_at,protected,created_at)
-                   VALUES (?,'pre-migration',?,?,?,?,1,?)""",
-                (
-                    str(uuid.uuid4()),
-                    str(artifact["path"]),
-                    artifact["sha256"],
-                    artifact["size_bytes"],
-                    artifact["verified_at"],
-                    artifact["created_at"],
-                ),
-            )
-            _assert_database_integrity(conn, stage="after migration v6")
-            current = 6
-        _verify_migration_history(conn)
-        _seed_core_policies(conn)
-        conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
+    def close_all(self) -> None:
+        """Shutdown only."""
+        with self._lock:
+            for conn in list(self._checked_out):
+                with suppress(Exception):
+                    self._pool.putconn(conn)
+            self._checked_out.clear()
+        self._local = threading.local()
+        with suppress(Exception):
+            self._pool.close()
 
 
-def _assert_database_integrity(conn: sqlite3.Connection, *, stage: str) -> None:
-    quick = [str(row[0]) for row in conn.execute("PRAGMA quick_check").fetchall()]
-    if quick != ["ok"]:
-        raise RuntimeError(f"{stage}: SQLite quick_check failed: {quick[:3]}")
-    broken = conn.execute("PRAGMA foreign_key_check").fetchall()
-    if broken:
-        raise RuntimeError(f"{stage}: SQLite has {len(broken)} foreign-key violations")
+def init_db(dsn: str) -> None:
+    """Create or verify the schema. Safe to call from every process at once."""
+    with connect(dsn) as conn:
+        with conn.transaction():
+            # Two containers starting together must not both run the DDL.
+            conn.execute("SELECT pg_advisory_xact_lock(hashtext('memkit:migrate'))")
+            applied = _applied_versions(conn)
+            if applied and max(applied) > SCHEMA_VERSION:
+                raise RuntimeError(
+                    f"database schema {max(applied)} is newer than supported {SCHEMA_VERSION}"
+                )
+            for version in sorted(MIGRATIONS):
+                if version in applied:
+                    continue
+                logger.info("applying schema migration %s", version)
+                conn.execute(MIGRATIONS[version])
+                conn.execute(
+                    "INSERT INTO schema_migrations(version,checksum) VALUES (%s,%s)",
+                    (version, MIGRATION_CHECKSUMS[version]),
+                )
+            _verify_migration_history(conn)
+        with conn.transaction():
+            _seed_core_policies(conn)
 
 
-def _file_sha256(path: Path) -> str:
-    digest = sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+def _applied_versions(conn: psycopg.Connection) -> set[int]:
+    exists = conn.execute("SELECT to_regclass('schema_migrations') IS NOT NULL AS ok").fetchone()
+    if not exists or not exists["ok"]:
+        return set()
+    return {int(row["version"]) for row in conn.execute("SELECT version FROM schema_migrations")}
 
 
-def _create_pre_migration_backup(
-    conn: sqlite3.Connection, db_path: Path, *, source_version: int
-) -> dict[str, object]:
-    conn.commit()
-    backup_dir = db_path.parent / "backups"
-    backup_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-    os.chmod(backup_dir, 0o700)
-    timestamp = utcnow().replace(":", "").replace("-", "")
-    path = backup_dir / f"pre-migration-v{source_version}-{timestamp}-{uuid.uuid4().hex[:8]}.db"
-    temporary = path.with_suffix(".db.tmp")
-    target = sqlite3.connect(temporary)
-    try:
-        conn.backup(target)
-    finally:
-        target.close()
-    os.chmod(temporary, 0o600)
-    check = sqlite3.connect(f"file:{temporary}?mode=ro", uri=True)
-    try:
-        check.execute("PRAGMA foreign_keys=ON")
-        _assert_database_integrity(check, stage="migration backup verification")
-    finally:
-        check.close()
-    temporary.replace(path)
-    now = utcnow()
-    return {
-        "path": path.resolve(),
-        "sha256": _file_sha256(path),
-        "size_bytes": path.stat().st_size,
-        "verified_at": now,
-        "created_at": now,
-    }
+def _verify_migration_history(conn: psycopg.Connection) -> None:
+    """The ledger must hold every version in order, with matching checksums.
 
-
-def _sync_fts(conn: sqlite3.Connection) -> None:
-    conn.execute("DELETE FROM memories_fts")
-    conn.execute(
-        """INSERT INTO memories_fts(memory_id,owner_id,text,kind,tags)
-           SELECT id,owner_id,text,kind,tags_json FROM memories WHERE status='active'"""
-    )
-
-
-def _record_migration_history(conn: sqlite3.Connection, *, through: int) -> None:
-    for version in range(1, through + 1):
-        checksum = MIGRATION_CHECKSUMS.get(
-            version, sha256(f"legacy-schema-v{version}".encode()).hexdigest()
-        )
-        conn.execute(
-            "INSERT OR IGNORE INTO schema_migrations(version,checksum,applied_at) VALUES (?,?,?)",
-            (version, checksum, utcnow()),
-        )
-
-
-def _verify_migration_history(conn: sqlite3.Connection) -> None:
-    rows = conn.execute(
-        "SELECT version,checksum FROM schema_migrations ORDER BY version"
-    ).fetchall()
-    expected_versions = list(range(1, SCHEMA_VERSION + 1))
-    if [int(row["version"]) for row in rows] != expected_versions:
-        raise RuntimeError("database migration ledger is incomplete or out of order")
+    An edited migration is a different migration, and a database that skipped
+    one is not the schema this code expects. Both are startup failures rather
+    than a surprise at the first query.
+    """
+    rows = list(conn.execute("SELECT version,checksum FROM schema_migrations ORDER BY version"))
+    versions = [int(row["version"]) for row in rows]
+    if versions != list(range(1, SCHEMA_VERSION + 1)):
+        raise RuntimeError(f"migration history is not contiguous: {versions}")
     for row in rows:
-        expected = MIGRATION_CHECKSUMS.get(
-            int(row["version"]),
-            sha256(f"legacy-schema-v{int(row['version'])}".encode()).hexdigest(),
-        )
+        expected = MIGRATION_CHECKSUMS[int(row["version"])]
         if row["checksum"] != expected:
-            raise RuntimeError(f"database migration {row['version']} checksum mismatch")
+            raise RuntimeError(
+                f"migration {row['version']} checksum mismatch: the applied migration "
+                "differs from the one in this build"
+            )
 
 
-def _migrate_v5(conn: sqlite3.Connection) -> None:
-    """Add durable claims and immutable revision streams to schema v4."""
-
-    def add(table: str, column: str, declaration: str) -> None:
-        columns = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
-        if column not in columns:
-            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {declaration}")
-
-    add("messages", "claim_token", "TEXT")
-    add("messages", "claim_expires_at", "TEXT")
-    add("memories", "revision", "INTEGER NOT NULL DEFAULT 1 CHECK(revision >= 1)")
-    add("index_outbox", "claim_token", "TEXT")
-    add("index_outbox", "lease_expires_at", "TEXT")
-    add("jobs", "holder", "TEXT")
-    add("jobs", "lease_expires_at", "TEXT")
-    add("jobs", "attempts", "INTEGER NOT NULL DEFAULT 0 CHECK(attempts >= 0)")
-    add(
-        "record_revisions",
-        "status",
-        "TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','archived','deleted'))",
-    )
-    conn.execute("DROP INDEX IF EXISTS idx_outbox_one_active")
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_outbox_entity_sequence "
-        "ON index_outbox(collection,entity_id,id)"
-    )
-    now = utcnow()
-    conn.execute(
-        """INSERT OR IGNORE INTO memory_revisions
-           (memory_id,revision,kind,text,importance,confidence,status,superseded_by,
-            valid_until,extraction_version,judge_run_id,source_role,context_json,
-            tags_json,redacted,created_at)
-           SELECT id,revision,kind,text,importance,confidence,status,superseded_by,
-                  valid_until,extraction_version,judge_run_id,source_role,context_json,
-                  tags_json,redacted,COALESCE(updated_at,?) FROM memories""",
-        (now,),
-    )
-
-
-def _seed_core_policies(conn: sqlite3.Connection) -> None:
-    now = utcnow()
+def _seed_core_policies(conn: psycopg.Connection) -> None:
     defaults = (
         (
             "core-extraction-v1",
@@ -724,420 +700,111 @@ def _seed_core_policies(conn: sqlite3.Connection) -> None:
         (
             "core-retention-v1",
             "retention",
-            "owner-controlled",
+            "scope-controlled",
             {"default_expiry": None, "erase_requires_confirmation": True},
         ),
         (
             "core-consolidation-v1",
             "consolidation",
             "context-safe",
-            {"same_owner": True, "same_context": True, "automatic_semantic_merge": False},
+            {"same_scope": True, "same_context": True, "automatic_semantic_merge": False},
         ),
     )
     for policy_id, kind, name, config in defaults:
         conn.execute(
-            """INSERT OR IGNORE INTO policies
-               (id,namespace_id,kind,name,version,config_json,created_at)
-               VALUES (?,NULL,?,?,1,?,?)""",
-            (policy_id, kind, name, json.dumps(config, sort_keys=True), now),
+            """INSERT INTO policies (id,scope_id,kind,name,version,config)
+               VALUES (%s,NULL,%s,%s,1,%s) ON CONFLICT (id) DO NOTHING""",
+            (policy_id, kind, name, json.dumps(config, sort_keys=True)),
         )
 
 
-def _backup_and_export_v3(conn: sqlite3.Connection, db_path: Path) -> None:
-    """Create recoverable v3 artifacts before retiring the task aggregate."""
-    conn.commit()
-    identity_payload = {
-        "database": str(db_path.resolve()),
-        "owners": conn.execute("SELECT COUNT(*) FROM owners").fetchone()[0],
-        "sessions": conn.execute("SELECT COUNT(*) FROM sessions").fetchone()[0],
-        "messages": conn.execute("SELECT COUNT(*) FROM messages").fetchone()[0],
-        "memories": conn.execute("SELECT COUNT(*) FROM memories").fetchone()[0],
-        "task_ids": [
-            row[0]
-            for row in conn.execute(
-                "SELECT memory_id FROM task_board ORDER BY memory_id"
-            ).fetchall()
-        ],
-    }
-    source_identity = sha256(json.dumps(identity_payload, sort_keys=True).encode()).hexdigest()[:16]
-    backup_path = db_path.with_name(f"{db_path.name}.v3-{source_identity}.bak")
-    if not backup_path.exists():
-        temporary = backup_path.with_suffix(f"{backup_path.suffix}.tmp")
-        backup_conn = sqlite3.connect(temporary)
-        try:
-            conn.backup(backup_conn)
-        finally:
-            backup_conn.close()
-        temporary.replace(backup_path)
-
-    task_table = conn.execute(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='task_board'"
-    ).fetchone()
-    tasks: list[dict[str, object]] = []
-    if task_table:
-        rows = conn.execute(
-            """SELECT tb.*, m.text, m.valid_until AS due_at, m.status AS memory_status,
-                      m.source_role, m.judge_run_id
-                 FROM task_board tb JOIN memories m ON m.id=tb.memory_id
-                ORDER BY tb.position, tb.memory_id"""
-        ).fetchall()
-        tasks = [dict(row) for row in rows]
-        for task in tasks:
-            task["source_message_ids"] = [
-                int(row[0])
-                for row in conn.execute(
-                    "SELECT message_id FROM memory_sources WHERE memory_id=? ORDER BY message_id",
-                    (task["memory_id"],),
-                ).fetchall()
-            ]
-    export_dir = db_path.parent / "exports"
-    export_dir.mkdir(parents=True, exist_ok=True)
-    export_path = export_dir / f"task-board-v3-{source_identity}.json"
-    if not export_path.exists():
-        temporary = export_path.with_suffix(".json.tmp")
-        temporary.write_text(
-            json.dumps(
-                {
-                    "schema_version": 3,
-                    "exported_at": utcnow(),
-                    "source_database": db_path.name,
-                    "source_identity": source_identity,
-                    "tasks": tasks,
-                },
-                ensure_ascii=False,
-                indent=2,
-            )
-            + "\n",
-            encoding="utf-8",
-        )
-        temporary.replace(export_path)
+def reset_schema(conn: psycopg.Connection) -> None:
+    """Drop and recreate everything. Test setup and `memkit erase --all` only."""
+    conn.execute("DROP SCHEMA public CASCADE")
+    conn.execute("CREATE SCHEMA public")
 
 
-def _migrate_v4(conn: sqlite3.Connection) -> None:
-    """Replace the closed task/scope ontology with domain-neutral memory fields."""
-    old_columns = {row["name"] for row in conn.execute("PRAGMA table_info(memories)")}
-    if "kind" in old_columns:
-        return
-    rows = conn.execute("SELECT * FROM memories ORDER BY created_at, id").fetchall()
+def truncate_all(conn: psycopg.Connection) -> None:
+    """Empty every table, keeping the schema. Test teardown.
 
-    conn.commit()
-    conn.execute("PRAGMA foreign_keys=OFF")
-    try:
-        conn.execute("BEGIN")
-        conn.execute(
-            """CREATE TABLE memories_v4 (
-                id TEXT PRIMARY KEY,
-                owner_id TEXT NOT NULL REFERENCES owners(id),
-                agent_id TEXT,
-                kind TEXT NOT NULL CHECK(length(trim(kind)) BETWEEN 1 AND 64),
-                text TEXT NOT NULL,
-                importance REAL NOT NULL CHECK(importance BETWEEN 0.0 AND 1.0),
-                confidence REAL NOT NULL CHECK(confidence BETWEEN 0.0 AND 1.0),
-                status TEXT NOT NULL CHECK(status IN ('active','archived','expired','superseded')),
-                superseded_by TEXT REFERENCES memories_v4(id),
-                valid_from TEXT NOT NULL,
-                valid_until TEXT,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                last_retrieved_at TEXT,
-                retrieval_count INTEGER NOT NULL DEFAULT 0 CHECK(retrieval_count >= 0),
-                extraction_version TEXT NOT NULL,
-                judge_run_id INTEGER REFERENCES judge_runs(id),
-                source_role TEXT NOT NULL
-                    CHECK(source_role IN ('user','assistant','tool','manual','agent')),
-                context_json TEXT NOT NULL DEFAULT '{}'
-                    CHECK(json_valid(context_json) AND json_type(context_json)='object'),
-                tags_json TEXT NOT NULL DEFAULT '[]'
-                    CHECK(json_valid(tags_json) AND json_type(tags_json)='array'),
-                redacted INTEGER NOT NULL DEFAULT 0 CHECK(redacted IN (0,1)),
-                legacy_imported INTEGER NOT NULL DEFAULT 1
-                    CHECK(legacy_imported IN (0,1)),
-                CHECK(
-                    length(trim(text)) BETWEEN 1 AND 2000
-                    OR (legacy_imported=1 AND length(trim(text)) BETWEEN 1 AND 100000)
-                )
-            )"""
-        )
-        for row in rows:
-            retired_domain = row["type"] == "task" or row["scope"] == "task"
-            context: dict[str, str] = {}
-            if row["scope"] == "project" and row["scope_key"]:
-                context["source_workspace"] = row["scope_key"]
-            kind = "observation" if retired_domain else row["type"]
-            status = "archived" if retired_domain else row["status"]
-            valid_until = None if retired_domain else row["valid_until"]
-            tags = ["retired-domain-record"] if retired_domain else []
-            conn.execute(
-                """INSERT INTO memories_v4
-                   (id,owner_id,agent_id,kind,text,importance,confidence,status,
-                    superseded_by,valid_from,valid_until,created_at,updated_at,
-                    last_retrieved_at,retrieval_count,extraction_version,judge_run_id,
-                    source_role,context_json,tags_json,redacted,legacy_imported)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,1)""",
-                (
-                    row["id"],
-                    row["owner_id"],
-                    row["agent_id"],
-                    kind,
-                    row["text"],
-                    row["importance"],
-                    row["confidence"],
-                    status,
-                    row["superseded_by"],
-                    row["valid_from"],
-                    valid_until,
-                    row["created_at"],
-                    row["updated_at"],
-                    row["last_retrieved_at"],
-                    row["retrieval_count"],
-                    row["extraction_version"],
-                    row["judge_run_id"],
-                    row["source_role"],
-                    json.dumps(context, ensure_ascii=False, sort_keys=True),
-                    json.dumps(tags, ensure_ascii=False),
-                ),
-            )
-        conn.execute("DROP TABLE IF EXISTS task_board")
-        conn.execute("DROP TABLE memories")
-        conn.execute("ALTER TABLE memories_v4 RENAME TO memories")
-        if "context_json" not in {
-            row["name"] for row in conn.execute("PRAGMA table_info(sessions)")
-        }:
-            conn.execute("ALTER TABLE sessions ADD COLUMN context_json TEXT NOT NULL DEFAULT '{}'")
-            conn.execute("UPDATE sessions SET context_json=COALESCE(meta, '{}')")
-        message_columns = {row["name"] for row in conn.execute("PRAGMA table_info(messages)")}
-        if "context_json" not in message_columns:
-            conn.execute("ALTER TABLE messages ADD COLUMN context_json TEXT NOT NULL DEFAULT '{}'")
-        if "redacted" not in message_columns:
-            conn.execute("ALTER TABLE messages ADD COLUMN redacted INTEGER NOT NULL DEFAULT 0")
-        judge_columns = {row["name"] for row in conn.execute("PRAGMA table_info(judge_runs)")}
-        if "owner_id" not in judge_columns:
-            conn.execute("ALTER TABLE judge_runs ADD COLUMN owner_id TEXT REFERENCES owners(id)")
-        if "job_id" not in judge_columns:
-            conn.execute("ALTER TABLE judge_runs ADD COLUMN job_id TEXT")
-        broken = conn.execute("PRAGMA foreign_key_check").fetchall()
-        if broken:
-            raise RuntimeError(f"v4 migration left {len(broken)} dangling references")
-        conn.execute("COMMIT")
-    except Exception:
-        conn.execute("ROLLBACK")
-        raise
-    finally:
-        conn.execute("PRAGMA foreign_keys=ON")
-
-
-# The authority order from provenance.py, inlined as SQL. Kept in sync by
-# tests/test_provenance.py rather than by importing -- db.py deliberately has no
-# imports from the rest of the package.
-_SOURCE_ROLE_FROM_SOURCES = """
-    SELECT CASE
-             WHEN SUM(msg.role = 'user')      > 0 THEN 'user'
-             WHEN SUM(msg.role = 'tool')      > 0 THEN 'tool'
-             WHEN SUM(msg.role = 'assistant') > 0 THEN 'assistant'
-           END
-      FROM memory_sources ms
-      JOIN messages msg ON msg.id = ms.message_id
-     WHERE ms.memory_id = memories.id
-"""
-
-_MEMORIES_V3_REBUILD: tuple[str, ...] = (
+    Faster than recreating the schema per test, and identity sequences restart
+    so tests that assert on message ids stay deterministic.
     """
-CREATE TABLE memories_v3 (
-    id                 TEXT PRIMARY KEY,
-    owner_id           TEXT NOT NULL REFERENCES owners(id),
-    agent_id           TEXT,
-    scope              TEXT NOT NULL,
-    scope_key          TEXT,
-    type               TEXT NOT NULL,
-    text               TEXT NOT NULL,
-    importance         REAL NOT NULL,
-    confidence         REAL NOT NULL,
-    status             TEXT NOT NULL,
-    superseded_by      TEXT REFERENCES memories(id),
-    valid_from         TEXT NOT NULL,
-    valid_until        TEXT,
-    created_at         TEXT NOT NULL,
-    updated_at         TEXT NOT NULL,
-    last_retrieved_at  TEXT,
-    retrieval_count    INTEGER NOT NULL DEFAULT 0,
-    extraction_version TEXT NOT NULL,
-    judge_run_id       INTEGER REFERENCES judge_runs(id),
-    source_role        TEXT NOT NULL
-                       CHECK(source_role IN ('user','assistant','tool','manual'))
-)""",
-    # Derived from the evidence, not from extraction_version: that column cannot
-    # tell a human POST /v1/memories from a Hermes on_memory_write, since both
-    # land as 'manual'. The join is the only honest answer available
-    # retrospectively.
-    f"""
-INSERT INTO memories_v3
-SELECT id, owner_id, agent_id, scope, scope_key, type, text, importance,
-       confidence, status, superseded_by, valid_from, valid_until, created_at,
-       updated_at, last_retrieved_at, retrieval_count, extraction_version,
-       judge_run_id,
-       COALESCE(({_SOURCE_ROLE_FROM_SOURCES}), 'manual')
-  FROM memories""",
-    "DROP TABLE memories",
-    "ALTER TABLE memories_v3 RENAME TO memories",
-    "CREATE INDEX IF NOT EXISTS idx_memories_owner ON memories(owner_id, status)",
-    "CREATE INDEX IF NOT EXISTS idx_memories_scope ON memories(owner_id, scope, scope_key)",
+    rows = conn.execute(
+        """SELECT tablename FROM pg_tables
+            WHERE schemaname='public' AND tablename <> 'schema_migrations'"""
+    ).fetchall()
+    if not rows:
+        return
+    names = sql.SQL(", ").join(sql.Identifier(str(row["tablename"])) for row in rows)
+    conn.execute(sql.SQL("TRUNCATE {} RESTART IDENTITY CASCADE").format(names))
+    _seed_core_policies(conn)
+
+
+_SLUG_RE = re.compile(r"[^a-z0-9]+")
+
+# Slugs are ASCII because they appear in URLs and in the prompt's entity block.
+# Without transliteration every Cyrillic name collapsed to the fallback, so a
+# team writing Russian would get "entity-1", "entity-2" for its own people.
+_TRANSLITERATE = str.maketrans(
+    {
+        "а": "a",
+        "б": "b",
+        "в": "v",
+        "г": "g",
+        "д": "d",
+        "е": "e",
+        "ё": "e",
+        "ж": "zh",
+        "з": "z",
+        "и": "i",
+        "й": "y",
+        "к": "k",
+        "л": "l",
+        "м": "m",
+        "н": "n",
+        "о": "o",
+        "п": "p",
+        "р": "r",
+        "с": "s",
+        "т": "t",
+        "у": "u",
+        "ф": "f",
+        "х": "kh",
+        "ц": "ts",
+        "ч": "ch",
+        "ш": "sh",
+        "щ": "shch",
+        "ъ": "",
+        "ы": "y",
+        "ь": "",
+        "э": "e",
+        "ю": "yu",
+        "я": "ya",
+        "ў": "u",
+        "қ": "q",
+        "ғ": "g",
+        "ҳ": "h",
+    }
 )
 
 
-def _migrate_source_role(conn: sqlite3.Connection) -> None:
-    """Add memories.source_role by rebuilding the table. Idempotent.
+def slugify(value: str, *, fallback: str = "entity") -> str:
+    """A slug an alias lookup and a URL can both use."""
+    slug = _SLUG_RE.sub("-", value.strip().casefold().translate(_TRANSLITERATE)).strip("-")[:63]
+    if not slug or not slug[0].isalnum():
+        slug = f"{fallback}-{slug}".strip("-")[:63]
+    return slug or fallback
 
-    A rebuild rather than ``ALTER TABLE ADD COLUMN`` because SQLite cannot add a
-    NOT NULL column without a DEFAULT, and cannot add a CHECK at all -- and the
-    DEFAULT is exactly what must not exist here (see the schema comment).
 
-    Three things have to be right, in this order:
+def normalise_alias(value: str) -> str:
+    """Case-folded, whitespace-collapsed alias key.
 
-    * ``PRAGMA foreign_keys`` is a no-op inside a transaction, so it is set after
-      committing whatever the caller had open, and the rebuild runs in its own
-      explicit BEGIN/COMMIT. Python's legacy sqlite3 only auto-begins on DML, so
-      the DROP and RENAME would otherwise autocommit halfway through.
-    * The statements are executed one at a time and NOT through
-      ``executescript``, which issues its own COMMIT before running and would
-      silently end the transaction opened just above -- leaving the DROP and
-      RENAME running in autocommit with no rollback. The first version of this
-      function did exactly that, and the migration test is what caught it.
-    * Foreign keys must be OFF for the DROP. ``task_board`` references
-      ``memories(id)`` ON DELETE CASCADE -- with them on, dropping the old table
-      deletes the entire kanban board. This is the one reason the pragma dance is
-      not optional.
-    * ``PRAGMA foreign_key_check`` inside the transaction proves the RENAME
-      restored every reference before anything is committed, which is what makes
-      the rollback path safe.
+    Case folding rather than lowering, because Cyrillic needs it and the old
+    SQLite build had to register a Python function to get it at all.
     """
-    columns = {row["name"] for row in conn.execute("PRAGMA table_info(memories)")}
-    if "source_role" in columns:
-        return  # fresh database: the schema script already created the column
-
-    conn.commit()
-    conn.execute("PRAGMA foreign_keys=OFF")
-    try:
-        conn.execute("BEGIN")
-        for statement in _MEMORIES_V3_REBUILD:
-            conn.execute(statement)
-        broken = conn.execute("PRAGMA foreign_key_check").fetchall()
-        if broken:
-            raise RuntimeError(
-                f"source_role migration left {len(broken)} dangling references; "
-                "rolled back, database unchanged"
-            )
-        migrated = conn.execute("SELECT COUNT(*) n FROM memories").fetchone()["n"]
-        conn.execute("COMMIT")
-    except Exception:
-        conn.execute("ROLLBACK")
-        raise
-    finally:
-        conn.execute("PRAGMA foreign_keys=ON")
-    logger.info("migrated %d memories to schema 3 (source_role)", migrated)
+    return re.sub(r"\s+", " ", value).strip().casefold()
 
 
-def _backfill_task_board(conn: sqlite3.Connection) -> None:
-    """Give pre-v2 task memories stable board metadata, idempotently."""
-    now = utcnow()
-    rows = conn.execute(
-        """SELECT m.id, m.scope_key
-             FROM memories m
-             LEFT JOIN task_board tb ON tb.memory_id = m.id
-            WHERE m.type = 'task' AND tb.memory_id IS NULL
-            ORDER BY m.updated_at DESC, m.id ASC"""
-    ).fetchall()
-    conn.executemany(
-        """INSERT INTO task_board
-           (memory_id, workflow_status, project_key, position, version,
-            created_at, updated_at)
-           VALUES (?, 'unknown', ?, ?, 1, ?, ?)""",
-        [
-            (
-                row["id"],
-                (row["scope_key"] or "").strip() or None,
-                float(index * 1024),
-                now,
-                now,
-            )
-            for index, row in enumerate(rows)
-        ],
-    )
-
-
-def ensure_owner(conn: sqlite3.Connection, owner_id: str, name: str) -> None:
-    conn.execute(
-        "INSERT INTO owners (id, name, created_at) VALUES (?, ?, ?) ON CONFLICT(id) DO NOTHING",
-        (owner_id, name, utcnow()),
-    )
-
-
-def ensure_session(
-    conn: sqlite3.Connection,
-    session_id: str,
-    owner_id: str,
-    agent_id: str,
-    started_at: str | None = None,
-) -> None:
-    conn.execute(
-        "INSERT INTO sessions (id, owner_id, agent_id, started_at) "
-        "VALUES (?, ?, ?, ?) ON CONFLICT(id) DO NOTHING",
-        (session_id, owner_id, agent_id, started_at or utcnow()),
-    )
-
-
-@contextmanager
-def transaction(conn: sqlite3.Connection) -> Iterator[sqlite3.Connection]:
-    """Commit on success, roll back on failure.
-
-    Note that COMMIT and ROLLBACK act on the *connection*, not on the block. That
-    is why a connection must never be shared between threads that write — see
-    ``ConnectionPool``.
-    """
-    try:
-        yield conn
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-
-
-class ConnectionPool:
-    """One SQLite connection per thread, opened on first use.
-
-    A single shared connection cannot be used with manual transactions from more
-    than one thread: ``transaction()`` commits the connection, not the caller's
-    unit of work, so one thread's COMMIT persists another thread's half-finished
-    write and one thread's ROLLBACK discards it. FastAPI runs every ``def``
-    endpoint in a threadpool and runs background tasks alongside them, so two
-    concurrent writers is the normal case here, not an edge case — an extraction
-    backfill with the dashboard open hits it immediately.
-
-    Connections are cheap (same file, WAL, no handshake) and the threadpool reuses
-    threads, so this opens a handful in practice. WAL allows one writer plus many
-    concurrent readers; a second writer waits out ``busy_timeout`` and then fails
-    loudly, which is the outcome we want instead of silent interleaving.
-    """
-
-    def __init__(self, db_path: Path) -> None:
-        self.db_path = db_path
-        self._local = threading.local()
-        self._opened: list[sqlite3.Connection] = []
-        self._lock = threading.Lock()
-
-    def __call__(self) -> sqlite3.Connection:
-        conn: sqlite3.Connection | None = getattr(self._local, "conn", None)
-        if conn is None:
-            conn = connect(self.db_path)
-            self._local.conn = conn
-            with self._lock:
-                self._opened.append(conn)
-        return conn
-
-    def close_all(self) -> None:
-        """Close every connection this pool handed out. Shutdown only."""
-        with self._lock:
-            for conn in self._opened:
-                with suppress(sqlite3.Error):
-                    conn.close()
-            self._opened.clear()
-        self._local = threading.local()
+def dsn_from_env(default: str = "") -> str:
+    return os.environ.get("MEMKIT_DATABASE_URL", default)

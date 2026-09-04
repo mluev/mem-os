@@ -1,4 +1,4 @@
-"""Qdrant access. A derived index -- everything here is rebuildable from SQLite.
+"""Qdrant access. A derived index -- everything here is rebuildable from Postgres.
 
 Two collections, not one:
 
@@ -35,16 +35,22 @@ MEMORIES = "memories"
 RAW = "raw"
 
 # Filterable payload fields. Without an index Qdrant filters by full scan.
+# `scope_id` is the authorization boundary, so it is the one field every search
+# filters on; `subject_id` and `author_id` support "facts about X" and "written
+# by X" without a second round trip through Postgres.
 _INDEXES: dict[str, list[str]] = {
     MEMORIES: [
-        "owner_id",
+        "scope_id",
+        "subject_id",
+        "author_id",
         "agent_id",
         "kind",
         "status",
         "source_role",
+        "review_status",
         "valid_until",
     ],
-    RAW: ["owner_id", "agent_id", "role", "session_id"],
+    RAW: ["user_id", "scope_id", "agent_id", "role", "session_id"],
 }
 
 
@@ -243,6 +249,56 @@ def create_empty_collection(client: QdrantClient, collection: str) -> None:
             field_name=field,
             field_schema=models.PayloadSchemaType.KEYWORD,
         )
+
+
+def scroll_vectors(
+    client: QdrantClient,
+    collection: str,
+    *,
+    must: list[models.FieldCondition] | None = None,
+    page: int = 512,
+) -> dict[str, list[float]]:
+    """Every stored vector matching a filter, keyed by point id.
+
+    Consolidation needs the vectors of an entire scope. They already exist here,
+    so re-embedding the store to get them costs a model pass over every row for
+    data the index is holding.
+    """
+    flt = models.Filter(must=must) if must else None
+    found: dict[str, list[float]] = {}
+    offset: Any = None
+    resolved = resolve_collection(client, collection)
+    while True:
+        records, offset = client.scroll(
+            collection_name=resolved,
+            limit=page,
+            offset=offset,
+            with_payload=False,
+            with_vectors=True,
+            scroll_filter=flt,
+        )
+        for record in records:
+            vector = record.vector
+            dense = vector.get("dense") if isinstance(vector, dict) else vector
+            if dense:
+                found[str(record.id)] = list(dense)
+        if offset is None or not records:
+            return found
+
+
+def delete_by_filter(
+    client: QdrantClient, collection: str, *, must: list[models.FieldCondition]
+) -> None:
+    """Delete every point matching a filter, in one request.
+
+    Erasure needs this: enumerating a user's point ids first would race with
+    concurrent delivery, and the ids are exactly what is being removed.
+    """
+    client.delete(
+        collection_name=resolve_collection(client, collection),
+        points_selector=models.FilterSelector(filter=models.Filter(must=must)),
+        wait=True,
+    )
 
 
 def exact_ids(client: QdrantClient, collection: str) -> set[str]:

@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import logging
-import sqlite3
 import threading
 from collections.abc import Callable
 
 from qdrant_client import QdrantClient
 
 from . import jobs, outbox, vectors
+from .db import ConnectionPool
 from .embed import Embedder
 
 logger = logging.getLogger(__name__)
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 class Worker:
     def __init__(
         self,
-        db: Callable[[], sqlite3.Connection],
+        db: ConnectionPool,
         client: QdrantClient,
         embedder: Embedder,
         dispatch: Callable[[str, str], None],
@@ -49,18 +49,21 @@ class Worker:
         self._thread.join(timeout=10)
 
     def _run(self) -> None:
+        # `self.db()` is this thread's pooled connection: the same one every
+        # iteration, so the drain and the queue read do not pay a Postgres
+        # handshake per poll. It goes back to the pool when the application
+        # closes it, which is also the only thing that may close it.
         while not self._stop.is_set():
             try:
                 vectors.ensure_collections(self.client)
                 self.dependency_status(True, None)
-                outbox.drain(self.db(), self.client, self.embedder, limit=100)
-                row = (
-                    self.db()
-                    .execute(
-                        "SELECT id,kind FROM jobs WHERE status='queued' ORDER BY created_at,id LIMIT 1"
-                    )
-                    .fetchone()
-                )
+                conn = self.db()
+                outbox.drain(conn, self.client, self.embedder, limit=100)
+                # A peek, not a claim: the handler that `dispatch` picks is the
+                # one that claims the job, and it must find it still queued.
+                row = conn.execute(
+                    "SELECT id,kind FROM jobs WHERE status='queued' ORDER BY created_at,id LIMIT 1"
+                ).fetchone()
                 if row is not None:
                     self.dispatch(str(row["id"]), str(row["kind"]))
                     continue

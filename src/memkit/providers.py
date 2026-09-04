@@ -61,6 +61,12 @@ _OP_FIELDS = [
     "valid_until",
     "evidence",
     "reason",
+    # Routing. Integers referring to the ENTITIES block, never names or ids:
+    # the same reason candidate targets are integers, since a uuid shown to a
+    # model comes back subtly mutated often enough to matter.
+    "scope",
+    "subject",
+    "subject_name",
 ]
 
 
@@ -95,6 +101,9 @@ def _operation_properties(*, anthropic: bool) -> dict[str, Any]:
         "valid_until": nullable_string,
         "evidence": {"type": "array", "items": evidence_item},
         "reason": {"type": "string"},
+        "scope": {"type": ["integer", "null"]},
+        "subject": {"type": ["integer", "null"]},
+        "subject_name": nullable_string,
     }
 
 

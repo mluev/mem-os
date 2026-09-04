@@ -1,9 +1,14 @@
-"""BGE-M3 embeddings, local, on Apple Silicon.
+"""BGE-M3 embeddings, loaded in-process.
 
 Called on every ingested message and every search, so it sits on the latency
 critical path. docs/06-roadmap.md sets the gate: one phrase must embed in under
 100 ms on MPS, and if CPU fallback exceeds 300 ms it has to be fixed before the
 read path is built.
+
+Both the device and the runtime are configuration, because the same code runs on
+a laptop with Metal and in a container with neither GPU nor torch worth loading:
+``embed_backend='local'`` is torch, ``'onnx'`` is the exported graph, which is
+the faster of the two on CPU.
 """
 
 from __future__ import annotations
@@ -11,10 +16,20 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from typing import Any
+
+from .config import get_settings
 
 logger = logging.getLogger(__name__)
 
-DIM = 1024  # BGE-M3 dense width; must match the Qdrant collection.
+# Runtimes sentence-transformers can load a dense model under. Anything else is
+# a typo in the environment, and a typo must not silently become 'local'.
+BACKENDS = frozenset({"local", "onnx"})
+
+# Dense vector width, read from settings because the Qdrant collections are
+# created with it: a different width is a different index, so changing the model
+# means a reindex rather than a restart. `vectors` imports this.
+DIM = get_settings().embed_dim
 
 
 class Embedder:
@@ -26,10 +41,21 @@ class Embedder:
     threaded.
     """
 
-    def __init__(self, model_name: str, device: str, revision: str | None = None) -> None:
+    def __init__(
+        self,
+        model_name: str,
+        device: str,
+        revision: str | None = None,
+        backend: str = "local",
+    ) -> None:
+        if backend not in BACKENDS:
+            raise ValueError(
+                f"unknown embed backend {backend!r}; expected one of {sorted(BACKENDS)}"
+            )
         self._model_name = model_name
         self._requested_device = device
         self._revision = revision
+        self._backend = backend
         self._model = None
         self._device: str | None = None
         self._lock = threading.Lock()
@@ -55,23 +81,39 @@ class Embedder:
             from sentence_transformers import SentenceTransformer
 
             self._device = self._resolve_device()
+            # 'local' is the library's own default; passing it explicitly would
+            # break against a version that predates the argument.
+            options: dict[str, Any] = {} if self._backend == "local" else {"backend": self._backend}
             t0 = time.perf_counter()
             self._model = SentenceTransformer(
-                self._model_name, device=self._device, revision=self._revision
+                self._model_name, device=self._device, revision=self._revision, **options
             )
             logger.info(
-                "loaded %s on %s in %.1fs",
+                "loaded %s on %s via %s in %.1fs",
                 self._model_name,
                 self._device,
+                self._backend,
                 time.perf_counter() - t0,
             )
             # First encode on MPS pays a one-off graph-compilation cost. Warm it
             # now so the first real request is not the one that eats it.
-            self._model.encode(["warmup"], normalize_embeddings=True)
+            warmed = self._model.encode(["warmup"], normalize_embeddings=True)
+            width = len(warmed[0])
+            if width != DIM:
+                self._model = None
+                raise RuntimeError(
+                    f"{self._model_name} produces {width}-dimensional vectors but "
+                    f"MEMKIT_EMBED_DIM is {DIM}; the Qdrant collections would reject "
+                    "every point. Fix the setting and reindex."
+                )
 
     @property
     def device(self) -> str | None:
         return self._device
+
+    @property
+    def backend(self) -> str:
+        return self._backend
 
     @property
     def ready(self) -> bool:
@@ -107,6 +149,7 @@ class Embedder:
         timings.sort()
         return {
             "device": self._device,
+            "backend": self._backend,
             "dim": len(self.encode_one(phrase)),
             "median_ms": round(timings[len(timings) // 2], 1),
             "min_ms": round(timings[0], 1),
@@ -120,8 +163,6 @@ _embedder: Embedder | None = None
 def get_embedder() -> Embedder:
     global _embedder
     if _embedder is None:
-        from .config import get_settings
-
         s = get_settings()
-        _embedder = Embedder(s.embed_model, s.embed_device, s.embed_revision)
+        _embedder = Embedder(s.embed_model, s.embed_device, s.embed_revision, s.embed_backend)
     return _embedder

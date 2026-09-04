@@ -152,8 +152,37 @@ CANDIDATES
 CONVERSATION WINDOW
 {window}"""
 
-REGISTRY: dict[str, str] = {"v7": V7, "v8": V8}
-DEFAULT_VERSION = "v8"
+
+# v9 = v8 plus routing. A team instance has more than one place a fact can go,
+# and the model is the only participant that has just read the sentence, so it
+# decides -- but only by number, and only among entities it was shown. Names
+# and ids are never accepted: a uuid comes back mutated and a name comes back
+# guessed, while an integer outside the block is provably fabricated.
+V9 = V8.replace(
+    """CONTEXT
+{context}""",
+    """ENTITIES (refer to them by number only; never invent a number)
+{entities}
+
+ROUTING
+- A fact about the speaker — who they are, what they like, how they want you to
+  work — needs no scope and no subject. This is the default; when torn between
+  the speaker and the team, choose the speaker.
+- A fact about a listed teammate ("Alex prefers dark mode", "Саша в отпуске до
+  марта"): set subject to their number and omit scope. It becomes team-visible
+  and that person can see it.
+- A fact about a listed project, product or company: set scope to its number.
+- A rule stated for everyone ("we always squash-merge", "у нас принято…"): set
+  scope to the team's number, no subject.
+- A person who is NOT in the list: omit scope and subject, and copy their name
+  verbatim into `subject_name`. Do not guess which listed person was meant.
+
+CONTEXT
+{context}""",
+)
+
+REGISTRY: dict[str, str] = {"v7": V7, "v8": V8, "v9": V9}
+DEFAULT_VERSION = "v9"
 
 CONSOLIDATE_V2 = """Compare the memories below. Return a merged text only when they
 state the same claim in the same context. Preserve the newest truth and all useful
@@ -172,6 +201,7 @@ def render(
     window: str,
     candidates: str,
     context: str | None = None,
+    entities: str | None = None,
     session_date: str | None = None,
     profile: str = "",
     agent_id: str | None = None,
@@ -183,9 +213,12 @@ def render(
     # Each version takes only the placeholders it declares; str.format ignores
     # the rest. A window with no recorded date anchors to today, which is exact
     # for live traffic and the least-wrong answer for undated backfills.
+    # str.format ignores placeholders a version does not declare, so an older
+    # prompt keeps rendering unchanged as newer inputs are added.
     return template.format(
         context=context or "{}",
         candidates=candidates,
+        entities=entities or "(none)",
         window=window,
         today=today,
         session_date=session_date or today,

@@ -1,43 +1,77 @@
-"""Backups, diagnostics, setup, and macOS service management."""
+"""Backups and diagnostics.
+
+Both are now Postgres operations rather than filesystem ones. A SQLite backup
+was a copy of one file, so the service could take it, verify it, and swap it
+back in by itself; a Postgres backup is `pg_dump` against a server that other
+processes are also connected to. Taking one is still safe from inside the
+service. Putting one back is not, which is why `restore_backup` documents the
+procedure instead of performing it.
+
+Service management, Docker orchestration and first-run setup are gone with the
+single-machine deployment they belonged to: the instance runs as a container
+with a database and a Qdrant beside it, and its lifecycle belongs to whatever
+starts them.
+"""
 
 from __future__ import annotations
 
 import hashlib
-import json
 import os
-import plistlib
+import re
 import secrets
 import shutil
-import sqlite3
 import subprocess
-import sys
-import time
-import urllib.request
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
-import yaml
+import psycopg
 
-from . import judge, outbox, reindex, vectors
-from .config import DEFAULT_CONFIG_DIR, DEFAULT_DATA_DIR, Settings
-from .db import connect, ensure_owner, init_db, transaction, utcnow
+from . import db, entities, judge, outbox, vectors
+from .config import DEFAULT_CONFIG_DIR, Settings
+from .db import connect, init_db, transaction, utcnow
 from .embed import get_embedder
 
 BackupKind = Literal["daily", "weekly", "pre-migration", "pre-promotion", "emergency"]
-SERVICE_LABEL = "ai.memkit.service"
-BACKUP_SERVICE_LABEL = "ai.memkit.backup"
-QDRANT_CONTAINER = "memkit-qdrant"
+
+# Kinds taken before something irreversible. Retention never removes them.
+PROTECTED_KINDS = frozenset({"pre-migration", "pre-promotion"})
 
 
-def _authenticated_http_check(base_url: str, api_key: str) -> int:
-    request = urllib.request.Request(  # noqa: S310 -- doctor restricts this to the local service
-        f"{base_url.rstrip('/')}/v1/jobs?limit=1",
-        headers={"X-API-Key": api_key},
-    )
-    with urllib.request.urlopen(request, timeout=3) as response:  # noqa: S310
-        return int(response.status)
+def _run(command: list[str], *, check: bool = True) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(command, check=check, capture_output=True, text=True)  # noqa: S603
+
+
+def _tool(name: str) -> str:
+    """The path to a Postgres client binary, or a legible failure.
+
+    `pg_dump` must match the server's major version or it refuses to run, so it
+    is deliberately not vendored: the operator installs the client that goes
+    with their server.
+    """
+    found = shutil.which(name)
+    if found is None:
+        raise RuntimeError(f"{name} is not on PATH; install the Postgres client tools")
+    return found
+
+
+def _dsn(settings: Settings) -> str:
+    if not settings.database_url.strip():
+        raise RuntimeError("MEMKIT_DATABASE_URL is not configured")
+    return settings.database_url
+
+
+def _redacted(dsn: str) -> str:
+    """A DSN without its password: doctor output gets pasted into bug reports."""
+    return re.sub(r"://([^:/@]+):[^@]*@", r"://\1:***@", dsn)
+
+
+def _open(settings: Settings) -> psycopg.Connection:
+    """A connection with the schema guaranteed to exist."""
+    dsn = _dsn(settings)
+    init_db(dsn)
+    return connect(dsn)
 
 
 def _sha256(path: Path) -> str:
@@ -49,28 +83,31 @@ def _sha256(path: Path) -> str:
 
 
 def verify_backup(path: Path, *, expected_sha256: str | None = None) -> dict[str, Any]:
+    """Checksum the archive and read its table of contents.
+
+    `pg_restore --list` parses every object header in the dump, so a truncated
+    or corrupted archive fails here rather than half-way through a restore. It
+    is the closest available equivalent to the `PRAGMA quick_check` this
+    replaces, which could inspect page structure only because a SQLite backup
+    *was* a database.
+    """
     path = path.expanduser().resolve()
     if not path.is_file():
         raise FileNotFoundError(path)
     checksum = _sha256(path)
     if expected_sha256 is not None and not secrets.compare_digest(checksum, expected_sha256):
         raise RuntimeError("backup checksum mismatch")
-    conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
-    try:
-        quick = [row[0] for row in conn.execute("PRAGMA quick_check").fetchall()]
-        foreign_keys = conn.execute("PRAGMA foreign_key_check").fetchall()
-        if quick != ["ok"] or foreign_keys:
-            raise RuntimeError(
-                f"backup integrity failed (quick_check={quick[:3]}, foreign_keys={len(foreign_keys)})"
-            )
-        version = int(conn.execute("PRAGMA user_version").fetchone()[0])
-    finally:
-        conn.close()
+    listing = _run([_tool("pg_restore"), "--list", str(path)])
+    entries = [
+        line for line in listing.stdout.splitlines() if line.strip() and not line.startswith(";")
+    ]
+    if not entries:
+        raise RuntimeError("backup archive lists no restorable entries")
     return {
         "path": str(path),
         "sha256": checksum,
-        "size_bytes": path.stat().st_size,
-        "schema_version": version,
+        "bytes": path.stat().st_size,
+        "entries": len(entries),
         "verified_at": utcnow(),
     }
 
@@ -81,42 +118,56 @@ def create_backup(
     kind: BackupKind | Literal["auto"] = "auto",
     protected: bool = False,
 ) -> dict[str, Any]:
-    init_db(settings.db_path)
+    """Dump the database to a verified, registered archive.
+
+    Custom format rather than plain SQL: it is the only format `pg_restore` can
+    replay selectively, and the only one that can be inspected without a
+    database to restore into.
+    """
+    dsn = _dsn(settings)
+    init_db(dsn)
     if kind == "auto":
         kind = "weekly" if datetime.now(UTC).weekday() == 6 else "daily"
     backup_dir = settings.backup_dir.expanduser().resolve()
     backup_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     os.chmod(backup_dir, 0o700)
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    path = backup_dir / f"memkit-{kind}-{stamp}-{uuid.uuid4().hex[:8]}.db"
-    temporary = path.with_suffix(".db.tmp")
-    source = connect(settings.db_path)
-    target = sqlite3.connect(temporary)
-    try:
-        source.backup(target)
-    finally:
-        target.close()
-        source.close()
+    path = backup_dir / f"memkit-{kind}-{stamp}-{uuid.uuid4().hex[:8]}.dump"
+    temporary = path.with_suffix(".dump.tmp")
+    # The DSN is visible in this process's command line while the dump runs, so
+    # a shared host wants a .pgpass or a service file rather than a password in
+    # MEMKIT_DATABASE_URL.
+    _run(
+        [
+            _tool("pg_dump"),
+            "--format=custom",
+            "--no-owner",
+            "--no-privileges",
+            f"--dbname={dsn}",
+            f"--file={temporary}",
+        ]
+    )
     os.chmod(temporary, 0o600)
     result = verify_backup(temporary)
     temporary.replace(path)
     result["path"] = str(path)
     artifact_id = str(uuid.uuid4())
-    conn = connect(settings.db_path)
+    protected = bool(protected or kind in PROTECTED_KINDS)
+    conn = connect(dsn)
     try:
         with transaction(conn):
             conn.execute(
                 """INSERT INTO backup_artifacts
-                   (id,kind,path,sha256,size_bytes,verified_at,protected,created_at)
-                   VALUES (?,?,?,?,?,?,?,?)""",
+                   (id,kind,path,sha256,bytes,verified_at,protected,created_at)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
                 (
                     artifact_id,
                     kind,
                     str(path),
                     result["sha256"],
-                    result["size_bytes"],
+                    result["bytes"],
                     result["verified_at"],
-                    int(protected or kind in {"pre-migration", "pre-promotion"}),
+                    protected,
                     utcnow(),
                 ),
             )
@@ -127,8 +178,7 @@ def create_backup(
 
 
 def list_backups(settings: Settings) -> list[dict[str, Any]]:
-    init_db(settings.db_path)
-    conn = connect(settings.db_path)
+    conn = _open(settings)
     try:
         return [
             dict(row)
@@ -143,81 +193,54 @@ def list_backups(settings: Settings) -> list[dict[str, Any]]:
 def prune_backups(
     settings: Settings, *, keep_daily: int = 7, keep_weekly: int = 4
 ) -> dict[str, Any]:
+    """Keep the newest daily and weekly archives; never touch a protected one."""
     rows = list_backups(settings)
     keep: set[str] = set()
     for kind, count in (("daily", keep_daily), ("weekly", keep_weekly)):
         keep.update(str(row["id"]) for row in [r for r in rows if r["kind"] == kind][:count])
     removed: list[str] = []
-    conn = connect(settings.db_path)
+    conn = connect(_dsn(settings))
     try:
         with transaction(conn):
             for row in rows:
                 if row["protected"] or row["kind"] not in {"daily", "weekly"}:
                     continue
-                if row["id"] in keep:
+                if str(row["id"]) in keep:
                     continue
-                Path(row["path"]).unlink(missing_ok=True)
-                conn.execute("DELETE FROM backup_artifacts WHERE id=?", (row["id"],))
+                Path(str(row["path"])).unlink(missing_ok=True)
+                conn.execute("DELETE FROM backup_artifacts WHERE id=%s", (row["id"],))
                 removed.append(str(row["path"]))
     finally:
         conn.close()
     return {"removed": removed, "kept_daily": keep_daily, "kept_weekly": keep_weekly}
 
 
-def restore_backup(settings: Settings, *, artifact_id: str, confirm: str) -> dict[str, Any]:
-    if confirm != "RESTORE":
-        raise ValueError('restore requires confirm="RESTORE"')
+def restore_backup(settings: Settings, *, artifact_id: str, confirm: str = "") -> dict[str, Any]:
+    """Always raises: restoring is an operator procedure, not an API call.
+
+    `pg_restore --clean` drops and recreates every object the archive contains.
+    Nothing else may hold a connection while it does, and this service cannot
+    promise that about itself: its pool reconnects on demand, the index worker
+    runs on a timer, and any other replica of the app is a writer it does not
+    know about. A restore that ran anyway would leave a half-replaced schema
+    with no way back. So the archive is verified here -- the part that can be
+    done safely -- and the command is handed to whoever can stop the service.
+
+    `confirm` is accepted and ignored: the callers that used to guard the
+    destructive version still pass it, and there is nothing left to confirm.
+    """
     artifacts = {str(row["id"]): row for row in list_backups(settings)}
     artifact = artifacts.get(artifact_id)
     if artifact is None:
         raise LookupError("unknown backup artifact")
-    selected = Path(str(artifact["path"]))
-    verify_backup(selected, expected_sha256=str(artifact["sha256"]))
-    emergency = create_backup(settings, kind="emergency", protected=True)
-    staged = settings.db_path.with_suffix(
-        f"{settings.db_path.suffix}.restore-{uuid.uuid4().hex}.tmp"
+    path = Path(str(artifact["path"]))
+    verify_backup(path, expected_sha256=str(artifact["sha256"]))
+    raise NotImplementedError(
+        "restore is deliberately manual. Stop every memkit process, then run:\n"
+        f"  pg_restore --clean --if-exists --no-owner --no-privileges "
+        f"--dbname={_redacted(_dsn(settings))} {path}\n"
+        "then run `memkit reindex` to rebuild Qdrant from the restored database."
     )
-    shutil.copy2(selected, staged)
-    os.chmod(staged, 0o600)
-    verify_backup(staged, expected_sha256=str(artifact["sha256"]))
-    old_sidecars = [
-        settings.db_path.with_name(settings.db_path.name + suffix) for suffix in ("-wal", "-shm")
-    ]
-    try:
-        staged.replace(settings.db_path)
-        for sidecar in old_sidecars:
-            sidecar.unlink(missing_ok=True)
-        init_db(settings.db_path)
-        conn = connect(settings.db_path)
-        try:
-            ensure_owner(conn, settings.owner_id, settings.owner_name)
-            client = vectors.get_client(settings.qdrant_url)
-            vectors.ensure_collections(client)
-            generation = reindex.rebuild(conn, client, get_embedder())
-            with transaction(conn):
-                conn.execute(
-                    """INSERT OR IGNORE INTO backup_artifacts
-                       (id,kind,path,sha256,size_bytes,verified_at,protected,created_at)
-                       VALUES (?,'emergency',?,?,?,?,1,?)""",
-                    (
-                        emergency["id"],
-                        emergency["path"],
-                        emergency["sha256"],
-                        emergency["size_bytes"],
-                        emergency["verified_at"],
-                        utcnow(),
-                    ),
-                )
-        finally:
-            conn.close()
-    except Exception:
-        rollback = Path(str(emergency["path"]))
-        shutil.copy2(rollback, staged)
-        staged.replace(settings.db_path)
-        for sidecar in old_sidecars:
-            sidecar.unlink(missing_ok=True)
-        raise
-    return {"restored": artifact_id, "emergency": emergency, "index": generation}
 
 
 def _check(name: str, fn: Any) -> dict[str, Any]:
@@ -230,122 +253,11 @@ def _check(name: str, fn: Any) -> dict[str, Any]:
 
 def doctor(settings: Settings, *, load_model: bool = False) -> dict[str, Any]:
     def configuration() -> dict[str, Any]:
-        if settings.api_key == "change-me" or len(settings.api_key) < 32:
-            raise RuntimeError("secure API key is not configured")
-        return {"host": settings.host, "port": settings.port, "database": str(settings.db_path)}
-
-    def permissions() -> str:
-        paths = [p for p in (settings.api_key_file,) if p is not None]
-        for path in paths:
-            if os.stat(path).st_mode & 0o077:
-                raise RuntimeError(f"permissions are not 0600: {path}")
-        return "restricted"
-
-    def sqlite_health() -> dict[str, Any]:
-        init_db(settings.db_path)
-        conn = connect(settings.db_path)
-        try:
-            quick = conn.execute("PRAGMA quick_check").fetchone()[0]
-            foreign_keys = len(conn.execute("PRAGMA foreign_key_check").fetchall())
-            if quick != "ok" or foreign_keys:
-                raise RuntimeError(f"quick_check={quick}, foreign_keys={foreign_keys}")
-            return {"schema": conn.execute("PRAGMA user_version").fetchone()[0]}
-        finally:
-            conn.close()
-
-    def fts5() -> int:
-        conn = connect(settings.db_path)
-        try:
-            conn.execute("CREATE VIRTUAL TABLE temp.doctor_fts USING fts5(value)")
-            return int(conn.execute("SELECT COUNT(*) FROM memories_fts").fetchone()[0])
-        finally:
-            conn.close()
-
-    def qdrant() -> dict[str, int]:
-        client = vectors.get_client(settings.qdrant_url)
-        vectors.ensure_collections(client)
         return {
-            "memories": vectors.count(client, vectors.MEMORIES),
-            "raw": vectors.count(client, vectors.RAW),
+            "host": settings.host,
+            "port": settings.port,
+            "database": _redacted(_dsn(settings)),
         }
-
-    def parity() -> dict[str, Any]:
-        conn = connect(settings.db_path)
-        client = vectors.get_client(settings.qdrant_url)
-        try:
-            sqlite_count = int(
-                conn.execute("SELECT COUNT(*) FROM memories WHERE status='active'").fetchone()[0]
-            )
-            qdrant_count = vectors.count(client, vectors.MEMORIES)
-            if sqlite_count != qdrant_count or outbox.pending_count(conn):
-                raise RuntimeError(
-                    f"sqlite={sqlite_count}, qdrant={qdrant_count}, outbox={outbox.pending_count(conn)}"
-                )
-            return {"sqlite": sqlite_count, "qdrant": qdrant_count}
-        finally:
-            conn.close()
-
-    def embedder() -> dict[str, Any]:
-        model = get_embedder()
-        if load_model:
-            vector = model.encode_one("memkit doctor")
-            return {"ready": model.ready, "dimensions": len(vector), "device": model.device}
-        return {"configured_device": settings.embed_device, "revision": settings.embed_revision}
-
-    def provider() -> str:
-        selected = judge.provider_of(settings.judge_model)
-        configured = (
-            bool(settings.gemini_api_key or settings.vertex_project)
-            if selected == "gemini"
-            else bool(settings.anthropic_api_key)
-        )
-        if not configured:
-            raise RuntimeError(f"{selected} credentials are not configured")
-        return f"{selected}:{settings.judge_model}"
-
-    def backups() -> dict[str, Any]:
-        items = list_backups(settings)
-        if not items:
-            raise RuntimeError("no verified backup is registered")
-        newest = items[0]
-        verify_backup(Path(newest["path"]), expected_sha256=newest["sha256"])
-        return {"count": len(items), "newest": newest["created_at"]}
-
-    def worker_state() -> dict[str, int]:
-        conn = connect(settings.db_path)
-        try:
-            return {
-                "queued_jobs": int(
-                    conn.execute("SELECT COUNT(*) FROM jobs WHERE status='queued'").fetchone()[0]
-                ),
-                "outbox_pending": outbox.pending_count(conn),
-            }
-        finally:
-            conn.close()
-
-    def hermes() -> dict[str, Any]:
-        home = Path(os.environ.get("HERMES_HOME", str(Path.home() / ".hermes")))
-        path = home / "plugins" / "memkit"
-        if not path.is_dir():
-            raise RuntimeError("Hermes provider is not installed")
-        config_path = home / "config.yaml"
-        config = yaml.safe_load(config_path.read_text(encoding="utf-8-sig")) or {}
-        if (config.get("memory") or {}).get("provider") != "memkit":
-            raise RuntimeError("Hermes is not using the memkit provider")
-        plugin = (config.get("plugins") or {}).get("memkit") or {}
-        key_path = Path(str(plugin.get("api_key_file") or "")).expanduser()
-        if not key_path.is_file() or key_path.stat().st_mode & 0o077:
-            raise RuntimeError("Hermes API key file is missing or not 0600")
-        hermes_key = key_path.read_text(encoding="utf-8").strip()
-        if not secrets.compare_digest(hermes_key, settings.api_key):
-            raise RuntimeError("Hermes API key does not match the service")
-        expected_url = f"http://{settings.host}:{settings.port}"
-        base_url = str(plugin.get("base_url") or expected_url).rstrip("/")
-        if base_url != expected_url:
-            raise RuntimeError("Hermes base URL does not match the local service")
-        if _authenticated_http_check(base_url, hermes_key) != 200:
-            raise RuntimeError("Hermes authenticated service check failed")
-        return {"path": str(path), "authenticated": True}
 
     def client_config() -> dict[str, Any]:
         """Where agents and hooks will find their key.
@@ -365,271 +277,157 @@ def doctor(settings: Settings, *, load_model: bool = False) -> dict[str, Any]:
             return {
                 "path": str(legacy),
                 "deprecated": True,
-                "hint": f"run `memkit setup` to write {client_path}",
+                "hint": f"move MEMKIT_BASE_URL and MEMKIT_API_KEY into {client_path}",
             }
         raise RuntimeError(
-            f"no client config: run `memkit setup` to write {client_path}, "
-            "or agents and hooks will have no key"
+            f"no client config: write {client_path} with MEMKIT_BASE_URL and "
+            "MEMKIT_API_KEY, or agents and hooks will have no key"
         )
+
+    def database() -> dict[str, Any]:
+        dsn = _dsn(settings)
+        init_db(dsn)
+        conn = connect(dsn)
+        try:
+            alive = conn.execute("SELECT 1 AS ok").fetchone()
+            if alive is None or int(alive["ok"]) != 1:
+                raise RuntimeError("the database did not answer SELECT 1")
+            # An edited or skipped migration means the running code and the
+            # schema disagree, which is a startup failure elsewhere; doctor
+            # names it rather than letting the next query be the symptom.
+            db._verify_migration_history(conn)
+            row = conn.execute("SELECT max(version) AS version FROM schema_migrations").fetchone()
+            return {
+                "schema": int(row["version"]) if row and row["version"] is not None else 0,
+                "expected": db.SCHEMA_VERSION,
+            }
+        finally:
+            conn.close()
+
+    def fulltext() -> dict[str, Any]:
+        """The Russian text-search configuration the lexical arm depends on.
+
+        `memories.search_tsv` is a generated column over `to_tsvector('russian',
+        text)`, which stems Cyrillic and ASCII in the same column. Replaces the
+        old fts5 probe, which tested a compile-time SQLite option; this tests
+        that the server actually has the configuration the schema references.
+        """
+        conn = connect(_dsn(settings))
+        try:
+            row = conn.execute(
+                "SELECT to_tsvector('russian',%s) AS lexemes", ("предпочитает pnpm",)
+            ).fetchone()
+            lexemes = str(row["lexemes"]) if row else ""
+            if not lexemes:
+                raise RuntimeError("the russian configuration produced no lexemes")
+            return {"lexemes": lexemes}
+        finally:
+            conn.close()
+
+    def qdrant() -> dict[str, int]:
+        client = vectors.get_client(settings.qdrant_url)
+        vectors.ensure_collections(client)
+        return {
+            "memories": vectors.count(client, vectors.MEMORIES),
+            "raw": vectors.count(client, vectors.RAW),
+        }
+
+    def parity() -> dict[str, Any]:
+        conn = connect(_dsn(settings))
+        client = vectors.get_client(settings.qdrant_url)
+        try:
+            active = int(
+                conn.execute("SELECT count(*) AS n FROM memories WHERE status='active'").fetchone()[
+                    "n"
+                ]
+            )
+            indexed = vectors.count(client, vectors.MEMORIES)
+            pending = outbox.pending_count(conn)
+            if active != indexed or pending:
+                raise RuntimeError(f"postgres={active}, qdrant={indexed}, outbox={pending}")
+            return {"postgres": active, "qdrant": indexed}
+        finally:
+            conn.close()
+
+    def embedder() -> dict[str, Any]:
+        model = get_embedder()
+        if load_model:
+            vector = model.encode_one("memkit doctor")
+            return {"ready": model.ready, "dimensions": len(vector), "device": model.device}
+        return {
+            "configured_device": settings.embed_device,
+            "backend": settings.embed_backend,
+            "dimensions": settings.embed_dim,
+            "revision": settings.embed_revision,
+        }
+
+    def provider() -> str:
+        selected = judge.provider_of(settings.judge_model)
+        configured = (
+            bool(settings.gemini_api_key or settings.vertex_project)
+            if selected == "gemini"
+            else bool(settings.anthropic_api_key)
+        )
+        if not configured:
+            raise RuntimeError(f"{selected} credentials are not configured")
+        return f"{selected}:{settings.judge_model}"
+
+    def backups() -> dict[str, Any]:
+        items = list_backups(settings)
+        if not items:
+            raise RuntimeError("no verified backup is registered")
+        newest = items[0]
+        verify_backup(Path(str(newest["path"])), expected_sha256=str(newest["sha256"]))
+        return {"count": len(items), "newest": db.iso(newest["created_at"])}
+
+    def worker_state() -> dict[str, int]:
+        conn = connect(_dsn(settings))
+        try:
+            return {
+                "queued_jobs": int(
+                    conn.execute("SELECT count(*) AS n FROM jobs WHERE status='queued'").fetchone()[
+                        "n"
+                    ]
+                ),
+                "outbox_pending": outbox.pending_count(conn),
+            }
+        finally:
+            conn.close()
+
+    def accounts() -> dict[str, Any]:
+        """Someone must be able to administer the instance, and the team must exist.
+
+        The team entity is where shared facts live and every user is a member of
+        it, so an instance without one has no shared scope at all -- and the
+        first user's own scope would be their only one.
+        """
+        conn = connect(_dsn(settings))
+        try:
+            admins = int(
+                conn.execute(
+                    "SELECT count(*) AS n FROM users WHERE role='admin' AND disabled_at IS NULL"
+                ).fetchone()["n"]
+            )
+            if not admins:
+                raise RuntimeError("no enabled admin user exists")
+            team = entities.team(conn)
+            if team is None:
+                raise RuntimeError("the team entity does not exist")
+            return {"admins": admins, "team": str(team["slug"])}
+        finally:
+            conn.close()
 
     checks = [
         _check("configuration", configuration),
         _check("client_config", client_config),
-        _check("permissions", permissions),
-        _check("database", sqlite_health),
-        _check("fts5", fts5),
+        _check("database", database),
+        _check("fulltext", fulltext),
         _check("backups", backups),
         _check("qdrant", qdrant),
         _check("embedder", embedder),
         _check("provider", provider),
         _check("index_parity", parity),
         _check("worker", worker_state),
-        _check("hermes", hermes),
+        _check("users", accounts),
     ]
     return {"ok": all(check["ok"] for check in checks), "checks": checks, "checked_at": utcnow()}
-
-
-def _run(command: list[str], *, check: bool = True) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(command, check=check, capture_output=True, text=True)  # noqa: S603
-
-
-def ensure_qdrant(settings: Settings, *, wait_seconds: int = 120) -> dict[str, Any]:
-    docker = shutil.which("docker")
-    if docker is None:
-        raise RuntimeError("Docker is required")
-    if _run([docker, "info"], check=False).returncode != 0 and sys.platform == "darwin":
-        _run(["open", "-a", "Docker"])
-        deadline = time.monotonic() + wait_seconds
-        while time.monotonic() < deadline:
-            if _run([docker, "info"], check=False).returncode == 0:
-                break
-            time.sleep(2)
-    if _run([docker, "info"], check=False).returncode != 0:
-        raise RuntimeError("Docker daemon is unavailable")
-    inspected = _run([docker, "inspect", QDRANT_CONTAINER], check=False)
-    image = f"qdrant/qdrant:v{settings.qdrant_version}"
-    if inspected.returncode == 0:
-        info = json.loads(inspected.stdout)[0]
-        if info["Config"]["Image"] != image:
-            raise RuntimeError(
-                f"{QDRANT_CONTAINER} uses {info['Config']['Image']}; expected pinned {image}"
-            )
-        _run([docker, "start", QDRANT_CONTAINER], check=False)
-    else:
-        storage = DEFAULT_DATA_DIR / "qdrant"
-        storage.mkdir(parents=True, exist_ok=True)
-        _run(
-            [
-                docker,
-                "run",
-                "-d",
-                "--name",
-                QDRANT_CONTAINER,
-                "--restart",
-                "unless-stopped",
-                "-p",
-                "127.0.0.1:6333:6333",
-                "-p",
-                "127.0.0.1:6334:6334",
-                "-v",
-                f"{storage}:/qdrant/storage",
-                image,
-            ]
-        )
-    deadline = time.monotonic() + wait_seconds
-    client = vectors.get_client(settings.qdrant_url)
-    while time.monotonic() < deadline:
-        try:
-            vectors.ensure_collections(client)
-            return {"container": QDRANT_CONTAINER, "image": image, "ready": True}
-        except Exception:
-            time.sleep(2)
-    raise RuntimeError("Qdrant did not become ready")
-
-
-def service_plist_path() -> Path:
-    return Path.home() / "Library" / "LaunchAgents" / f"{SERVICE_LABEL}.plist"
-
-
-def backup_service_plist_path() -> Path:
-    return Path.home() / "Library" / "LaunchAgents" / f"{BACKUP_SERVICE_LABEL}.plist"
-
-
-def _program_arguments(*arguments: str) -> list[str]:
-    executable = shutil.which("memkit")
-    return (
-        [executable, *arguments] if executable else [sys.executable, "-m", "memkit.cli", *arguments]
-    )
-
-
-def install_service(settings: Settings) -> Path:
-    if sys.platform != "darwin":
-        raise RuntimeError("automatic service installation is supported on macOS only")
-    plist_path = service_plist_path()
-    plist_path.parent.mkdir(parents=True, exist_ok=True)
-    arguments = _program_arguments("serve")
-    logs = DEFAULT_DATA_DIR / "logs"
-    logs.mkdir(parents=True, exist_ok=True)
-    payload = {
-        "Label": SERVICE_LABEL,
-        "ProgramArguments": arguments,
-        "WorkingDirectory": str(Path.cwd()),
-        "RunAtLoad": True,
-        "KeepAlive": {"SuccessfulExit": False},
-        "ThrottleInterval": 60,
-        "ProcessType": "Interactive",
-        "StandardOutPath": str(logs / "service.log"),
-        "StandardErrorPath": str(logs / "service.error.log"),
-    }
-    temporary = plist_path.with_suffix(".plist.tmp")
-    with temporary.open("wb") as handle:
-        plistlib.dump(payload, handle, sort_keys=True)
-    os.chmod(temporary, 0o600)
-    temporary.replace(plist_path)
-    return plist_path
-
-
-def install_backup_service() -> Path:
-    if sys.platform != "darwin":
-        raise RuntimeError("automatic backup scheduling is supported on macOS only")
-    path = backup_service_plist_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    logs = DEFAULT_DATA_DIR / "logs"
-    logs.mkdir(parents=True, exist_ok=True)
-    payload = {
-        "Label": BACKUP_SERVICE_LABEL,
-        "ProgramArguments": _program_arguments("backup", "create"),
-        "StartCalendarInterval": {"Hour": 3, "Minute": 0},
-        "ProcessType": "Background",
-        "StandardOutPath": str(logs / "backup.log"),
-        "StandardErrorPath": str(logs / "backup.error.log"),
-    }
-    temporary = path.with_suffix(".plist.tmp")
-    with temporary.open("wb") as handle:
-        plistlib.dump(payload, handle, sort_keys=True)
-    os.chmod(temporary, 0o600)
-    temporary.replace(path)
-    return path
-
-
-def service_action(action: str, settings: Settings) -> dict[str, Any]:
-    if sys.platform != "darwin":
-        raise RuntimeError("Linux uses documented manual startup in this release")
-    launchctl = "/bin/launchctl"
-    domain = f"gui/{os.getuid()}"
-    target = f"{domain}/{SERVICE_LABEL}"
-    path = service_plist_path()
-    if action == "install":
-        install_service(settings)
-        backup_path = install_backup_service()
-        _run([launchctl, "bootout", target], check=False)
-        result = _run([launchctl, "bootstrap", domain, str(path)], check=False)
-        backup_target = f"{domain}/{BACKUP_SERVICE_LABEL}"
-        _run([launchctl, "bootout", backup_target], check=False)
-        backup_result = _run([launchctl, "bootstrap", domain, str(backup_path)], check=False)
-        if backup_result.returncode != 0 and result.returncode == 0:
-            result = backup_result
-    elif action == "start":
-        result = _run([launchctl, "kickstart", "-k", target], check=False)
-    elif action == "stop":
-        result = _run([launchctl, "bootout", target], check=False)
-    elif action == "restart":
-        _run([launchctl, "bootout", target], check=False)
-        # launchd can report EIO when bootstrap races the asynchronous unload.
-        for _ in range(50):
-            if _run([launchctl, "print", target], check=False).returncode != 0:
-                break
-            time.sleep(0.1)
-        result = _run([launchctl, "bootstrap", domain, str(path)], check=False)
-    elif action == "status":
-        result = _run([launchctl, "print", target], check=False)
-    elif action == "uninstall":
-        _run([launchctl, "bootout", target], check=False)
-        _run([launchctl, "bootout", f"{domain}/{BACKUP_SERVICE_LABEL}"], check=False)
-        path.unlink(missing_ok=True)
-        backup_service_plist_path().unlink(missing_ok=True)
-        return {"action": action, "ok": True, "path": str(path)}
-    else:
-        raise ValueError(f"unknown service action: {action}")
-    return {
-        "action": action,
-        "ok": result.returncode == 0,
-        "output": (result.stdout or result.stderr).strip(),
-        "path": str(path),
-    }
-
-
-def setup(settings: Settings, *, install_hermes: Any) -> dict[str, Any]:
-    DEFAULT_CONFIG_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
-    DEFAULT_DATA_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
-    os.chmod(DEFAULT_CONFIG_DIR, 0o700)
-    os.chmod(DEFAULT_DATA_DIR, 0o700)
-    key_path = DEFAULT_CONFIG_DIR / "api-key"
-    if not key_path.exists():
-        key_path.write_text(secrets.token_urlsafe(48) + "\n", encoding="utf-8")
-    os.chmod(key_path, 0o600)
-    config_path = DEFAULT_CONFIG_DIR / "config.env"
-    if not config_path.exists():
-        configured_secrets = []
-        if settings.gemini_api_key:
-            configured_secrets.append(f"GEMINI_API_KEY={json.dumps(settings.gemini_api_key)}")
-        if settings.anthropic_api_key:
-            configured_secrets.append(f"ANTHROPIC_API_KEY={json.dumps(settings.anthropic_api_key)}")
-        config_path.write_text(
-            "\n".join(
-                [
-                    f"MEMKIT_API_KEY_FILE={json.dumps(str(key_path))}",
-                    f"MEMKIT_DB_PATH={json.dumps(str(DEFAULT_DATA_DIR / 'memkit.db'))}",
-                    f"MEMKIT_BACKUP_DIR={json.dumps(str(DEFAULT_DATA_DIR / 'backups'))}",
-                    f"MEMKIT_EXPORT_DIR={json.dumps(str(DEFAULT_DATA_DIR / 'exports'))}",
-                    "MEMKIT_QDRANT_URL=http://127.0.0.1:6333",
-                    f"MEMKIT_JUDGE_MODEL={json.dumps(settings.judge_model)}",
-                    *configured_secrets,
-                    "",
-                ]
-            ),
-            encoding="utf-8",
-        )
-    os.chmod(config_path, 0o600)
-    # The service reads config.env; agents and hooks read client.env. They are
-    # separate files because the first holds provider secrets and a path to the
-    # key, while the second holds the key value itself and is what a client
-    # needs. Onboarding used to stop after config.env and tell people to
-    # hand-copy a key into ~/.memkit, which nothing created, so every hook
-    # failed open and stayed silent.
-    client_path = DEFAULT_CONFIG_DIR / "client.env"
-    if not client_path.exists():
-        client_path.write_text(
-            "\n".join(
-                [
-                    f"MEMKIT_BASE_URL=http://{settings.host}:{settings.port}",
-                    f"MEMKIT_API_KEY={key_path.read_text(encoding='utf-8').strip()}",
-                    "",
-                ]
-            ),
-            encoding="utf-8",
-        )
-    os.chmod(client_path, 0o600)
-    production = Settings(_env_file=config_path)
-    qdrant = ensure_qdrant(production)
-    init_db(production.db_path)
-    conn = connect(production.db_path)
-    try:
-        with transaction(conn):
-            ensure_owner(conn, production.owner_id, production.owner_name)
-    finally:
-        conn.close()
-    hermes_path = install_hermes(force=True, settings=production)
-    get_embedder().encode_one("memkit warmup")
-    first_backup = create_backup(production, kind="daily")
-    service = service_action("install", production)
-    report = doctor(production, load_model=False)
-    return {
-        "config": str(config_path),
-        "key_file": str(key_path),
-        "qdrant": qdrant,
-        "hermes": str(hermes_path),
-        "backup": first_backup,
-        "service": service,
-        "doctor": report,
-    }

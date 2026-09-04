@@ -10,7 +10,7 @@ def adopt(app: FastAPI) -> None:
         app,
         router,
         lambda path: (
-            path in {"/healthz", "/readyz", "/v1/export", "/v1/erase"}
+            path in {"/healthz", "/readyz", "/v1/export", "/v1/policies"}
             or path.startswith(("/v1/admin", "/v1/jobs"))
         ),
     )

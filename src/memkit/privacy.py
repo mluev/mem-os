@@ -1,239 +1,388 @@
-"""Owner export and complete erasure across authoritative and derived stores."""
+"""Per-user export and erasure across the authoritative and derived stores.
+
+Both operations changed meaning when the service stopped having one owner. The
+old pair took everything in the database, because everything in it belonged to
+the same person. Now a row belongs to a *scope*, and a user's relationship to a
+row is one of three things:
+
+* it lives in their private scope -- theirs alone, exported and erased;
+* they wrote it into a shared scope -- their words, but the team's record;
+* it lives in a shared scope and someone else wrote it -- not theirs at all.
+
+Export takes the first two, because a data-portability request should return
+what the person contributed. Erasure takes only the first, and refuses outright
+when the second is non-empty: deleting a teammate's citation of a decision
+because its author left is not privacy, it is data loss for other people. See
+`erase_user` for how that refusal is surfaced.
+"""
 
 from __future__ import annotations
 
 import json
-import sqlite3
+import os
 import uuid
-import zipfile
+from datetime import datetime
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
+import psycopg
 from qdrant_client import QdrantClient
 
-from . import outbox, vectors
-from .db import transaction, utcnow
-from .embed import Embedder
+from . import vectors
+from .db import advisory_lock, iso, transaction, utcnow
+
+EXPORT_FORMAT = "memkit-user-export-v2"
+
+# Never leave the database. Password and key hashes are still credentials: an
+# offline attack on the export is an attack on the account.
+USER_PUBLIC_COLUMNS = "id,handle,display_name,email,role,created_at,disabled_at"
+API_KEY_PUBLIC_COLUMNS = "id,user_id,name,key_prefix,created_at,last_used_at,revoked_at"
 
 
-def _rows(conn: sqlite3.Connection, query: str, params: tuple[Any, ...]) -> list[dict[str, Any]]:
+def _rows(conn: psycopg.Connection, query: str, params: tuple[Any, ...]) -> list[dict[str, Any]]:
     return [dict(row) for row in conn.execute(query, params).fetchall()]
 
 
-def export_owner(
-    conn: sqlite3.Connection,
+def _jsonable(value: Any) -> Any:
+    """Types psycopg returns that `json.dumps` will not take.
+
+    `timestamptz` arrives as a datetime, `uuid` as a UUID and `numeric` as a
+    Decimal, none of which the encoder handles. Timestamps go out in the same
+    ISO-8601-with-Z form the API uses, so an export and an API response describe
+    a row identically.
+    """
+    if isinstance(value, datetime):
+        return iso(value)
+    if isinstance(value, uuid.UUID):
+        return str(value)
+    if isinstance(value, Decimal):
+        return float(value)
+    raise TypeError(f"cannot serialise {type(value).__name__} into an export")
+
+
+def export_user(
+    conn: psycopg.Connection,
     *,
-    owner_id: str,
+    user_id: str,
     export_dir: Path,
-) -> Path:
+    private_scope_id: str,
+    authored_scopes: list[str] | None = None,
+) -> dict[str, Any]:
+    """Write one JSON file with everything this user contributed.
+
+    Included:
+
+    * their `users` row without `password_hash`;
+    * `api_keys` metadata -- id, name, prefix, and the three timestamps, never
+      `key_hash`;
+    * their own entity (their private scope) and every membership they hold;
+    * their sessions and every message they sent;
+    * memories in their private scope, **plus** memories they authored in any
+      other scope, and the revisions, source links and evidence spans of those;
+    * `needs_attention` rows addressed to them;
+    * their retrieval runs, the labels on those runs, and the per-memory
+      `retrieval_feedback` for the exported memories;
+    * their judge runs, which is where their model spend is recorded.
+
+    Deliberately excluded:
+
+    * memories in shared scopes that this user did not author -- a teammate's
+      contribution to a scope they happen to share is not this user's data, and
+      exporting it would turn a portability request into a scope dump;
+    * the shared scopes' own entity rows and other members' identities, for the
+      same reason;
+    * every credential hash (see `USER_PUBLIC_COLUMNS`).
+
+    `authored_scopes` narrows the second memory set to those scope ids. Pass the
+    caller's readable scopes when a user exports themselves, so the file cannot
+    contain a scope they have since lost access to; leave it None for an admin
+    export, which sees every scope the user wrote into.
+
+    One read transaction covers every query, so the counts in the returned dict
+    describe a single consistent snapshot rather than a moving target.
+    """
     export_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = utcnow().replace(":", "").replace("-", "")
-    path = export_dir / f"memkit-export-{timestamp}-{uuid.uuid4().hex[:8]}.zip"
-    conn.commit()
-    conn.execute("BEGIN")
-    sessions = _rows(conn, "SELECT * FROM sessions WHERE owner_id=?", (owner_id,))
-    session_ids = [row["id"] for row in sessions]
-    messages: list[dict[str, Any]] = []
-    if session_ids:
-        placeholders = ",".join("?" for _ in session_ids)
-        messages = _rows(
+    stamp = (iso(utcnow()) or "").replace(":", "").replace("-", "")
+    path = export_dir / f"memkit-export-{stamp}-{uuid.uuid4().hex[:8]}.json"
+    scope_filter = list(authored_scopes) if authored_scopes is not None else None
+
+    with transaction(conn):
+        user = _rows(conn, f"SELECT {USER_PUBLIC_COLUMNS} FROM users WHERE id=%s", (user_id,))
+        if not user:
+            raise LookupError(f"unknown user: {user_id}")
+        api_keys = _rows(
             conn,
-            f"SELECT * FROM messages WHERE session_id IN ({placeholders}) ORDER BY id",
-            tuple(session_ids),
+            f"SELECT {API_KEY_PUBLIC_COLUMNS} FROM api_keys WHERE user_id=%s ORDER BY created_at",
+            (user_id,),
         )
-    memories = _rows(
-        conn, "SELECT * FROM memories WHERE owner_id=? ORDER BY created_at", (owner_id,)
-    )
-    memory_ids = [row["id"] for row in memories]
-    memory_revisions: list[dict[str, Any]] = []
-    sources: list[dict[str, Any]] = []
-    evidence: list[dict[str, Any]] = []
-    if memory_ids:
-        placeholders = ",".join("?" for _ in memory_ids)
+        entity = _rows(conn, "SELECT * FROM entities WHERE user_id=%s", (user_id,))
+        memberships = _rows(
+            conn,
+            "SELECT * FROM memberships WHERE user_id=%s ORDER BY entity_id",
+            (user_id,),
+        )
+        sessions = _rows(
+            conn, "SELECT * FROM sessions WHERE user_id=%s ORDER BY started_at", (user_id,)
+        )
+        # `messages.user_id` is denormalised precisely so this does not have to
+        # join sessions and hope the join is right.
+        messages = _rows(conn, "SELECT * FROM messages WHERE user_id=%s ORDER BY id", (user_id,))
+        memories = _rows(
+            conn,
+            """SELECT * FROM memories
+                WHERE scope_id = %s
+                   OR (author_id = %s
+                       AND (%s::uuid[] IS NULL OR scope_id = ANY(%s::uuid[])))
+                ORDER BY created_at,id""",
+            (private_scope_id, user_id, scope_filter, scope_filter),
+        )
+        memory_ids = [str(row["id"]) for row in memories]
+        revisions = _rows(
+            conn,
+            """SELECT * FROM memory_revisions WHERE memory_id = ANY(%s::uuid[])
+                ORDER BY memory_id,revision""",
+            (memory_ids,),
+        )
         sources = _rows(
             conn,
-            f"SELECT * FROM memory_sources WHERE memory_id IN ({placeholders})",
-            tuple(memory_ids),
+            "SELECT * FROM memory_sources WHERE memory_id = ANY(%s::uuid[]) ORDER BY memory_id",
+            (memory_ids,),
         )
         evidence = _rows(
             conn,
-            f"SELECT * FROM memory_evidence WHERE memory_id IN ({placeholders})",
-            tuple(memory_ids),
+            "SELECT * FROM memory_evidence WHERE memory_id = ANY(%s::uuid[]) ORDER BY memory_id",
+            (memory_ids,),
         )
-        memory_revisions = _rows(
+        attention = _rows(
             conn,
-            f"SELECT * FROM memory_revisions WHERE memory_id IN ({placeholders}) ORDER BY memory_id,revision",
-            tuple(memory_ids),
+            "SELECT * FROM needs_attention WHERE user_id=%s ORDER BY created_at",
+            (user_id,),
         )
-    namespaces = _rows(conn, "SELECT * FROM namespaces WHERE owner_id=?", (owner_id,))
-    namespace_ids = [row["id"] for row in namespaces]
-    collections: list[dict[str, Any]] = []
-    records: list[dict[str, Any]] = []
-    if namespace_ids:
-        placeholders = ",".join("?" for _ in namespace_ids)
-        collections = _rows(
+        runs = _rows(
             conn,
-            f"SELECT * FROM collections WHERE namespace_id IN ({placeholders})",
-            tuple(namespace_ids),
+            "SELECT * FROM retrieval_runs WHERE user_id=%s ORDER BY created_at",
+            (user_id,),
         )
-        collection_ids = [row["id"] for row in collections]
-        if collection_ids:
-            placeholders = ",".join("?" for _ in collection_ids)
-            records = _rows(
-                conn,
-                f"SELECT * FROM records WHERE collection_id IN ({placeholders})",
-                tuple(collection_ids),
-            )
-    record_ids = [row["id"] for row in records]
-    revisions: list[dict[str, Any]] = []
-    if record_ids:
-        placeholders = ",".join("?" for _ in record_ids)
-        revisions = _rows(
+        run_feedback = _rows(
             conn,
-            f"SELECT * FROM record_revisions WHERE record_id IN ({placeholders})",
-            tuple(record_ids),
+            """SELECT * FROM retrieval_run_feedback
+                WHERE run_id IN (SELECT id FROM retrieval_runs WHERE user_id=%s)
+                ORDER BY id""",
+            (user_id,),
         )
-    links: list[dict[str, Any]] = []
-    policies: list[dict[str, Any]] = []
-    if namespace_ids:
-        placeholders = ",".join("?" for _ in namespace_ids)
-        links = _rows(
-            conn,
-            f"SELECT * FROM links WHERE namespace_id IN ({placeholders})",
-            tuple(namespace_ids),
-        )
-        policies = _rows(
-            conn,
-            f"SELECT * FROM policies WHERE namespace_id IN ({placeholders})",
-            tuple(namespace_ids),
-        )
-    feedback: list[dict[str, Any]] = []
-    if memory_ids:
-        placeholders = ",".join("?" for _ in memory_ids)
         feedback = _rows(
             conn,
-            f"SELECT * FROM retrieval_feedback WHERE memory_id IN ({placeholders})",
-            tuple(memory_ids),
+            "SELECT * FROM retrieval_feedback WHERE memory_id = ANY(%s::uuid[]) ORDER BY id",
+            (memory_ids,),
         )
-    judge_runs = _rows(conn, "SELECT * FROM judge_runs WHERE owner_id=? ORDER BY id", (owner_id,))
+        judge_runs = _rows(
+            conn, "SELECT * FROM judge_runs WHERE user_id=%s ORDER BY id", (user_id,)
+        )
+
     payload = {
-        "format": "memkit-owner-export-v1",
-        "exported_at": utcnow(),
-        "owner_id": owner_id,
+        "format": EXPORT_FORMAT,
+        "exported_at": iso(utcnow()),
+        "user_id": user_id,
+        "private_scope_id": private_scope_id,
+        "user": user[0],
+        "api_keys": api_keys,
+        "entities": entity,
+        "memberships": memberships,
         "sessions": sessions,
         "messages": messages,
         "memories": memories,
-        "memory_revisions": memory_revisions,
+        "memory_revisions": revisions,
         "memory_sources": sources,
         "memory_evidence": evidence,
-        "namespaces": namespaces,
-        "collections": collections,
-        "records": records,
-        "record_revisions": revisions,
-        "links": links,
-        "policies": policies,
+        "needs_attention": attention,
+        "retrieval_runs": runs,
+        "retrieval_run_feedback": run_feedback,
         "retrieval_feedback": feedback,
         "judge_runs": judge_runs,
     }
-    conn.execute("COMMIT")
-    temporary = path.with_suffix(".zip.tmp")
-    with zipfile.ZipFile(temporary, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr(
-            "export.json",
-            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
-        )
-    temporary.replace(path)
-    return path
+    _write_private_json(path, payload)
+    return {
+        "path": path,
+        "format": EXPORT_FORMAT,
+        "api_keys": len(api_keys),
+        "memberships": len(memberships),
+        "sessions": len(sessions),
+        "messages": len(messages),
+        "memories": len(memories),
+        "memory_revisions": len(revisions),
+        "memory_sources": len(sources),
+        "memory_evidence": len(evidence),
+        "needs_attention": len(attention),
+        "retrieval_runs": len(runs),
+        "retrieval_run_feedback": len(run_feedback),
+        "retrieval_feedback": len(feedback),
+        "judge_runs": len(judge_runs),
+    }
 
 
-def erase_owner(
-    conn: sqlite3.Connection,
+def _write_private_json(path: Path, payload: dict[str, Any]) -> None:
+    """Write owner-only, atomically, leaving nothing behind on failure.
+
+    The file holds a person's whole history, so the mode is set by `os.open`
+    rather than by a later `chmod`: a world-readable window between create and
+    chmod is a window an attacker can read. The rename is atomic on the same
+    filesystem, so a reader never sees a half-written export, and a failed write
+    removes its own temporary instead of leaving a partial file that looks
+    finished.
+    """
+    temporary = path.with_suffix(".json.tmp")
+    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, ensure_ascii=False, indent=2, default=_jsonable)
+            handle.write("\n")
+        temporary.replace(path)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
+
+
+def _authored_elsewhere(
+    conn: psycopg.Connection, *, user_id: str, private_scope_id: str
+) -> list[dict[str, Any]]:
+    """Scopes outside the user's own where this user's writing survives."""
+    return _rows(
+        conn,
+        """SELECT m.scope_id,e.slug,count(*) AS memories
+             FROM memories m JOIN entities e ON e.id = m.scope_id
+            WHERE m.author_id = %s AND m.scope_id <> %s
+            GROUP BY m.scope_id,e.slug ORDER BY e.slug""",
+        (user_id, private_scope_id),
+    )
+
+
+def erase_user(
+    conn: psycopg.Connection,
     client: QdrantClient,
-    embedder: Embedder,
     *,
-    owner_id: str,
-    export_dir: Path | None = None,
+    user_id: str,
+    private_scope_id: str,
 ) -> dict[str, int]:
-    memory_ids = [
-        row["id"] for row in conn.execute("SELECT id FROM memories WHERE owner_id=?", (owner_id,))
-    ]
-    message_ids = [
-        int(row["id"])
-        for row in conn.execute(
-            """SELECT m.id FROM messages m JOIN sessions s ON s.id=m.session_id
-                WHERE s.owner_id=?""",
-            (owner_id,),
+    """Erase one user: private memory, raw evidence, credentials, telemetry.
+
+    Refuses when the user authored memories in any scope other than their own.
+    `memories.author_id` references `users` with no cascade, so the final DELETE
+    would fail on the constraint anyway -- but the point is not the constraint.
+    A fact someone wrote into the team scope is the team's record, and the
+    honest options are to reassign it to another author or to delete it
+    deliberately, both of which are somebody's decision to make. Silently
+    cascading it away because the author asked to be forgotten destroys other
+    people's knowledge, so the refusal names the count and the scopes and stops.
+
+    What is removed:
+
+    * every memory in the private scope, with its revisions, source links,
+      evidence spans, per-memory feedback and attention items (all by cascade);
+    * every message and session of the user -- raw evidence is retained against
+      prompt rewrites, but not against erasure;
+    * their api keys, auth sessions, retrieval runs and run labels, judge runs,
+      needs-attention items, jobs and budget reservations;
+    * their own entity, and finally the `users` row.
+
+    What is adjusted rather than removed, because the surviving row belongs to
+    someone else:
+
+    * `memories.subject_id` pointing at the erased entity is nulled -- a
+      teammate's note stays, its reference to the person does not;
+    * `memories.reviewed_by`, `needs_attention.resolved_by` and
+      `entities.created_by` are nulled for the same reason;
+    * `memory_sources` / `memory_evidence` rows citing an erased message are
+      dropped even when the citing memory survives, since the excerpt they point
+      into no longer exists. The count is returned as `orphaned_citations`.
+
+    The Qdrant side is deleted by filter, not by enumerating ids: listing the
+    points first would race with concurrent delivery, and the ids are exactly
+    what is being removed. Both stores are covered under one advisory lock, so
+    an indexer cannot re-insert a point between the two deletions.
+    """
+    blocking = _authored_elsewhere(conn, user_id=user_id, private_scope_id=private_scope_id)
+    if blocking:
+        total = sum(int(row["memories"]) for row in blocking)
+        where = ", ".join(f"{row['slug']} ({row['memories']})" for row in blocking)
+        raise ValueError(
+            f"refusing erasure: this user authored {total} memories in shared scopes "
+            f"[{where}]. Those are the team's record, not this user's private data. "
+            "Reassign them to another author or delete them first, then erase the user."
         )
-    ]
-    with outbox.owner_barrier(conn, owner_id):
-        # This service has exactly one owner, so old generations also belong to the
-        # target. Removing only the live alias would leave recoverable personal data.
-        vectors.erase_all_indices(client)
-        with transaction(conn):
-            conn.execute(
-                "DELETE FROM retrieval_feedback WHERE memory_id IN (SELECT id FROM memories WHERE owner_id=?)",
-                (owner_id,),
-            )
-            conn.execute(
-                "DELETE FROM memory_evidence WHERE memory_id IN (SELECT id FROM memories WHERE owner_id=?)",
-                (owner_id,),
-            )
-            conn.execute(
-                "DELETE FROM memory_sources WHERE memory_id IN (SELECT id FROM memories WHERE owner_id=?)",
-                (owner_id,),
-            )
-            conn.execute("UPDATE memories SET superseded_by=NULL WHERE owner_id=?", (owner_id,))
-            conn.execute("DELETE FROM memories WHERE owner_id=?", (owner_id,))
-            conn.execute(
-                "DELETE FROM record_revisions WHERE record_id IN (SELECT r.id FROM records r JOIN collections c ON c.id=r.collection_id JOIN namespaces n ON n.id=c.namespace_id WHERE n.owner_id=?)",
-                (owner_id,),
-            )
-            conn.execute("DELETE FROM namespaces WHERE owner_id=?", (owner_id,))
-            conn.execute(
-                "DELETE FROM messages WHERE session_id IN (SELECT id FROM sessions WHERE owner_id=?)",
-                (owner_id,),
-            )
-            conn.execute("DELETE FROM sessions WHERE owner_id=?", (owner_id,))
-            conn.execute("DELETE FROM judge_runs WHERE owner_id=?", (owner_id,))
-            conn.execute(
-                "DELETE FROM index_outbox WHERE json_extract(payload_json,'$.owner_id')=?",
-                (owner_id,),
-            )
-            if memory_ids:
-                placeholders = ",".join("?" for _ in memory_ids)
-                conn.execute(
-                    f"DELETE FROM index_outbox WHERE collection=? AND entity_id IN ({placeholders})",
-                    (vectors.MEMORIES, *memory_ids),
-                )
-            if message_ids:
-                placeholders = ",".join("?" for _ in message_ids)
-                conn.execute(
-                    f"DELETE FROM index_outbox WHERE collection=? AND entity_id IN ({placeholders})",
-                    (vectors.RAW, *(str(value) for value in message_ids)),
-                )
-            conn.execute("DELETE FROM owners WHERE id=?", (owner_id,))
-    conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-    conn.execute("VACUUM")
-    artifacts = _purge_managed_artifacts(conn, export_dir=export_dir)
-    vectors.ensure_collections(client)
-    return {"memories": len(memory_ids), "messages": len(message_ids), "artifacts": artifacts}
 
+    with transaction(conn):
+        # Serialises against the index worker, which is the other writer that
+        # can touch both Postgres and Qdrant for this user's rows.
+        advisory_lock(conn, f"memkit:erase:{user_id}")
+        memory_ids = [
+            str(row["id"])
+            for row in conn.execute(
+                "SELECT id FROM memories WHERE scope_id=%s", (private_scope_id,)
+            )
+        ]
+        message_ids = [
+            str(row["id"])
+            for row in conn.execute("SELECT id FROM messages WHERE user_id=%s", (user_id,))
+        ]
 
-def _purge_managed_artifacts(conn: sqlite3.Connection, *, export_dir: Path | None) -> int:
-    database = Path(str(conn.execute("PRAGMA database_list").fetchone()[2]))
-    roots = {database.parent / "exports"}
-    if export_dir is not None:
-        roots.add(export_dir)
-    candidates: set[Path] = set()
-    for root in roots:
-        if root.exists():
-            candidates.update(root.glob("memkit-export-*.zip"))
-            candidates.update(root.glob("task-board-v3*.json"))
-    candidates.update(database.parent.glob(f"{database.name}.v3-*.bak"))
-    candidates.update(database.parent.glob(f"{database.name}.v3.bak"))
-    removed = 0
-    for path in candidates:
-        if path.is_file():
-            path.unlink()
-            removed += 1
-    return removed
+        vectors.delete_by_filter(
+            client, vectors.MEMORIES, must=[vectors.keyword("scope_id", private_scope_id)]
+        )
+        vectors.delete_by_filter(client, vectors.RAW, must=[vectors.keyword("user_id", user_id)])
+
+        # Self-reference: a surviving memory may point at one being deleted.
+        conn.execute(
+            """UPDATE memories SET superseded_by=NULL
+                WHERE superseded_by IN (SELECT id FROM memories WHERE scope_id=%s)""",
+            (private_scope_id,),
+        )
+        conn.execute(
+            """UPDATE memories SET judge_run_id=NULL
+                WHERE judge_run_id IN (SELECT id FROM judge_runs WHERE user_id=%s)""",
+            (user_id,),
+        )
+        conn.execute("UPDATE memories SET reviewed_by=NULL WHERE reviewed_by=%s", (user_id,))
+        conn.execute("UPDATE memories SET subject_id=NULL WHERE subject_id=%s", (private_scope_id,))
+        conn.execute("UPDATE needs_attention SET resolved_by=NULL WHERE resolved_by=%s", (user_id,))
+        conn.execute("UPDATE entities SET created_by=NULL WHERE created_by=%s", (user_id,))
+
+        conn.execute("DELETE FROM memories WHERE scope_id=%s", (private_scope_id,))
+        dropped_evidence = conn.execute(
+            "DELETE FROM memory_evidence WHERE message_id = ANY(%s::bigint[])", (message_ids,)
+        )
+        dropped_sources = conn.execute(
+            "DELETE FROM memory_sources WHERE message_id = ANY(%s::bigint[])", (message_ids,)
+        )
+        orphaned = max(0, dropped_evidence.rowcount) + max(0, dropped_sources.rowcount)
+        conn.execute("DELETE FROM messages WHERE user_id=%s", (user_id,))
+        conn.execute("DELETE FROM sessions WHERE user_id=%s", (user_id,))
+        conn.execute(
+            """DELETE FROM budget_reservations
+                WHERE user_id=%s OR job_id IN (SELECT id FROM jobs WHERE user_id=%s)""",
+            (user_id, user_id),
+        )
+        conn.execute("DELETE FROM jobs WHERE user_id=%s", (user_id,))
+        conn.execute("DELETE FROM judge_runs WHERE user_id=%s", (user_id,))
+        conn.execute("DELETE FROM needs_attention WHERE user_id=%s", (user_id,))
+        conn.execute("DELETE FROM retrieval_runs WHERE user_id=%s", (user_id,))
+        conn.execute("DELETE FROM api_keys WHERE user_id=%s", (user_id,))
+        conn.execute("DELETE FROM auth_sessions WHERE user_id=%s", (user_id,))
+        # Undelivered index work for rows that no longer exist would otherwise
+        # be retried until it exhausts its attempts.
+        conn.execute(
+            "DELETE FROM index_outbox WHERE collection=%s AND entity_id = ANY(%s)",
+            (vectors.MEMORIES, memory_ids),
+        )
+        conn.execute(
+            "DELETE FROM index_outbox WHERE collection=%s AND entity_id = ANY(%s)",
+            (vectors.RAW, message_ids),
+        )
+        conn.execute("DELETE FROM entities WHERE user_id=%s", (user_id,))
+        conn.execute("DELETE FROM users WHERE id=%s", (user_id,))
+
+    return {
+        "memories": len(memory_ids),
+        "messages": len(message_ids),
+        "orphaned_citations": orphaned,
+    }

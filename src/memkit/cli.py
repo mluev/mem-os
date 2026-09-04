@@ -1,65 +1,262 @@
-"""Operational command line for the single-owner memory service."""
+"""Operational command line for the team memory service.
+
+Two audiences, deliberately not separated into two binaries: an operator
+setting an instance up (`users create`, `backup`, `doctor`, `reindex`) and a
+person or agent using it (`remember`, `search`, `profile`). The second group
+talks HTTP so it works against the deployed instance; the first talks to the
+database directly, because half of it exists to fix an instance whose HTTP
+layer will not start.
+"""
 
 from __future__ import annotations
 
 import argparse
+import getpass
 import json
-import logging
 import os
 import shutil
-import sqlite3
 import sys
-import tempfile
 from importlib import resources
 from pathlib import Path
+from typing import Any
 
 import yaml
 
 from . import (
-    benchmark,
+    auth,
     consolidate,
+    entities,
     operations,
     outbox,
-    policy_sweep,
     privacy,
     reextract,
     reindex,
     store,
+    users,
     vectors,
 )
-from .config import get_settings
+from . import (
+    principal as principal_module,
+)
+from .config import DEFAULT_CONFIG_DIR, get_settings
 from .db import connect, init_db, transaction
 from .embed import get_embedder
 from .importers.claude_code import ImportStats, iter_turns
-from .observability import configure_logging
-
-configure_logging()
-for _noisy in ("httpx", "httpcore", "sentence_transformers", "transformers"):
-    logging.getLogger(_noisy).setLevel(logging.WARNING)
 
 
-def _ready() -> tuple[sqlite3.Connection, object]:
+def _ready() -> tuple[Any, Any]:
     settings = get_settings()
-    init_db(settings.db_path)
-    return connect(settings.db_path), vectors.get_client(settings.qdrant_url)
+    init_db(settings.database_url)
+    return connect(settings.database_url), vectors.get_client(settings.qdrant_url)
+
+
+def _db() -> Any:
+    settings = get_settings()
+    init_db(settings.database_url)
+    return connect(settings.database_url)
 
 
 def _json(value: object) -> None:
-    print(json.dumps(value, ensure_ascii=False, indent=2, default=str))
+    print(json.dumps(value, indent=2, ensure_ascii=False, default=str))
+
+
+def _resolve_user(conn: Any, handle: str | None) -> Any:
+    """The named user, or the only administrator when there is exactly one.
+
+    Defaulting is a convenience for the common single-admin instance and is
+    refused as soon as it would be a guess.
+    """
+    if handle:
+        row = users.by_handle(conn, handle)
+        if row is None:
+            raise SystemExit(f"unknown user: {handle}")
+        return row
+    admins = [
+        row for row in users.listing(conn) if row["role"] == "admin" and not row["disabled_at"]
+    ]
+    if len(admins) != 1:
+        raise SystemExit("--user is required when the instance has more than one administrator")
+    return admins[0]
+
+
+# ---------------------------------------------------------------------------
+# Service
+# ---------------------------------------------------------------------------
 
 
 def cmd_serve(args: argparse.Namespace) -> int:
     import uvicorn
 
     settings = get_settings()
-    uvicorn.run("memkit.api:app", host=settings.host, port=settings.port, reload=args.reload)
+    uvicorn.run(
+        "memkit.api:app",
+        host=settings.host,
+        port=settings.port,
+        reload=bool(args.reload),
+        proxy_headers=True,
+        forwarded_allow_ips="*",
+    )
     return 0
 
 
 def cmd_bench(_args: argparse.Namespace) -> int:
+    from .embed import DIM
+
     result = get_embedder().benchmark()
     _json(result)
-    return int(result["dim"] != 1024 or result["median_ms"] >= 300)
+    # The gate is the prefetch budget: an embedding slower than this makes
+    # session-start injection perceptible.
+    return int(result["dim"] != DIM or result["median_ms"] >= 300)
+
+
+def cmd_doctor(args: argparse.Namespace) -> int:
+    report = operations.doctor(get_settings(), load_model=args.load_model)
+    if args.json:
+        _json(report)
+    else:
+        for check in report["checks"]:
+            status = "ok  " if check["ok"] else "FAIL"
+            detail = json.dumps(check.get("detail", {}), ensure_ascii=False)
+            print(f"  {status} {check['name']}: {detail}")
+    return 0 if report["ok"] else 1
+
+
+# ---------------------------------------------------------------------------
+# People and entities
+# ---------------------------------------------------------------------------
+
+
+def cmd_users_create(args: argparse.Namespace) -> int:
+    password = args.password or os.environ.get("MEMKIT_PASSWORD") or getpass.getpass("password: ")
+    conn = _db()
+    with transaction(conn):
+        entities.ensure_team(conn, name=get_settings().team_name)
+        try:
+            row = users.create(
+                conn,
+                handle=args.handle,
+                display_name=args.name or args.handle,
+                password=password,
+                role="admin" if args.admin else "member",
+                email=args.email,
+            )
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
+    _json({"id": str(row["id"]), "handle": row["handle"], "role": row["role"]})
+    return 0
+
+
+def cmd_users_list(_args: argparse.Namespace) -> int:
+    conn = _db()
+    _json(
+        [
+            {
+                "handle": row["handle"],
+                "name": row["display_name"],
+                "role": row["role"],
+                "disabled": bool(row["disabled_at"]),
+            }
+            for row in users.listing(conn)
+        ]
+    )
+    return 0
+
+
+def cmd_users_disable(args: argparse.Namespace) -> int:
+    conn = _db()
+    target = _resolve_user(conn, args.handle)
+    if target["role"] == "admin" and users.count_admins(conn, excluding=str(target["id"])) == 0:
+        raise SystemExit("the last administrator cannot be disabled")
+    with transaction(conn):
+        users.update(conn, user_id=str(target["id"]), disabled=not args.enable)
+    _json({"handle": target["handle"], "disabled": not args.enable})
+    return 0
+
+
+def cmd_keys_create(args: argparse.Namespace) -> int:
+    """Mint an API key. The secret is printed once and never stored in clear."""
+    conn = _db()
+    target = _resolve_user(conn, args.user)
+    with transaction(conn):
+        minted = auth.mint_api_key(conn, user_id=str(target["id"]), name=args.name)
+    _json(
+        {
+            "id": minted.id,
+            "user": target["handle"],
+            "name": args.name,
+            "key": minted.token,
+            "hint": "store this in ~/.config/memkit/client.env as MEMKIT_API_KEY=…",
+        }
+    )
+    return 0
+
+
+def cmd_keys_revoke(args: argparse.Namespace) -> int:
+    conn = _db()
+    with transaction(conn):
+        revoked = auth.revoke_api_key(conn, key_id=args.key_id)
+    if not revoked:
+        raise SystemExit("unknown or already revoked key")
+    _json({"revoked": args.key_id})
+    return 0
+
+
+def cmd_entities_create(args: argparse.Namespace) -> int:
+    conn = _db()
+    creator = _resolve_user(conn, args.user)
+    with transaction(conn):
+        row = entities.create(
+            conn,
+            kind=args.kind,
+            name=args.name,
+            slug=args.slug,
+            description=args.description or "",
+            created_by=str(creator["id"]),
+            aliases=list(args.alias or []),
+        )
+    _json({"id": str(row["id"]), "slug": row["slug"], "kind": row["kind"]})
+    return 0
+
+
+def cmd_entities_list(_args: argparse.Namespace) -> int:
+    conn = _db()
+    rows = conn.execute(
+        "SELECT * FROM entities WHERE archived_at IS NULL ORDER BY kind, name"
+    ).fetchall()
+    _json(
+        [
+            {
+                "slug": row["slug"],
+                "kind": row["kind"],
+                "name": row["name"],
+                "aliases": entities.aliases_of(conn, str(row["id"])),
+            }
+            for row in rows
+        ]
+    )
+    return 0
+
+
+def cmd_entities_member(args: argparse.Namespace) -> int:
+    conn = _db()
+    entity = entities.by_slug(conn, args.slug)
+    if entity is None:
+        raise SystemExit(f"unknown entity: {args.slug}")
+    member = _resolve_user(conn, args.user)
+    with transaction(conn):
+        if args.remove:
+            entities.remove_member(conn, entity_id=str(entity["id"]), user_id=str(member["id"]))
+        else:
+            entities.set_member(
+                conn, entity_id=str(entity["id"]), user_id=str(member["id"]), role=args.role
+            )
+    _json({"entity": entity["slug"], "user": member["handle"], "removed": bool(args.remove)})
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# Ingest and maintenance
+# ---------------------------------------------------------------------------
 
 
 def cmd_import(args: argparse.Namespace) -> int:
@@ -77,35 +274,40 @@ def cmd_import(args: argparse.Namespace) -> int:
         return 0
 
     settings = get_settings()
-    init_db(settings.db_path)
-    conn = connect(settings.db_path)
+    conn = _db()
+    owner = _resolve_user(conn, args.user)
+    caller = principal_module.load(conn, str(owner["id"]))
     inserted = deduplicated = redacted = 0
     with transaction(conn):
         for turn in turns:
-            context = {
-                "source_workspace": turn.project,
-                "source_branch": turn.git_branch,
-            }
+            # A transcript belongs to whoever ran it; the repository it came
+            # from picks the scope when an entity answers to that name.
+            scope_id = caller.own_entity_id
+            if turn.project:
+                match = entities.resolve_alias(conn, turn.project)
+                if match is not None and str(match["id"]) in caller.writable_scope_ids:
+                    scope_id = str(match["id"])
             _, duplicate, was_redacted = store.add_message(
                 conn,
                 session_id=turn.session_id,
-                owner_id=settings.owner_id,
+                user_id=caller.user_id,
+                scope_id=scope_id,
                 agent_id="claude-code",
                 role=turn.role,
                 content=turn.text,
                 created_at=turn.created_at,
                 external_source="claude-code",
                 external_id=turn.external_id,
-                context=context,
+                context={"source_workspace": turn.project, "source_branch": turn.git_branch},
             )
             inserted += int(not duplicate)
             deduplicated += int(duplicate)
             redacted += int(was_redacted)
     client = vectors.get_client(settings.qdrant_url)
     delivery = outbox.drain(conn, client, get_embedder(), limit=max(1, inserted))
-    conn.close()
     _json(
         {
+            "user": owner["handle"],
             "stored": inserted,
             "deduplicated": deduplicated,
             "redacted": redacted,
@@ -116,39 +318,59 @@ def cmd_import(args: argparse.Namespace) -> int:
     return int(delivery.failed > 0)
 
 
+def cmd_import_sqlite(args: argparse.Namespace) -> int:
+    from .importers.sqlite_v6 import import_sqlite
+
+    conn = _db()
+    owner = _resolve_user(conn, args.user)
+    try:
+        report = import_sqlite(
+            conn,
+            source=Path(args.path).expanduser(),
+            user_id=str(owner["id"]),
+            pending=bool(args.pending),
+        )
+    except (FileNotFoundError, ValueError) as exc:
+        raise SystemExit(str(exc)) from exc
+    _json(report)
+    print("\nnow run `memkit reindex` to rebuild the vector index", file=sys.stderr)
+    return int(not report["ok"])
+
+
 def cmd_drain(args: argparse.Namespace) -> int:
     conn, client = _ready()
-    result = outbox.drain(
-        conn, client, get_embedder(), limit=args.limit, ignore_schedule=args.retry_now
+    outcome = outbox.drain(
+        conn,
+        client,
+        get_embedder(),
+        limit=args.limit,
+        ignore_schedule=bool(args.retry_now),
     )
-    pending = outbox.pending_count(conn)
-    conn.close()
-    _json({"applied": result.applied, "failed": result.failed, "pending": pending})
-    return int(result.failed > 0)
+    _json({"applied": outcome.applied, "failed": outcome.failed})
+    return int(outcome.failed > 0)
 
 
 def cmd_reindex(_args: argparse.Namespace) -> int:
     conn, client = _ready()
-    result = reindex.rebuild(conn, client, get_embedder())
-    conn.close()
-    _json(result)
+    _json(reindex.rebuild(conn, client, get_embedder()))
     return 0
 
 
 def cmd_consolidate(args: argparse.Namespace) -> int:
     settings = get_settings()
-    init_db(settings.db_path)
-    conn = connect(settings.db_path)
-    result = consolidate.run(
+    conn, client = _ready()
+    scope_ids = [str(row["id"]) for row in conn.execute("SELECT id FROM entities")]
+    outcome = consolidate.run(
         conn,
-        owner_id=settings.owner_id,
+        scope_ids=scope_ids,
         stale_days=settings.consolidate_stale_days,
         demotion=settings.consolidate_demotion,
         importance_floor=settings.consolidate_importance_floor,
         dry_run=not args.apply,
         embedder=get_embedder(),
+        client=client,
         consolidate_cosine=settings.consolidate_cosine,
-        merge=args.merge,
+        merge=bool(args.merge),
         merge_model=settings.judge_model,
         monthly_limit_usd=settings.monthly_cost_limit_usd,
         anthropic_api_key=settings.anthropic_api_key,
@@ -157,66 +379,79 @@ def cmd_consolidate(args: argparse.Namespace) -> int:
         location=settings.vertex_location,
     )
     if args.apply:
-        outbox.drain(conn, vectors.get_client(settings.qdrant_url), get_embedder(), limit=500)
-    conn.close()
-    _json({"mode": "apply" if args.apply else "dry-run", **result.as_dict()})
+        outbox.drain(conn, client, get_embedder(), limit=500)
+    _json(outcome.as_dict())
     return 0
 
 
-def cmd_export(_args: argparse.Namespace) -> int:
-    settings = get_settings()
-    init_db(settings.db_path)
-    conn = connect(settings.db_path)
-    path = privacy.export_owner(conn, owner_id=settings.owner_id, export_dir=settings.export_dir)
-    conn.close()
-    print(path.resolve())
+def cmd_reextract_report(args: argparse.Namespace) -> int:
+    conn = _db()
+    owner = _resolve_user(conn, args.user)
+    caller = principal_module.load(conn, str(owner["id"]))
+    _json(reextract.dry_run_report(conn, scope_ids=caller.scopes()))
+    return 0
+
+
+def cmd_export(args: argparse.Namespace) -> int:
+    conn = _db()
+    owner = _resolve_user(conn, args.user)
+    caller = principal_module.load(conn, str(owner["id"]))
+    result = privacy.export_user(
+        conn,
+        user_id=caller.user_id,
+        export_dir=get_settings().export_dir,
+        private_scope_id=caller.own_entity_id,
+        authored_scopes=caller.scopes(),
+    )
+    _json(result)
     return 0
 
 
 def cmd_erase(args: argparse.Namespace) -> int:
     if args.confirm != "ERASE":
-        print("refusing erasure: pass --confirm ERASE", file=sys.stderr)
-        return 2
-    settings = get_settings()
-    conn, client = _ready()
-    result = privacy.erase_owner(
-        conn,
-        client,
-        get_embedder(),
-        owner_id=settings.owner_id,
-        export_dir=settings.export_dir,
-    )
-    conn.close()
-    _json(result)
-    return 0
-
-
-def cmd_replay_report(args: argparse.Namespace) -> int:
-    """Migrate and inspect a temporary copy; never rewrite the live database."""
-    settings = get_settings()
-    source = settings.db_path
-    if not source.exists():
-        print(f"database does not exist: {source}", file=sys.stderr)
+        print("refusing: pass --confirm ERASE", file=sys.stderr)
         return 1
-    output = Path(args.output).expanduser()
-    with tempfile.TemporaryDirectory(prefix="memkit-replay-") as directory:
-        copy = Path(directory) / "replay.db"
-        source_conn = sqlite3.connect(source)
-        target_conn = sqlite3.connect(copy)
-        source_conn.backup(target_conn)
-        source_conn.close()
-        target_conn.close()
-        init_db(copy)
-        conn = connect(copy)
-        result = reextract.dry_run_report(
-            conn,
-            owner_id=settings.owner_id,
-            model=settings.judge_model,
-            output_dir=output,
+    conn, client = _ready()
+    owner = _resolve_user(conn, args.user)
+    caller = principal_module.load(conn, str(owner["id"]))
+    try:
+        result = privacy.erase_user(
+            conn, client, user_id=caller.user_id, private_scope_id=caller.own_entity_id
         )
-        conn.close()
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
     _json(result)
     return 0
+
+
+def cmd_backup(args: argparse.Namespace) -> int:
+    settings = get_settings()
+    if args.action == "create":
+        _json(operations.create_backup(settings, kind=args.kind, protected=bool(args.protected)))
+        return 0
+    if args.action == "list":
+        _json(operations.list_backups(settings))
+        return 0
+    if args.action == "verify":
+        try:
+            _json(operations.verify_backup(Path(args.path).expanduser()))
+        except (FileNotFoundError, ValueError) as exc:
+            raise SystemExit(str(exc)) from exc
+        return 0
+    if args.action == "prune":
+        _json(operations.prune_backups(settings))
+        return 0
+    try:
+        operations.restore_backup(settings, artifact_id=args.artifact_id or "", confirm="")
+    except NotImplementedError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# Integrations
+# ---------------------------------------------------------------------------
 
 
 def _hermes_source() -> Path:
@@ -226,7 +461,7 @@ def _hermes_source() -> Path:
     return Path(__file__).resolve().parents[2] / "integrations" / "hermes" / "memkit"
 
 
-def _configure_hermes(home: Path, settings: object) -> None:
+def _configure_hermes(home: Path, settings: Any) -> None:
     config_path = home / "config.yaml"
     existing = (
         yaml.safe_load(config_path.read_text(encoding="utf-8-sig")) or {}
@@ -238,14 +473,11 @@ def _configure_hermes(home: Path, settings: object) -> None:
     plugin.update(
         {
             "base_url": f"http://{settings.host}:{settings.port}",
-            "db_path": str(settings.db_path.expanduser().resolve()),
             "budget_tokens": int(plugin.get("budget_tokens", 800) or 800),
             "prefetch_timeout": float(plugin.get("prefetch_timeout", 0.4) or 0.4),
             "send_tool_results": False,
         }
     )
-    if settings.api_key_file is not None:
-        plugin["api_key_file"] = str(settings.api_key_file.expanduser().resolve())
     config_path.parent.mkdir(parents=True, exist_ok=True)
     temporary = config_path.with_suffix(".yaml.tmp")
     temporary.write_text(
@@ -257,10 +489,7 @@ def _configure_hermes(home: Path, settings: object) -> None:
 
 
 def _install_hermes(
-    *,
-    hermes_home: str | None = None,
-    force: bool = False,
-    settings: object | None = None,
+    *, hermes_home: str | None = None, force: bool = False, settings: Any | None = None
 ) -> Path:
     source = _hermes_source()
     if not source.is_dir():
@@ -281,69 +510,13 @@ def _install_hermes(
 def cmd_install_hermes(args: argparse.Namespace) -> int:
     try:
         target = _install_hermes(
-            hermes_home=args.hermes_home,
-            force=args.force,
-            settings=get_settings(),
+            hermes_home=args.hermes_home, force=args.force, settings=get_settings()
         )
     except (RuntimeError, FileExistsError) as exc:
         print(str(exc), file=sys.stderr)
         return 1
     print(target.resolve())
     return 0
-
-
-def cmd_doctor(args: argparse.Namespace) -> int:
-    report = operations.doctor(get_settings(), load_model=args.load_model)
-    if args.json:
-        _json(report)
-    else:
-        for check in report["checks"]:
-            mark = "OK" if check["ok"] else "FAIL"
-            print(f"{mark:4} {check['name']}: {check['detail']}")
-    return int(not report["ok"])
-
-
-def cmd_service(args: argparse.Namespace) -> int:
-    result = operations.service_action(args.action, get_settings())
-    _json(result)
-    return int(not result["ok"])
-
-
-def cmd_backup(args: argparse.Namespace) -> int:
-    settings = get_settings()
-    if args.backup_action == "create":
-        result = operations.create_backup(settings, kind=args.kind, protected=args.protected)
-        operations.prune_backups(settings)
-    elif args.backup_action == "list":
-        result = {"items": operations.list_backups(settings)}
-    elif args.backup_action == "verify":
-        rows = {str(row["id"]): row for row in operations.list_backups(settings)}
-        row = rows.get(args.id)
-        if row is None:
-            print("unknown backup artifact", file=sys.stderr)
-            return 1
-        result = operations.verify_backup(Path(row["path"]), expected_sha256=row["sha256"])
-    elif args.backup_action == "prune":
-        result = operations.prune_backups(settings)
-    elif args.backup_action == "restore":
-        operations.service_action("stop", settings)
-        try:
-            result = operations.restore_backup(settings, artifact_id=args.id, confirm=args.confirm)
-        finally:
-            operations.service_action("restart", settings)
-    else:  # pragma: no cover - argparse constrains this
-        raise AssertionError(args.backup_action)
-    _json(result)
-    return 0
-
-
-def cmd_setup(_args: argparse.Namespace) -> int:
-    result = operations.setup(
-        get_settings(),
-        install_hermes=lambda force, settings: _install_hermes(force=force, settings=settings),
-    )
-    _json(result)
-    return int(not result["doctor"]["ok"])
 
 
 def _claude_code_source() -> Path:
@@ -354,22 +527,17 @@ def _claude_code_source() -> Path:
 
 
 def cmd_install_claude_code(args: argparse.Namespace) -> int:
-    """Install the mem-os skill and hooks for Claude Code, system-wide.
-
-    Copies files and prints the exact hooks snippet; it never edits
-    ~/.claude/settings.json itself — hook registration is the user's call.
-    """
     source = _claude_code_source()
     if not source.is_dir():
         print("Claude Code integration is missing from this installation", file=sys.stderr)
         return 1
     claude_home = Path(args.claude_home or "~/.claude").expanduser()
-    skill_target = Path(args.skills_home or claude_home / "skills").expanduser() / "mem-os"
+    skills_home = Path(args.skills_home or claude_home / "skills").expanduser()
+    skill_target = skills_home / "mem-os"
     hook_target = claude_home / "memkit" / "memkit_hooks.py"
-    for target in (skill_target, hook_target):
-        if target.exists() and not args.force:
-            print(f"{target} exists; pass --force to replace it", file=sys.stderr)
-            return 1
+    if (skill_target.exists() or hook_target.exists()) and not args.force:
+        print(f"{skill_target} exists; pass --force to replace it", file=sys.stderr)
+        return 1
     if skill_target.exists():
         shutil.rmtree(skill_target)
     skill_target.parent.mkdir(parents=True, exist_ok=True)
@@ -377,94 +545,71 @@ def cmd_install_claude_code(args: argparse.Namespace) -> int:
         source / "skills" / "mem-os", skill_target, ignore=shutil.ignore_patterns("__pycache__")
     )
     hook_target.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy(source / "hooks" / "memkit_hooks.py", hook_target)
-    print(f"skill: {skill_target.resolve()}")
-    print(f"hooks: {hook_target.resolve()}")
-    # sys.executable is the interpreter that provably has memkit importable,
-    # which the capture hook needs for the shared transcript classifier.
-    hook = f'"{sys.executable}" "{hook_target.resolve()}"'
+    shutil.copy2(source / "hooks" / "memkit_hooks.py", hook_target)
+
+    settings = get_settings()
+    # Pinned to this interpreter so the hook imports the same memkit that
+    # classifies transcripts server-side; a mismatch there silently changes
+    # what counts as a user turn.
+    command = f"{sys.executable} {hook_target}"
     snippet = {
         "hooks": {
             "SessionStart": [
-                {"hooks": [{"type": "command", "command": f"{hook} session-start", "timeout": 5}]}
+                {
+                    "matcher": "startup|resume|clear|compact",
+                    "hooks": [
+                        {"type": "command", "command": f"{command} session-start", "timeout": 5}
+                    ],
+                }
             ],
-            "Stop": [{"hooks": [{"type": "command", "command": f"{hook} capture", "timeout": 30}]}],
+            "PreCompact": [
+                {"hooks": [{"type": "command", "command": f"{command} capture", "timeout": 30}]}
+            ],
+            "Stop": [
+                {"hooks": [{"type": "command", "command": f"{command} capture", "timeout": 30}]}
+            ],
             "SessionEnd": [
-                {"hooks": [{"type": "command", "command": f"{hook} session-end", "timeout": 30}]}
+                {"hooks": [{"type": "command", "command": f"{command} session-end", "timeout": 30}]}
             ],
         }
     }
-    print("\nAdd to ~/.claude/settings.json (merge with existing hooks):")
+    print(f"installed skill:  {skill_target}")
+    print(f"installed hooks:  {hook_target}")
+    print("\nadd this to ~/.claude/settings.json:\n")
     print(json.dumps(snippet, indent=2))
-    client_env = Path("~/.config/memkit/client.env").expanduser()
-    if client_env.is_file():
-        print(f"\nConfig: hooks and the skill will read {client_env}.")
-    else:
-        print(
-            f"\nConfig: run `memkit setup` to write {client_env}, or create it "
-            "yourself with MEMKIT_API_KEY=<your key> (and MEMKIT_BASE_URL if "
-            "the service is not on the default address)."
-        )
+    print(
+        f"\nthen create a key with `memkit api-keys create --user <handle>` and put it in\n"
+        f"{DEFAULT_CONFIG_DIR / 'client.env'} as:\n"
+        f"  MEMKIT_BASE_URL=http://{settings.host}:{settings.port}\n"
+        f"  MEMKIT_API_KEY=<your key>"
+    )
     return 0
 
 
 def cmd_eval(args: argparse.Namespace) -> int:
-    """Run the retrieval eval from a repo checkout.
-
-    eval/ is a dev tool, deliberately outside the wheel; this command exists so
-    the instrument the docs cite (`memkit eval --compare`) is a real command
-    instead of a docs-only incantation.
-    """
-    queries = Path(args.queries).expanduser().resolve()
-    repo_root = queries.parent.parent
-    if not (repo_root / "eval" / "run.py").exists():
-        print(
-            "eval harness not found: run from the memkit repo checkout "
-            "(expected eval/run.py one level above the queries file)",
-            file=sys.stderr,
-        )
+    repo_root = Path(__file__).resolve().parents[2]
+    if not (repo_root / "eval").is_dir():
+        print("the eval harness ships with the repository checkout only", file=sys.stderr)
         return 1
     sys.path.insert(0, str(repo_root))
-    from eval import run as eval_run
+    from eval.run import run_compare, run_eval
 
-    if args.compare:
-        return eval_run.run_compare(queries, limit=args.limit)
-    return eval_run.run_eval(queries, limit=args.limit, target=args.target)
-
-
-def cmd_benchmark_retrieval(args: argparse.Namespace) -> int:
-    result = benchmark.run_100k(get_settings(), memories=args.memories, query_count=args.queries)
+    result = (
+        run_compare(limit=args.limit)
+        if args.compare
+        else run_eval(target=args.target, limit=args.limit)
+    )
     _json(result)
-    return int(not result["passed"])
+    return 0
 
 
-def cmd_policy_sweep(args: argparse.Namespace) -> int:
-    settings = get_settings()
-    init_db(settings.db_path)
-    conn = connect(settings.db_path)
-    try:
-        if args.activate:
-            path = settings.export_dir / "release-artifacts" / f"policy-sweep-{args.activate}.json"
-            result = policy_sweep.activate(
-                conn,
-                artifact_path=path,
-                checksum=args.activate,
-                confirm=args.confirm,
-            )
-        else:
-            result = policy_sweep.sweep(
-                conn,
-                owner_id=settings.owner_id,
-                output_dir=settings.export_dir / "release-artifacts",
-            )
-    finally:
-        conn.close()
-    _json(result)
-    return int(not result.get("passed", result.get("activated", False)))
+# ---------------------------------------------------------------------------
+# Parser
+# ---------------------------------------------------------------------------
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(prog="memkit")
+    parser = argparse.ArgumentParser(prog="memkit", description="team memory service")
     commands = parser.add_subparsers(dest="command", required=True)
 
     serve = commands.add_parser("serve", help="run the HTTP service")
@@ -473,14 +618,76 @@ def main() -> int:
 
     commands.add_parser("bench", help="measure embedding latency").set_defaults(func=cmd_bench)
 
-    importer = commands.add_parser("import-claude-code", help="import normalized evidence")
+    doctor = commands.add_parser("doctor", help="check every dependency")
+    doctor.add_argument("--json", action="store_true")
+    doctor.add_argument("--load-model", action="store_true")
+    doctor.set_defaults(func=cmd_doctor)
+
+    people = commands.add_parser("users", help="manage people").add_subparsers(
+        dest="action", required=True
+    )
+    create_user = people.add_parser("create")
+    create_user.add_argument("handle")
+    create_user.add_argument("--name")
+    create_user.add_argument("--email")
+    create_user.add_argument("--password", help="prompted for when omitted")
+    create_user.add_argument("--admin", action="store_true")
+    create_user.set_defaults(func=cmd_users_create)
+    people.add_parser("list").set_defaults(func=cmd_users_list)
+    disable = people.add_parser("disable")
+    disable.add_argument("handle")
+    disable.add_argument("--enable", action="store_true", help="re-enable instead")
+    disable.set_defaults(func=cmd_users_disable)
+
+    keys = commands.add_parser("api-keys", help="manage agent credentials").add_subparsers(
+        dest="action", required=True
+    )
+    create_key = keys.add_parser("create")
+    create_key.add_argument("--user")
+    create_key.add_argument("--name", default="cli")
+    create_key.set_defaults(func=cmd_keys_create)
+    revoke_key = keys.add_parser("revoke")
+    revoke_key.add_argument("key_id")
+    revoke_key.set_defaults(func=cmd_keys_revoke)
+
+    ents = commands.add_parser("entities", help="manage shared scopes").add_subparsers(
+        dest="action", required=True
+    )
+    create_entity = ents.add_parser("create")
+    create_entity.add_argument("name")
+    create_entity.add_argument(
+        "--kind", default="project", choices=sorted(entities.CREATABLE_KINDS)
+    )
+    create_entity.add_argument("--slug")
+    create_entity.add_argument("--description")
+    create_entity.add_argument("--alias", action="append")
+    create_entity.add_argument("--user")
+    create_entity.set_defaults(func=cmd_entities_create)
+    ents.add_parser("list").set_defaults(func=cmd_entities_list)
+    member = ents.add_parser("member")
+    member.add_argument("slug")
+    member.add_argument("--user")
+    member.add_argument("--role", default="member", choices=sorted(entities.MEMBER_ROLES))
+    member.add_argument("--remove", action="store_true")
+    member.set_defaults(func=cmd_entities_member)
+
+    importer = commands.add_parser("import-claude-code", help="import transcripts as evidence")
     importer.add_argument("--root", default="~/.claude/projects")
+    importer.add_argument("--user")
     importer.add_argument("--dry-run", action="store_true")
-    importer.add_argument("--limit", type=int, default=0)
+    importer.add_argument("--limit", type=int)
     importer.set_defaults(func=cmd_import)
 
+    legacy = commands.add_parser("import-sqlite", help="import a single-owner v6 database")
+    legacy.add_argument("path")
+    legacy.add_argument("--user", help="the user who receives the imported memory")
+    legacy.add_argument(
+        "--pending", action="store_true", help="import memories unconfirmed rather than confirmed"
+    )
+    legacy.set_defaults(func=cmd_import_sqlite)
+
     drain = commands.add_parser("drain-index", help="deliver queued index updates")
-    drain.add_argument("--limit", type=int, default=500)
+    drain.add_argument("--limit", type=int, default=100)
     drain.add_argument("--retry-now", action="store_true")
     drain.set_defaults(func=cmd_drain)
 
@@ -489,25 +696,37 @@ def main() -> int:
     )
 
     compact = commands.add_parser("consolidate", help="plan conservative maintenance")
-    compact.add_argument(
-        "--apply", action="store_true", help="apply the displayed safe maintenance"
-    )
-    compact.add_argument(
-        "--merge",
-        action="store_true",
-        help="with --apply: LLM-confirm and merge semantic near-duplicate clusters",
-    )
+    compact.add_argument("--apply", action="store_true")
+    compact.add_argument("--merge", action="store_true", help="LLM-confirmed semantic merge")
     compact.set_defaults(func=cmd_consolidate)
 
-    commands.add_parser("export", help="export all owner data").set_defaults(func=cmd_export)
+    report = commands.add_parser("reextract-report", help="cost a re-extraction without running it")
+    report.add_argument("--user")
+    report.set_defaults(func=cmd_reextract_report)
 
-    erase = commands.add_parser("erase", help="erase SQLite and derived-index owner data")
+    export = commands.add_parser("export", help="export one user's data")
+    export.add_argument("--user")
+    export.set_defaults(func=cmd_export)
+
+    erase = commands.add_parser("erase", help="erase one user's private data")
+    erase.add_argument("--user")
     erase.add_argument("--confirm", default="")
     erase.set_defaults(func=cmd_erase)
 
-    replay = commands.add_parser("replay-report", help="analyze a temporary copy of legacy data")
-    replay.add_argument("--output", default="./data/exports")
-    replay.set_defaults(func=cmd_replay_report)
+    backup = commands.add_parser("backup", help="create, verify, or prune backups")
+    backup_commands = backup.add_subparsers(dest="action", required=True)
+    backup_create = backup_commands.add_parser("create")
+    backup_create.add_argument("--kind", default="manual")
+    backup_create.add_argument("--protected", action="store_true")
+    backup_create.set_defaults(func=cmd_backup)
+    backup_commands.add_parser("list").set_defaults(func=cmd_backup)
+    backup_verify = backup_commands.add_parser("verify")
+    backup_verify.add_argument("path")
+    backup_verify.set_defaults(func=cmd_backup)
+    backup_commands.add_parser("prune").set_defaults(func=cmd_backup)
+    backup_restore = backup_commands.add_parser("restore")
+    backup_restore.add_argument("artifact_id", nargs="?")
+    backup_restore.set_defaults(func=cmd_backup)
 
     hermes = commands.add_parser("install-hermes", help="install the packaged Hermes adapter")
     hermes.add_argument("--hermes-home")
@@ -515,63 +734,18 @@ def main() -> int:
     hermes.set_defaults(func=cmd_install_hermes)
 
     claude_code = commands.add_parser(
-        "install-claude-code", help="install the mem-os skill and hooks for Claude Code"
+        "install-claude-code", help="install the Claude Code skill and hooks"
     )
-    claude_code.add_argument("--claude-home", help="default ~/.claude")
-    claude_code.add_argument("--skills-home", help="default <claude-home>/skills")
+    claude_code.add_argument("--claude-home")
+    claude_code.add_argument("--skills-home")
     claude_code.add_argument("--force", action="store_true")
     claude_code.set_defaults(func=cmd_install_claude_code)
 
-    setup = commands.add_parser("setup", help="install and validate a production instance")
-    setup.set_defaults(func=cmd_setup)
-
-    doctor = commands.add_parser("doctor", help="check every local dependency")
-    doctor.add_argument("--json", action="store_true")
-    doctor.add_argument("--load-model", action="store_true")
-    doctor.set_defaults(func=cmd_doctor)
-
-    service = commands.add_parser("service", help="manage the macOS background service")
-    service.add_argument(
-        "action", choices=["install", "start", "stop", "restart", "status", "uninstall"]
-    )
-    service.set_defaults(func=cmd_service)
-
-    backup = commands.add_parser("backup", help="create, verify, prune, or restore backups")
-    backup_commands = backup.add_subparsers(dest="backup_action", required=True)
-    backup_create = backup_commands.add_parser("create")
-    backup_create.add_argument(
-        "--kind",
-        choices=["auto", "daily", "weekly", "pre-migration", "pre-promotion", "emergency"],
-        default="auto",
-    )
-    backup_create.add_argument("--protected", action="store_true")
-    backup_commands.add_parser("list")
-    backup_verify = backup_commands.add_parser("verify")
-    backup_verify.add_argument("--id", required=True)
-    backup_commands.add_parser("prune")
-    backup_restore = backup_commands.add_parser("restore")
-    backup_restore.add_argument("--id", required=True)
-    backup_restore.add_argument("--confirm", default="")
-    backup.set_defaults(func=cmd_backup)
-
     evaluate = commands.add_parser("eval", help="run the retrieval eval (repo checkout only)")
-    evaluate.add_argument("--queries", default="eval/queries.yaml")
-    evaluate.add_argument("--target", choices=("raw", "memories"), default="raw")
-    evaluate.add_argument("--compare", action="store_true", help="both targets, shared cases")
-    evaluate.add_argument("--limit", type=int, default=10)
+    evaluate.add_argument("--target", default="memories", choices=["raw", "memories"])
+    evaluate.add_argument("--compare", action="store_true")
+    evaluate.add_argument("--limit", type=int)
     evaluate.set_defaults(func=cmd_eval)
-
-    retrieval_benchmark = commands.add_parser(
-        "benchmark-retrieval", help="run the protected 100k retrieval latency gate"
-    )
-    retrieval_benchmark.add_argument("--memories", type=int, default=100_000)
-    retrieval_benchmark.add_argument("--queries", type=int, default=50)
-    retrieval_benchmark.set_defaults(func=cmd_benchmark_retrieval)
-
-    sweep = commands.add_parser("policy-sweep", help="evaluate labelled retrieval weights offline")
-    sweep.add_argument("--activate", help="manually activate a passing artifact checksum")
-    sweep.add_argument("--confirm", default="")
-    sweep.set_defaults(func=cmd_policy_sweep)
 
     args = parser.parse_args()
     return int(args.func(args))

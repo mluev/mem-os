@@ -47,11 +47,13 @@ import dataclasses
 import json
 import logging
 import re
-import sqlite3
 import time
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from typing import Any
+
+import psycopg
+from psycopg.types.json import Jsonb
 
 from . import jobs, prompts, providers, security
 
@@ -112,6 +114,7 @@ def build_prompt(
     *,
     window: list[Any],
     candidates: list[dict[str, Any]],
+    entities: list[dict[str, Any]] | None = None,
     context: dict[str, Any] | None = None,
     session_date: str | None = None,
     agent_id: str | None = None,
@@ -134,6 +137,7 @@ def build_prompt(
         today=today or datetime.now(UTC).strftime("%Y-%m-%d"),
         window=render_window(window),
         candidates=render_candidates(candidates),
+        entities=render_entities(entities or []),
         context=json.dumps(context or {}, ensure_ascii=False, sort_keys=True),
         session_date=session_date,
         agent_id=agent_id,
@@ -158,6 +162,15 @@ class Op:
     confidence: float | None = None
     valid_until: str | None = None
     evidence: list[dict[str, Any]] | None = None
+    # Routing, as integers into the ENTITIES block. Resolved to real ids by
+    # judge.extract, exactly like candidate targets.
+    scope: int | None = None
+    subject: int | None = None
+    # A person the model saw named but could not find in the block. Kept
+    # verbatim so a human can say who was meant.
+    subject_name: str | None = None
+    # Filled in by apply_ops once routing resolves; not part of the schema.
+    scope_id: str | None = None
 
     @classmethod
     def parse(cls, raw: dict[str, Any]) -> Op | None:
@@ -214,6 +227,15 @@ class Op:
                     **({"quote": quote} if quote else {}),
                 }
             )
+        scope = _positive_int(raw.get("scope"))
+        subject = _positive_int(raw.get("subject"))
+        subject_name = str(raw.get("subject_name") or "").strip() or None
+        if subject_name and len(subject_name) > 128:
+            return None
+        # A resolved subject and an unresolved name are mutually exclusive: one
+        # says "this person", the other says "somebody I could not place".
+        if subject is not None and subject_name:
+            subject_name = None
         return cls(
             op=op,
             reason=raw.get("reason") or "",
@@ -226,7 +248,21 @@ class Op:
             confidence=_clamp(raw.get("confidence"), 0.9),
             valid_until=raw.get("valid_until"),
             evidence=parsed_evidence,
+            scope=scope,
+            subject=subject,
+            subject_name=subject_name,
         )
+
+
+def _positive_int(value: Any) -> int | None:
+    """An entity reference, or None. Anything else is not a reference."""
+    if value is None:
+        return None
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number >= 1 else None
 
 
 def _clamp(value: Any, default: float) -> float:
@@ -250,6 +286,12 @@ class JudgeResult:
     # not reach apply_ops) and surfaced so the extraction outcome can count
     # them as rejections instead of losing them silently.
     unknown_candidates: list[dict[str, Any]] = dataclasses.field(default_factory=list)
+    # Integer -> entity id for the block the model was shown, so a logged run
+    # stays explainable and apply_ops can resolve what it returned.
+    entity_map: dict[str, str] = dataclasses.field(default_factory=dict)
+    # Operations naming an entity number that was never shown: fabricated
+    # rather than mistyped, and dropped for the same reason as candidates.
+    unknown_entities: list[dict[str, Any]] = dataclasses.field(default_factory=list)
 
 
 def price_per_mtok(model: str = DEFAULT_MODEL, when: date | None = None) -> tuple[float, float]:
@@ -278,21 +320,22 @@ def provider_of(model: str) -> str:
     return providers.provider_of(model)
 
 
-def month_spend_usd(conn: sqlite3.Connection) -> float:
+def month_spend_usd(conn: psycopg.Connection) -> float:
     """Total judge spend in the current calendar month."""
-    prefix = datetime.now(UTC).strftime("%Y-%m")
+    period = datetime.now(UTC).strftime("%Y-%m")
     row = conn.execute(
-        "SELECT COALESCE(SUM(cost_usd), 0) s FROM judge_runs WHERE created_at LIKE ?",
-        (f"{prefix}%",),
+        """SELECT COALESCE(SUM(cost_usd), 0) AS s FROM judge_runs
+            WHERE to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM') = %s""",
+        (period,),
     ).fetchone()
-    return float(row["s"])
+    return float(row["s"]) if row else 0.0
 
 
-def estimate_backfill(conn: sqlite3.Connection, *, model: str = DEFAULT_MODEL) -> dict[str, Any]:
+def estimate_backfill(conn: psycopg.Connection, *, model: str = DEFAULT_MODEL) -> dict[str, Any]:
     """Shared backlog/cost estimate for the CLI and admin dashboard."""
     pending = conn.execute(
-        """SELECT session_id, COUNT(*) n FROM messages
-            WHERE processed = 0 GROUP BY session_id"""
+        """SELECT session_id, COUNT(*) AS n FROM messages
+            WHERE NOT processed GROUP BY session_id"""
     ).fetchall()
     messages = sum(int(row["n"]) for row in pending)
     windows = sum(-(-int(row["n"]) // MESSAGES_PER_EXTRACTION) for row in pending)
@@ -331,7 +374,7 @@ def should_extract(*, messages_since_last: int, session_closed: bool, text: str 
     )
 
 
-def render_window(messages: list[sqlite3.Row | dict[str, Any]]) -> str:
+def render_window(messages: list[Any]) -> str:
     """Render the window, truncating assistant turns.
 
     The user's own words go in whole -- they are the source material. Assistant
@@ -360,11 +403,28 @@ def render_candidates(candidates: list[dict[str, Any]]) -> str:
     )
 
 
+def render_entities(entities: list[dict[str, Any]]) -> str:
+    """The ENTITIES block: numbered, labelled, with the aliases people say.
+
+    Aliases are the point. Conversation says "Саша" or "the shop", and without
+    them a fact about a teammate has nothing to attach to.
+    """
+    if not entities:
+        return "(none)"
+    lines = []
+    for item in entities:
+        aliases = ", ".join(item.get("aliases") or [])
+        suffix = f" — aliases: {aliases}" if aliases else ""
+        lines.append(f"{item['ref']}. {item['label']}: {item['name']}{suffix}")
+    return "\n".join(lines)
+
+
 def extract(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     *,
     window: list[Any],
     candidates: list[dict[str, Any]],
+    entities: list[dict[str, Any]] | None = None,
     monthly_limit_usd: float,
     api_key: str = "",
     gemini_api_key: str = "",
@@ -376,7 +436,7 @@ def extract(
     session_date: str | None = None,
     agent_id: str | None = None,
     version: str | None = None,
-    owner_id: str | None = None,
+    user_id: str | None = None,
     job_id: str | None = None,
 ) -> JudgeResult:
     """Call the judge and log the run.
@@ -399,9 +459,16 @@ def extract(
     # the map is provably fabricated rather than plausibly mistyped.
     id_map = {str(i + 1): c["id"] for i, c in enumerate(candidates)}
     display_candidates = [{**c, "id": str(i + 1)} for i, c in enumerate(candidates)]
+    # Entities are numbered the same way and for the same reason. The numbering
+    # is stable within a call and recorded with the run, so a stored operation
+    # can be explained later.
+    entity_list = entities or []
+    entity_map = {str(i + 1): item["id"] for i, item in enumerate(entity_list)}
+    display_entities = [{**item, "ref": i + 1} for i, item in enumerate(entity_list)]
     prompt = build_prompt(
         window=window,
         candidates=display_candidates,
+        entities=display_entities,
         context=context,
         session_date=session_date,
         agent_id=agent_id,
@@ -414,6 +481,7 @@ def extract(
         "candidate_ids": [c["id"] for c in candidates],
         # The integer aliases the model saw, so a logged run stays explainable.
         "candidate_map": id_map,
+        "entity_map": entity_map,
         "message_ids": [int(m["id"]) for m in window],
         # Recorded so a run can be explained later without re-deriving the
         # Context and date make the model input independently auditable.
@@ -452,6 +520,7 @@ def extract(
     error: str | None = None
     ops: list[Op] = []
     unknown_candidates: list[dict[str, Any]] = []
+    unknown_entities: list[dict[str, Any]] = []
     in_tok = out_tok = 0
     raw_output: Any = None
 
@@ -478,6 +547,14 @@ def extract(
                     unknown_candidates.append({"op": op.op, "id": op.id})
                     continue
                 op.id = target
+            # A reference outside the block is fabricated, not mistyped, so the
+            # operation is dropped rather than routed somewhere plausible.
+            if op.scope is not None and str(op.scope) not in entity_map:
+                unknown_entities.append({"op": op.op, "ref": op.scope, "field": "scope"})
+                continue
+            if op.subject is not None and str(op.subject) not in entity_map:
+                unknown_entities.append({"op": op.op, "ref": op.subject, "field": "subject"})
+                continue
             resolved.append(op)
         ops = resolved
     except Exception as exc:
@@ -502,45 +579,45 @@ def extract(
             cost = cost_of(estimated_input, 0, model=model)
             error = f"cost_unknown: {error}"
 
-    conn.commit()
-    conn.execute("BEGIN IMMEDIATE")
-    try:
-        cur = conn.execute(
+    # The run row and its cost reconciliation land together: a logged call
+    # whose reservation stayed active would double-count against the ceiling.
+    with conn.transaction():
+        run = conn.execute(
             """INSERT INTO judge_runs
-               (owner_id,job_id,kind,model,prompt_version,input_json,output_json,error,
+               (user_id,job_id,kind,model,prompt_version,input,output,error,
                 input_tokens,output_tokens,cost_usd,latency_ms,created_at)
-               VALUES (?,?,'extract',?,?,?,?,?,?,?,?,?,?)""",
+               VALUES (%s,%s,'extract',%s,%s,%s,%s,%s,%s,%s,%s,%s,now())
+               RETURNING id""",
             (
-                owner_id,
+                user_id,
                 job_id,
                 model,
                 active_version,
-                json.dumps(payload, ensure_ascii=False),
-                json.dumps(raw_output, ensure_ascii=False) if raw_output else None,
+                Jsonb(payload),
+                Jsonb(raw_output) if raw_output else None,
                 error,
                 in_tok,
                 out_tok,
                 cost,
                 latency_ms,
-                datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z"),
             ),
-        )
+        ).fetchone()
+        if run is None:  # pragma: no cover - RETURNING cannot be empty here
+            raise RuntimeError("judge_runs insert returned no row")
         conn.execute(
             """UPDATE budget_reservations
-                  SET actual_usd=?,status='reconciled',updated_at=? WHERE id=?""",
-            (cost, datetime.now(UTC).isoformat(), reservation_id),
+                  SET actual_usd=%s,status='reconciled',updated_at=now() WHERE id=%s""",
+            (cost, reservation_id),
         )
-        conn.execute("COMMIT")
-    except Exception:
-        conn.execute("ROLLBACK")
-        raise
     return JudgeResult(
         ops=ops,
-        judge_run_id=int(cur.lastrowid),
+        judge_run_id=int(run["id"]),
         input_tokens=in_tok,
         output_tokens=out_tok,
         cost_usd=cost,
         latency_ms=latency_ms,
         error=error,
         unknown_candidates=unknown_candidates,
+        entity_map=entity_map,
+        unknown_entities=unknown_entities,
     )

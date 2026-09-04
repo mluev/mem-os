@@ -31,7 +31,7 @@ logged where they are rather than into an events journal.
 
 from __future__ import annotations
 
-import sqlite3
+import psycopg
 
 # The vocabulary from the original spec, kept verbatim so an archived document
 # and a live column mean the same thing.
@@ -54,16 +54,15 @@ DEFAULT_ROLE = "manual"
 REJECTED_ASSISTANT_ONLY = "assistant_only_source"
 
 
-def roles_of(conn: sqlite3.Connection, message_ids: list[int] | None) -> set[str]:
+def roles_of(conn: psycopg.Connection, message_ids: list[int] | None) -> set[str]:
     """The distinct roles of the messages a write cites. One query."""
     if not message_ids:
         return set()
-    placeholders = ",".join("?" * len(message_ids))
     rows = conn.execute(
-        f"SELECT DISTINCT role FROM messages WHERE id IN ({placeholders})",
-        tuple(message_ids),
+        "SELECT DISTINCT role FROM messages WHERE id = ANY(%s)",
+        (list(message_ids),),
     ).fetchall()
-    return {row["role"] for row in rows}
+    return {str(row["role"]) for row in rows}
 
 
 def source_role_for(roles: set[str]) -> str:

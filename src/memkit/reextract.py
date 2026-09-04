@@ -1,210 +1,106 @@
-"""Legacy replay planning and restart-safe application."""
+"""Re-extraction planning: what a prompt change would cost, before it runs.
+
+Only the report survives from the old replay program. Applying a replay used to
+copy the SQLite file, rewrite the copy, and swap it in; on Postgres that becomes
+a shadow database, which is a different piece of work and has no rows waiting
+for it (see docs/decisions on the parked release program). The report is the
+part that was actually used: it answers "how many windows, at what cost, over
+which scopes" before anyone spends money.
+"""
 
 from __future__ import annotations
 
 import json
-import sqlite3
-from pathlib import Path
+from collections.abc import Sequence
 from typing import Any
 
-from . import extract, judge
-from .db import transaction, utcnow
-from .limits import MAX_MEMORY_CHARS
+import psycopg
+
+from . import judge
+from .db import iso
 
 
 def dry_run_report(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     *,
-    owner_id: str,
-    model: str,
-    output_dir: Path,
+    scope_ids: Sequence[str],
+    model: str | None = None,
 ) -> dict[str, Any]:
-    active_rows = conn.execute(
-        "SELECT * FROM memories WHERE owner_id=? AND status='active' ORDER BY id",
-        (owner_id,),
-    ).fetchall()
+    """Plan a re-extraction over these scopes. Writes nothing.
+
+    The window count is rounded per session, not over the whole corpus: windows
+    never cross a session boundary, so summing first and dividing later
+    under-counts and would let a job's call limit stop a valid replay midway.
+    """
+    if not scope_ids:
+        return {"scopes": 0, "memories": 0, "messages": 0, "windows": 0}
+    model = model or judge.DEFAULT_MODEL
+    scopes = list(scope_ids)
+
     versions = {
-        row["extraction_version"]: row["n"]
+        str(row["extraction_version"]): int(row["n"])
         for row in conn.execute(
-            """SELECT extraction_version,COUNT(*) n FROM memories
-                WHERE owner_id=? AND status='active' GROUP BY extraction_version""",
-            (owner_id,),
+            """SELECT extraction_version,COUNT(*) AS n FROM memories
+                WHERE scope_id = ANY(%s) AND status='active'
+                GROUP BY extraction_version""",
+            (scopes,),
+        )
+    }
+    provenance = {
+        str(row["source_role"]): int(row["n"])
+        for row in conn.execute(
+            """SELECT source_role,COUNT(*) AS n FROM memories
+                WHERE scope_id = ANY(%s) AND status='active' GROUP BY source_role""",
+            (scopes,),
+        )
+    }
+    review = {
+        str(row["review_status"]): int(row["n"])
+        for row in conn.execute(
+            """SELECT review_status,COUNT(*) AS n FROM memories
+                WHERE scope_id = ANY(%s) AND status='active' GROUP BY review_status""",
+            (scopes,),
+        )
+    }
+    contexts = {
+        json.dumps(dict(row["context"] or {}), ensure_ascii=False, sort_keys=True): int(row["n"])
+        for row in conn.execute(
+            """SELECT context,COUNT(*) AS n FROM memories
+                WHERE scope_id = ANY(%s) AND status='active' GROUP BY context""",
+            (scopes,),
         )
     }
     session_counts = conn.execute(
-        """SELECT m.session_id,COUNT(*) n FROM messages m
-             JOIN sessions s ON s.id=m.session_id
-            WHERE s.owner_id=? GROUP BY m.session_id""",
-        (owner_id,),
+        """SELECT m.session_id, COUNT(*) AS n FROM messages m
+             JOIN sessions s ON s.id = m.session_id
+            WHERE s.scope_id = ANY(%s) GROUP BY m.session_id""",
+        (scopes,),
     ).fetchall()
     messages = sum(int(row["n"]) for row in session_counts)
-    # Replay windows never cross session boundaries, so each session must be
-    # rounded separately or the durable job call limit can stop a valid replay.
     windows = sum(
         (int(row["n"]) + judge.MESSAGES_PER_EXTRACTION - 1) // judge.MESSAGES_PER_EXTRACTION
         for row in session_counts
     )
-    estimated_cost = windows * judge.cost_of(3000, 150, model=model)
-    provenance = {
-        row["source_role"]: row["n"]
-        for row in conn.execute(
-            """SELECT source_role,COUNT(*) n FROM memories
-                WHERE owner_id=? AND status='active' GROUP BY source_role""",
-            (owner_id,),
-        )
-    }
-    contexts: dict[str, int] = {}
-    for row in active_rows:
-        normalized = json.dumps(
-            json.loads(row["context_json"] or "{}"),
-            ensure_ascii=False,
-            sort_keys=True,
-        )
-        contexts[normalized] = contexts.get(normalized, 0) + 1
-    cited = int(
-        conn.execute(
-            """SELECT COUNT(DISTINCT e.memory_id) FROM memory_evidence e
-                 JOIN memories m ON m.id=e.memory_id
-                WHERE m.owner_id=? AND m.status='active'""",
-            (owner_id,),
-        ).fetchone()[0]
-    )
-    expired = sum(
-        1
-        for row in active_rows
-        if row["valid_until"] is not None and row["valid_until"] <= utcnow()
-    )
-    untrusted = sum(1 for row in active_rows if row["source_role"] in {"assistant", "agent"})
-    overlong = sum(1 for row in active_rows if len(row["text"]) > 200)
-    storage_overlimit = sum(1 for row in active_rows if len(row["text"]) > MAX_MEMORY_CHARS)
-    report = {
-        "mode": "dry-run-only",
-        "generated_at": utcnow(),
-        "owner_id": owner_id,
-        "active_by_version": versions,
-        "messages": messages,
-        "estimated_windows": windows,
-        "estimated_cost_usd": round(estimated_cost, 6),
-        "provenance": {
-            "active_by_source_role": provenance,
-            "with_exact_evidence": cited,
-            "without_exact_evidence": len(active_rows) - cited,
-        },
-        "contexts": dict(sorted(contexts.items(), key=lambda item: (-item[1], item[0]))),
-        "expiry": {
-            "indefinite": sum(row["valid_until"] is None for row in active_rows),
-            "dated": sum(row["valid_until"] is not None for row in active_rows),
-            "expired_but_active": expired,
-        },
-        "search_quality": {
-            "status": "not_measured_on_live_data",
-            "reason": "dry-run does not mutate or replay the live index",
-            "required_gate": [
-                "corrections",
-                "contradictions",
-                "silence",
-                "exact-term",
-                "temporal",
-                "10k-distractors",
-            ],
-        },
-        "proposed_changes": [
-            {
-                "action": "archive_untrusted_claims_from_normal_retrieval",
-                "count": untrusted,
-            },
-            {"action": "expire_past_valid_until", "count": expired},
-            {"action": "review_overlong_memories", "count": overlong},
-            {
-                "action": "preserve_and_review_legacy_storage_exceptions",
-                "count": storage_overlimit,
-            },
-            {
-                "action": "reextract_with_exact_evidence",
-                "count": len(active_rows) - cited,
-            },
-        ],
-        "rollback": {
-            "before_apply": "retain this report and make no live changes",
-            "future_apply": "create a fresh SQLite backup and Qdrant generation; switch alias only after validation",
-        },
-        "apply_allowed": False,
-    }
-    output_dir.mkdir(parents=True, exist_ok=True)
-    path = output_dir / "legacy-replay-dry-run.json"
-    temporary = path.with_suffix(".json.tmp")
-    temporary.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
-    temporary.replace(path)
-    report["report_path"] = str(path)
-    return report
-
-
-def apply_replay(
-    conn: sqlite3.Connection,
-    *,
-    owner_id: str,
-    api_key: str,
-    gemini_api_key: str,
-    project: str,
-    location: str,
-    monthly_limit_usd: float,
-    model: str,
-    job_id: str,
-    cancelled,
-) -> dict[str, Any]:
-    """Replay every owner session through v7; processed flags are the durable cursor."""
-    initialized = conn.execute(
-        "SELECT 1 FROM job_events WHERE job_id=? AND status='replay_initialized'",
-        (job_id,),
+    oldest = conn.execute(
+        """SELECT MIN(created_at) AS oldest FROM messages m
+             JOIN sessions s ON s.id = m.session_id
+            WHERE s.scope_id = ANY(%s)""",
+        (scopes,),
     ).fetchone()
-    if initialized is None:
-        with transaction(conn):
-            conn.execute(
-                """UPDATE messages SET processed=0,claim_token=NULL,claim_expires_at=NULL
-                     WHERE session_id IN (SELECT id FROM sessions WHERE owner_id=?)""",
-                (owner_id,),
-            )
-            conn.execute(
-                """INSERT INTO job_events(job_id,status,detail_json,created_at)
-                   VALUES (?,'replay_initialized','{}',?)""",
-                (job_id, utcnow()),
-            )
-    totals = {"windows": 0, "added": 0, "updated": 0, "deleted": 0, "rejected": 0}
-    sessions = conn.execute(
-        "SELECT id,agent_id FROM sessions WHERE owner_id=? ORDER BY started_at,id",
-        (owner_id,),
-    ).fetchall()
-    for session in sessions:
-        while (remaining := extract.messages_since_last(conn, session["id"])) > 0:
-            if cancelled():
-                return {**totals, "cancelled": True}
-            outcome = extract.run_session_extraction(
-                conn,
-                max_windows=max(1, -(-remaining // extract.WINDOW_SIZE)),
-                cancelled=cancelled,
-                session_id=session["id"],
-                owner_id=owner_id,
-                agent_id=session["agent_id"],
-                api_key=api_key,
-                gemini_api_key=gemini_api_key,
-                project=project,
-                location=location,
-                monthly_limit_usd=monthly_limit_usd,
-                model=model,
-                job_id=job_id,
-                force=True,
-            )
-            if outcome.error:
-                raise RuntimeError(f"replay stopped: {outcome.error}")
-            totals["windows"] += outcome.windows
-            totals["added"] += outcome.added
-            totals["updated"] += outcome.updated
-            totals["deleted"] += outcome.deleted
-            totals["rejected"] += outcome.rejected
-            if outcome.claimed == 0:
-                # Unprocessed messages exist but nothing could be claimed, so
-                # another job holds a live lease on them. Looping would spin at
-                # full speed forever; the caller can retry once the lease
-                # expires.
-                raise RuntimeError("replay stalled: unprocessed messages are leased by another job")
-    return {**totals, "cancelled": False, "prompt_version": judge.PROMPT_VERSION}
+    return {
+        "scopes": len(scopes),
+        "memories": sum(versions.values()),
+        "messages": messages,
+        "sessions": len(session_counts),
+        "windows": windows,
+        "extraction_versions": versions,
+        "provenance": provenance,
+        "review_status": review,
+        "contexts": contexts,
+        "active_prompt_version": judge.PROMPT_VERSION,
+        "model": model,
+        # Per-window token estimate from the measured production average, not a
+        # guess: see docs/measurements.md#cost.
+        "estimated_cost_usd": round(windows * judge.cost_of(3000, 150, model=model), 4),
+        "oldest_message": iso(oldest["oldest"]) if oldest else None,
+    }
