@@ -30,7 +30,7 @@ from .semantic import validate
 
 
 @contextmanager
-def disposable_postgres():
+def disposable_postgres(*, durable: bool = False):
     candidates = [
         Path(shutil.which("initdb") or "/nonexistent").parent,
         Path("/opt/homebrew/opt/postgresql@16/bin"),
@@ -66,7 +66,7 @@ def disposable_postgres():
             "-D",
             str(data),
             "-o",
-            f"-k {root} -c listen_addresses='' -c fsync=off",
+            f"-k {root} -c listen_addresses='' -c fsync={'on' if durable else 'off'}",
             "-l",
             str(root / "server.log"),
             "-w",
