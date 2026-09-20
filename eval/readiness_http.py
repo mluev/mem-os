@@ -500,6 +500,9 @@ def main() -> int:
                     "candidate_policy": candidate,
                     "frozen_policy": frozen_policy,
                     "database_pool_max": settings.database_pool_max,
+                    "postgres_version": conn.execute("SHOW server_version").fetchone()[
+                        "server_version"
+                    ],
                     "postgres_fsync": conn.execute("SHOW fsync").fetchone()["fsync"],
                     "thresholds": {
                         "budget_tokens": args.budget,
