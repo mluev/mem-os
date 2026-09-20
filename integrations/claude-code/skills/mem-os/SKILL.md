@@ -72,7 +72,7 @@ curl -sf -X POST "$BASE/v1/memories" -H "X-API-Key: $KEY" -H 'Content-Type: appl
 ```
 
 `kind` is free-form; `preference` and `fact` cover almost everything. A 403 means
-you named a scope the user is not in — save it privately instead and say why.
+the requested scope is forbidden. Report the failed save; do not change its scope.
 
 For "remember this whole conversation", do **not** hand-write memories: the hooks
 already post the transcript as evidence and the service extracts, cites and

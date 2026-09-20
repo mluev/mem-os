@@ -17,6 +17,7 @@ import contextlib
 import importlib.util
 import json
 import sys
+import threading
 import types
 import unittest
 from pathlib import Path
@@ -588,6 +589,71 @@ class TestSessionBoundaries(unittest.TestCase):
         self.assertEqual(client.closed, ["s-1"])
         self.assertEqual(provider._cache, {})
         self.assertEqual(provider._session_id, "s-2")
+
+    def test_session_end_waits_for_pending_evidence_before_closing(self):
+        started, release, closed = threading.Event(), threading.Event(), threading.Event()
+        order = []
+
+        class SlowClient(FakeClient):
+            def add_events(self, payloads):
+                started.set()
+                release.wait(2)
+                order.append("evidence")
+                return super().add_events(payloads)
+
+            def close_session(self, session_id, **kwargs):
+                order.append("close")
+                closed.set()
+                return super().close_session(session_id, **kwargs)
+
+        provider = plugin.MemkitProvider({})
+        provider._session_id = "s-1"
+        provider._client = SlowClient()
+        provider.sync_turn("I prefer pnpm for all projects", "Understood")
+        self.assertTrue(started.wait(1))
+        ending = threading.Thread(target=provider.on_session_end, args=([],))
+        ending.start()
+        try:
+            self.assertFalse(closed.wait(0.05), "close overtook the pending evidence write")
+        finally:
+            release.set()
+            ending.join(2)
+            provider.shutdown()
+        self.assertEqual(order, ["evidence", "close"])
+
+    def test_session_end_does_not_close_after_a_failed_evidence_write(self):
+        client = FakeClient(fail=True)
+        provider = plugin.MemkitProvider({})
+        provider._session_id = "s-1"
+        provider._client = client
+        provider.sync_turn("I prefer pnpm for all projects", "Understood")
+        provider.shutdown()
+        client.fail = False
+        provider.on_session_end([])
+        self.assertEqual(client.closed, [])
+
+    def test_session_end_has_one_deadline_for_pending_evidence(self):
+        started, release = threading.Event(), threading.Event()
+
+        class SlowClient(FakeClient):
+            def add_events(self, payloads):
+                started.set()
+                release.wait(2)
+                return super().add_events(payloads)
+
+        client = SlowClient()
+        provider = plugin.MemkitProvider({})
+        provider._session_id = "s-1"
+        provider._client = client
+        provider.sync_turn("I prefer pnpm for all projects", "Understood")
+        self.assertTrue(started.wait(1))
+        try:
+            with patch.object(plugin, "SESSION_CLOSE_TIMEOUT", 0.02, create=True):
+                provider.on_session_end([])
+            self.assertEqual(client.closed, [])
+        finally:
+            release.set()
+            provider.shutdown()
 
 
 class TestBreaker(unittest.TestCase):

@@ -2,11 +2,15 @@
 
 import hashlib
 
+from .claude_classifier import MAX_TURN_CHARS, classify
 from .config import resolve
 from .connection import open_connection
 from .errors import ClientError
+from .scrub import scrub
 
 RemoteError = ClientError
+RECALL_DEFAULT = True
+__all__ = ["MAX_TURN_CHARS", "RemoteError", "classify", "connect", "namespace", "scrub"]
 
 
 def connect(*, timeout=3):

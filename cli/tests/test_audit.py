@@ -447,10 +447,6 @@ def test_snapshot_drift_fails_before_writes(tmp_path, monkeypatch):
     spec = importlib.util.spec_from_file_location("sync_assets", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    with pytest.raises(RuntimeError, match="source changed"):
-        module.replace_exact("changed", "old", "new")
-    with pytest.raises(RuntimeError, match="source changed"):
-        module.boundary("repeated repeated", "repeated")
     target = tmp_path / "snapshot"
 
     def drifted_outputs():

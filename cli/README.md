@@ -75,9 +75,10 @@ recall = true
 ```
 
 Omit `entity` for private explicit saves. Scope controls who can read a fact;
-subject only identifies whom it concerns. Existing capture scope resolution is
-preserved, including repository-alias lookup and private fallback. Shared
-writes may be pending review while already retrievable.
+subject only identifies whom it concerns. Explicitly configured scopes are sent
+for server authorization; a forbidden destination fails without saving privately.
+Implicit repository-alias discovery still falls back to private when no writable
+match exists. Shared writes may be pending review while already retrievable.
 
 ## Complete API access and automation
 
@@ -152,6 +153,14 @@ Agent hooks fail open when the service is unavailable. Explicit commands report
 errors. Run `memos agents status` to inspect installation and connection health.
 Capture retains only cursors and small metadata caches locally, not a memory
 database. Source transcripts remain owned by the agent. No offline sync is added.
+
+Both client and server packages ship the same Claude hook, transcript classifier
+and Hermes provider sources. Their small runtime wrappers preserve existing
+credentials and defaults: `memos` enables gated Claude recall and keeps cursors
+per connection; legacy `memkit` installs retain opt-in recall and their original
+cursor directory. Reinstalling an adapter does not reset either directory.
+Session close waits for pending evidence within a bounded deadline. If delivery
+fails or remains incomplete, the adapter reports it and leaves the session open.
 
 ## Hosted server management
 

@@ -36,15 +36,19 @@ import json
 import os
 import re
 import sys
+import tempfile
 import time
 import tomllib
 from pathlib import Path
 from typing import Any, NamedTuple
 
 try:
-    from memkit import remote
-except ImportError:  # pragma: no cover - a misinstalled hook must still exit 0
-    remote = None  # type: ignore[assignment]
+    from . import agent_remote as remote
+except ImportError:
+    try:
+        from memkit import agent_remote as remote
+    except ImportError:  # pragma: no cover - a misinstalled hook must still exit 0
+        remote = None  # type: ignore[assignment]
 
 CAPTURE_TIMEOUT = 10.0
 # A session close is the one moment the service may be slow: the session is over
@@ -62,6 +66,8 @@ ENTITY_TIMEOUT = 1.0
 # 0.4s as the budget that clears it without ever stalling a turn.
 RECALL_TIMEOUT = 0.4
 BATCH_LIMIT = 100
+MAX_DELTA_BYTES = 512 * 1024
+MAX_EVENTS = BATCH_LIMIT
 PROFILE_BUDGET = 550
 # What the whole rendered block may cost, headings and bullets included. The
 # server honours `budget_tokens` for the item text and knows nothing about the
@@ -83,6 +89,8 @@ STATE_DIR = (
     / "memkit"
     / "claude-code"
 )
+if remote is not None and hasattr(remote, "namespace"):
+    STATE_DIR /= remote.namespace()
 
 CONFIG_NAME = ".memkit.toml"
 
@@ -188,7 +196,8 @@ def repo_settings(cwd: Path | str) -> Repo:
         name=root.name or start.name,
         entity=entity.strip() if isinstance(entity, str) and entity.strip() else None,
         capture=bool(section.get("capture", True)),
-        recall=bool(section.get("recall", False)) or os.environ.get("MEMKIT_RECALL") == "1",
+        recall=bool(section.get("recall", getattr(remote, "RECALL_DEFAULT", False)))
+        or os.environ.get("MEMKIT_RECALL") == "1",
     )
 
 
@@ -245,15 +254,12 @@ def entity_cache(client: Any, session_id: str) -> list[dict[str, Any]]:
 def resolve_scope(repo: Repo, entities: list[dict[str, Any]]) -> str | None:
     """The scope slug to stamp on this session's evidence, or None for private.
 
-    Only a scope this key may actually write to is ever returned. The server
-    answers 403 for a scope the caller does not hold and 404 for one that does
-    not exist, and the batch is refused either way -- so a `.memkit.toml` naming
-    a project the user has not been added to must degrade to private rather than
-    lose the conversation.
+    Explicit configuration is sent unchanged for server authorization. Only
+    implicit repository discovery may fall back to private; a refused explicit
+    destination must not silently store the conversation somewhere else.
     """
-    writable = {entity["slug"] for entity in entities if entity["writable"]}
     if repo.entity:
-        return repo.entity if repo.entity in writable else None
+        return repo.entity
     # No `entity` line: fall back to the repository name as an alias, which is
     # what `memkit import-claude-code` does with the same transcripts. A hook
     # that skipped this would file live sessions somewhere other than the
@@ -356,49 +362,61 @@ def _scope_line(repo: Repo, scope: str | None) -> str:
 # ---------------------------------------------------------------------------
 
 
-def events_from_delta(
-    transcript: Path,
-    cursor_file: Path,
-    workspace: str,
-    scope: str | None = None,
-) -> tuple[list[dict[str, Any]], int]:
-    from memkit.importers.claude_code import MAX_TURN_CHARS, classify
-
-    offset = 0
-    if cursor_file.is_file():
-        try:
-            offset = int(cursor_file.read_text().strip() or 0)
-        except ValueError:
-            offset = 0
-    data = transcript.read_bytes()
-    if offset > len(data):
-        offset = 0  # transcript rewritten; idempotent ids make re-reads safe
-    events: list[dict[str, Any]] = []
-    for raw in data[offset:].splitlines():
-        try:
-            line = json.loads(raw)
-        except ValueError:
-            continue
-        turn, _reason = classify(line)
-        if turn is None:
-            continue
-        # classify() keeps full documents out already; assistant turns are
-        # context only server-side, so cap them to keep batches small.
-        text = turn.text if turn.role == "user" else turn.text[:2000]
-        events.append(
-            {
-                "session_id": turn.session_id,
-                "agent_id": "claude-code",
-                "role": turn.role,
-                "content": text[:MAX_TURN_CHARS],
-                "external_source": "claude-code",
-                "external_id": turn.external_id,
-                "context": {"source_workspace": turn.project or workspace},
-                **({"scope": scope} if scope else {}),
-                **({"created_at": turn.created_at} if turn.created_at else {}),
-            }
-        )
-    return events, len(data)
+def events_from_delta(transcript, cursor_file, workspace, scope=None):
+    transcript, cursor_file = Path(transcript), Path(cursor_file)
+    try:
+        offset = max(0, int(cursor_file.read_text().strip()))
+    except (OSError, ValueError):
+        offset = 0
+    if offset > transcript.stat().st_size:
+        offset = 0
+    consumed, scanned, events = offset, 0, []
+    with transcript.open("rb") as stream:
+        # A cursor inside a line means a previous run skipped a giant tool or
+        # document record. Continue discarding it without parsing its fragments.
+        discarding = False
+        if offset:
+            stream.seek(offset - 1)
+            discarding = stream.read(1) != b"\n"
+        stream.seek(offset)
+        while scanned < MAX_DELTA_BYTES and len(events) < MAX_EVENTS:
+            raw = stream.readline(MAX_DELTA_BYTES - scanned)
+            if not raw:
+                break
+            scanned += len(raw)
+            if discarding:
+                consumed += len(raw)
+                discarding = not raw.endswith(b"\n")
+                continue
+            if not raw.endswith(b"\n"):
+                if len(raw) == MAX_DELTA_BYTES:
+                    consumed += len(raw)
+                break  # preserve ordinary incomplete lines for the next event
+            consumed += len(raw)
+            try:
+                line = json.loads(raw)
+            except ValueError:
+                continue
+            if not isinstance(line, dict):
+                continue
+            turn, _reason = remote.classify(line)
+            if turn is None:
+                continue
+            text = turn.text if turn.role == "user" else turn.text[:2000]
+            events.append(
+                {
+                    "session_id": turn.session_id,
+                    "agent_id": "claude-code",
+                    "role": turn.role,
+                    "content": remote.scrub(text[: remote.MAX_TURN_CHARS]),
+                    "external_source": "claude-code",
+                    "external_id": turn.external_id,
+                    "context": {"source_workspace": turn.project or workspace},
+                    **({"scope": scope} if scope else {}),
+                    **({"created_at": turn.created_at} if turn.created_at else {}),
+                }
+            )
+    return events, consumed
 
 
 def capture(*, close: bool) -> None:
@@ -418,27 +436,62 @@ def capture(*, close: bool) -> None:
 def _flush(client: Any, transcript: Path, session_id: str, repo: Repo, workspace: str) -> None:
     cursor_file = STATE_DIR / f"{_state_key(session_id)}.offset"
     scope = resolve_scope(repo, entity_cache(client, session_id))
-    events, offset = events_from_delta(transcript, cursor_file, workspace, scope)
-    for start in range(0, len(events), BATCH_LIMIT):
-        _send(client, events[start : start + BATCH_LIMIT])
-    # Only reached when every batch landed: a failed send keeps the old cursor
-    # and the idempotency keys absorb the overlap on the next run.
-    STATE_DIR.mkdir(parents=True, exist_ok=True)
-    cursor_file.write_text(str(offset))
+    deadline = time.monotonic() + CAPTURE_TIMEOUT
+    while time.monotonic() < deadline:
+        try:
+            previous = int(cursor_file.read_text())
+        except (OSError, ValueError):
+            previous = 0
+        events, offset = events_from_delta(transcript, cursor_file, workspace, scope)
+        if events:
+            _send(
+                client,
+                events,
+                timeout=max(0.1, deadline - time.monotonic()),
+                private_fallback=repo.entity is None,
+            )
+        _write_cursor(cursor_file, offset)
+        if offset >= transcript.stat().st_size:
+            return
+        if offset == previous:
+            break
+    # Keep successfully delivered cursors, but do not close a session while its
+    # tail is still incomplete or exceeds this hook's bounded capture budget.
+    raise RuntimeError("transcript delivery is incomplete; session remains open")
 
 
-def _send(client: Any, events: list[dict[str, Any]]) -> None:
+def _write_cursor(path: Path, offset: int) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    fd, temporary = tempfile.mkstemp(prefix=".cursor-", dir=path.parent)
     try:
-        client.post("/v1/evidence/events:batch", {"events": events}, timeout=CAPTURE_TIMEOUT)
+        with os.fdopen(fd, "w") as stream:
+            stream.write(str(offset))
+        os.replace(temporary, path)
+    finally:
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(temporary)
+
+
+def _send(
+    client: Any,
+    events: list[dict[str, Any]],
+    *,
+    timeout: float = CAPTURE_TIMEOUT,
+    private_fallback: bool = False,
+) -> None:
+    deadline = time.monotonic() + timeout
+    try:
+        client.post("/v1/evidence/events:batch", {"events": events}, timeout=timeout)
     except remote.RemoteError as exc:
-        if exc.status not in (403, 404) or not any("scope" in event for event in events):
+        if not private_fallback or exc.status not in (403, 404):
             raise
-        # 403 means this key cannot write there; 404 means no such entity yet.
-        # The batch is one server-side transaction, so nothing landed, and
-        # resending it private keeps the turn instead of losing it to a typo in
-        # `.memkit.toml`.
+        # An implicitly discovered workspace may have changed permissions
+        # since the entity cache was read. The refused batch wrote nothing.
         private = [{k: v for k, v in event.items() if k != "scope"} for event in events]
-        client.post("/v1/evidence/events:batch", {"events": private}, timeout=CAPTURE_TIMEOUT)
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise
+        client.post("/v1/evidence/events:batch", {"events": private}, timeout=remaining)
 
 
 def _close(client: Any, session_id: str) -> None:

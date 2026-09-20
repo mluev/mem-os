@@ -198,12 +198,14 @@ class SkillContractTest(unittest.TestCase):
         self.skill = (INTEGRATION / "skills" / "mem-os" / "SKILL.md").read_text(encoding="utf-8")
 
     def test_every_endpoint_the_skill_names_exists(self) -> None:
-        api_source = (ROOT / "src" / "memkit" / "api.py").read_text(encoding="utf-8")
+        from memkit.api import app
+
+        paths = {re.sub(r"\{[^}]+\}", "{}", path) for path in app.openapi()["paths"]}
         named = set(re.findall(r'"\$BASE(/[a-z0-9/:{}<>._-]+)"', self.skill, re.IGNORECASE))
         self.assertTrue(named, "the skill should name concrete endpoints")
         for path in named:
-            route = re.sub(r"<[^>]+>", "{", path).split("{")[0].rstrip("/")
-            self.assertIn(route, api_source, f"SKILL.md names a dead endpoint: {path}")
+            route = re.sub(r"<[^>]+>", "{}", path)
+            self.assertIn(route, paths, f"SKILL.md names a dead endpoint: {path}")
 
     def test_every_json_field_the_skill_sends_exists_in_the_model(self) -> None:
         """The endpoint-existence check above cannot catch a wrong field name.
@@ -289,9 +291,10 @@ class ConfigResolutionTest(HookTestCase):
 
     def test_the_hook_resolves_config_through_remote(self) -> None:
         source = (INTEGRATION / "hooks" / "memkit_hooks.py").read_text(encoding="utf-8")
-        self.assertIn("from memkit import remote", source)
+        self.assertIn("from memkit import agent_remote as remote", source)
         self.assertNotIn(".memkit", source.replace(".memkit.toml", ""))
-        self.assertIs(self.hooks.remote, remote)
+        self.assertIs(self.hooks.remote.connect, remote.connect)
+        self.assertIs(self.hooks.remote.RemoteError, remote.RemoteError)
 
     def test_no_key_means_no_requests_at_all(self) -> None:
         with mock.patch.object(self.hooks.remote, "connect", return_value=None):
@@ -375,10 +378,11 @@ class ScopeResolutionTest(HookTestCase):
             self.hooks.resolve_scope(self.repo(entity="mem-os"), self.ENTITIES), "mem-os"
         )
 
-    def test_an_unwritable_entity_degrades_to_private(self) -> None:
-        """Never send a scope the server will refuse: a 403 loses the turn."""
-        self.assertIsNone(self.hooks.resolve_scope(self.repo(entity="secret-lab"), self.ENTITIES))
-        self.assertIsNone(self.hooks.resolve_scope(self.repo(entity="not-a-thing"), self.ENTITIES))
+    def test_an_explicit_entity_is_preserved_for_server_authorization(self) -> None:
+        for entity in ("secret-lab", "not-a-thing"):
+            self.assertEqual(
+                self.hooks.resolve_scope(self.repo(entity=entity), self.ENTITIES), entity
+            )
 
     def test_the_repository_name_resolves_as_an_alias(self) -> None:
         """The same fallback `memkit import-claude-code` applies to the same files."""
@@ -661,13 +665,7 @@ class CaptureTest(HookTestCase):
         self.assertIn("/v1/sessions/cc-session-1/close", client.paths())
         self.assertTrue((self.hooks.STATE_DIR / "cc-session-1.offset").is_file())
 
-    def test_a_forbidden_scope_falls_back_to_private_rather_than_losing_the_turn(self) -> None:
-        """403 is the answer to a `.memkit.toml` naming a project you are not in.
-
-        The batch is one server-side transaction, so nothing landed and a resend
-        without the scope is safe -- and losing the user's words to a config typo
-        is not a trade worth making.
-        """
+    def test_a_forbidden_implicit_workspace_falls_back_to_private(self) -> None:
         self.transcript.write_text(transcript_line("u1", "user", "мы перешли на uv") + "\n")
         bodies: list[dict] = []
 
@@ -696,6 +694,27 @@ class CaptureTest(HookTestCase):
         self.assertEqual(len(bodies), 2)
         self.assertNotIn("scope", bodies[1]["events"][0])
         self.assertTrue((self.hooks.STATE_DIR / "cc-session-1.offset").is_file())
+
+    def test_a_forbidden_explicit_scope_never_retries_privately_or_closes(self) -> None:
+        self.transcript.write_text(transcript_line("u1", "user", "мы перешли на uv") + "\n")
+        repo = self.tmp / "explicit"
+        repo.mkdir()
+        (repo / ".memkit.toml").write_text('[memkit]\nentity = "secret-lab"\n')
+        client = FakeClient(
+            {
+                "/v1/entities": {"items": []},
+                "/v1/evidence/events:batch": remote.RemoteError("http 403", status=403),
+            }
+        )
+        with self.assertRaises(remote.RemoteError):
+            self.run_hook(
+                lambda: self.hooks.capture(close=True),
+                {**self.hook_payload(), "cwd": str(repo)},
+                client,
+            )
+        self.assertEqual(client.paths().count("/v1/evidence/events:batch"), 1)
+        self.assertNotIn("/v1/sessions/cc-session-1/close", client.paths())
+        self.assertFalse((self.hooks.STATE_DIR / "cc-session-1.offset").exists())
 
     def test_the_cursor_only_advances_after_every_batch_lands(self) -> None:
         self.transcript.write_text(transcript_line("u1", "user", "мы перешли на uv") + "\n")
