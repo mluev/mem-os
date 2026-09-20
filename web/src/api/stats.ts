@@ -13,13 +13,16 @@ import { ApiError, api, queryString } from "./client";
 import type {
   EntityUsage,
   Me,
-  Metrics,
-  OffsetPage,
+  DashboardMetrics,
+  MemoryTotals,
+  PipelineTotals,
+  RetrievalTotals,
+  ReviewTotals,
+  ReviewQueue,
+  MemoryPage,
   PersonUsage,
-  ReviewItem,
   ReviewKind,
   Stats,
-  TeamMemory,
 } from "./types";
 
 /** The ranges the overview offers. Bound to the `days` search param. */
@@ -35,47 +38,7 @@ export function resolveRange(days: number | undefined): Range {
 export const MEMORY_GROUPS = ["scope", "kind", "source_role", "review_status"] as const;
 export type MemoryGroup = (typeof MEMORY_GROUPS)[number];
 
-export interface MemoryTotals {
-  active: number;
-  pending: number;
-  archived: number;
-  superseded: number;
-  about_someone: number;
-}
-
-export interface PipelineTotals {
-  month_spend_usd: number;
-  month_reserved_usd: number;
-  month_calls: number;
-  month_errors: number;
-  /** Null when the model proposed nothing in the window -- not zero. */
-  acceptance_rate: number | null;
-}
-
-export interface RetrievalTotals {
-  searches: number;
-  p50_ms: number | null;
-  p95_ms: number | null;
-  abstention_rate: number | null;
-}
-
-export interface ReviewTotals {
-  pending: number;
-  oldest_pending: string | null;
-  pending_by_source: Record<string, number>;
-  attention_by_kind: Record<string, number>;
-}
-
-/**
- * `/v1/admin/metrics` reports two fields the shared `Metrics` type does not
- * carry: the monthly limit a spend card needs as its denominator, and the
- * pending count scoped to the caller. Declared here rather than in `types.ts`,
- * which another change owns.
- */
-export type DashboardMetrics = Metrics & {
-  month_limit_usd?: number | null;
-  pending_review?: number;
-};
+export type { DashboardMetrics, MemoryTotals, PipelineTotals, RetrievalTotals, ReviewTotals } from "./types";
 
 /** Statistics are cheap to serve but not free; a minute of staleness is fine. */
 const POLICY = { staleTime: 60_000, refetchOnWindowFocus: false } as const;
@@ -150,7 +113,7 @@ export function useMe() {
 export function useRecentMemories(limit = 6) {
   return useQuery({
     queryKey: ["memories", "recent", limit],
-    queryFn: () => api<OffsetPage<TeamMemory>>(`/v1/memories${queryString({ limit, sort: "updated_at", order: "desc" })}`),
+    queryFn: () => api<MemoryPage>(`/v1/memories${queryString({ limit, sort: "updated_at", order: "desc" })}`),
     staleTime: 30_000,
   });
 }
@@ -159,9 +122,7 @@ export function reviewQueueKey(kind: ReviewKind | undefined) {
   return ["review", "queue", kind ?? "all"] as const;
 }
 
-export interface ReviewQueue {
-  items: ReviewItem[];
-}
+export type { ReviewQueue } from "./types";
 
 /**
  * The queue itself. `limit` is applied per source by the server, so one

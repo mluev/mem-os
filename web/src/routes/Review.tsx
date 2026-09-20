@@ -27,7 +27,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "../api/client";
-import type { Entity, ReviewItem, ReviewKind } from "../api/types";
+import type { Entities, ReviewItem, ReviewKind } from "../api/types";
 import { reviewQueueKey, useReviewQueue, type ReviewQueue } from "../api/stats";
 import {
   Badge,
@@ -608,7 +608,7 @@ function EntityPicker({
 }) {
   const entities = useQuery({
     queryKey: ["entities", "all"],
-    queryFn: () => api<{ items: Entity[] }>("/v1/entities"),
+    queryFn: () => api<Entities>("/v1/entities"),
     staleTime: 60_000,
     enabled: open,
   });

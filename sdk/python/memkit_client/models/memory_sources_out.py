@@ -5,9 +5,11 @@ from typing import TYPE_CHECKING, Any, TypeVar
 
 from attrs import define as _attrs_define
 
+from ..types import UNSET, Unset
+
 if TYPE_CHECKING:
-    from ..models.memory_sources_out_evidence_item import MemorySourcesOutEvidenceItem
-    from ..models.memory_sources_out_memory import MemorySourcesOutMemory
+    from ..models.evidence_span import EvidenceSpan
+    from ..models.memory_summary import MemorySummary
 
 
 T = TypeVar("T", bound="MemorySourcesOut")
@@ -17,14 +19,16 @@ T = TypeVar("T", bound="MemorySourcesOut")
 class MemorySourcesOut:
     """
     Attributes:
-        evidence (list[MemorySourcesOutEvidenceItem]):
-        memory (MemorySourcesOutMemory):
+        evidence (list[EvidenceSpan]):
+        memory (MemorySummary):
         source_role (str):
+        historical_evidence (list[EvidenceSpan] | Unset):
     """
 
-    evidence: list[MemorySourcesOutEvidenceItem]
-    memory: MemorySourcesOutMemory
+    evidence: list[EvidenceSpan]
+    memory: MemorySummary
     source_role: str
+    historical_evidence: list[EvidenceSpan] | Unset = UNSET
 
     def to_dict(self) -> dict[str, Any]:
         evidence = []
@@ -36,6 +40,13 @@ class MemorySourcesOut:
 
         source_role = self.source_role
 
+        historical_evidence: list[dict[str, Any]] | Unset = UNSET
+        if not isinstance(self.historical_evidence, Unset):
+            historical_evidence = []
+            for historical_evidence_item_data in self.historical_evidence:
+                historical_evidence_item = historical_evidence_item_data.to_dict()
+                historical_evidence.append(historical_evidence_item)
+
         field_dict: dict[str, Any] = {}
 
         field_dict.update(
@@ -45,30 +56,42 @@ class MemorySourcesOut:
                 "source_role": source_role,
             }
         )
+        if historical_evidence is not UNSET:
+            field_dict["historical_evidence"] = historical_evidence
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
-        from ..models.memory_sources_out_evidence_item import MemorySourcesOutEvidenceItem
-        from ..models.memory_sources_out_memory import MemorySourcesOutMemory
+        from ..models.evidence_span import EvidenceSpan
+        from ..models.memory_summary import MemorySummary
 
         d = dict(src_dict)
         evidence = []
         _evidence = d.pop("evidence")
         for evidence_item_data in _evidence:
-            evidence_item = MemorySourcesOutEvidenceItem.from_dict(evidence_item_data)
+            evidence_item = EvidenceSpan.from_dict(evidence_item_data)
 
             evidence.append(evidence_item)
 
-        memory = MemorySourcesOutMemory.from_dict(d.pop("memory"))
+        memory = MemorySummary.from_dict(d.pop("memory"))
 
         source_role = d.pop("source_role")
+
+        _historical_evidence = d.pop("historical_evidence", UNSET)
+        historical_evidence: list[EvidenceSpan] | Unset = UNSET
+        if _historical_evidence is not UNSET:
+            historical_evidence = []
+            for historical_evidence_item_data in _historical_evidence:
+                historical_evidence_item = EvidenceSpan.from_dict(historical_evidence_item_data)
+
+                historical_evidence.append(historical_evidence_item)
 
         memory_sources_out = cls(
             evidence=evidence,
             memory=memory,
             source_role=source_role,
+            historical_evidence=historical_evidence,
         )
 
         return memory_sources_out

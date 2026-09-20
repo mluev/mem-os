@@ -2,13 +2,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, X } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "../api/client";
-import type { CursorPage, RetrievalRun } from "../api/types";
+import type { RetrievalRuns } from "../api/types";
 import { Badge, Button, Card, ErrorState, Loading } from "../components/ui";
 import { relativeTime } from "../lib/format";
 
 export function Feedback() {
   const client = useQueryClient();
-  const runs = useQuery({ queryKey: ["retrieval-runs"], queryFn: () => api<CursorPage<RetrievalRun>>("/v1/retrieval-runs?limit=30") });
+  const runs = useQuery({ queryKey: ["retrieval-runs"], queryFn: () => api<RetrievalRuns>("/v1/retrieval-runs?limit=30") });
   const feedback = useMutation({
     mutationFn: ({ runId, memoryId, useful, correct }: { runId: string; memoryId: string; useful: boolean; correct: boolean }) => api(`/v1/retrieval-runs/${runId}/feedback`, { method: "POST", body: JSON.stringify({ memory_id: memoryId, useful, correct }) }),
     onSuccess: async () => { toast.success("Feedback recorded"); await client.invalidateQueries({ queryKey: ["retrieval-runs"] }); },

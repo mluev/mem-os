@@ -4,7 +4,7 @@ import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router"
 import { ArrowLeft, Boxes, Plus, X } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "../api/client";
-import type { Entity, EntityKind, Me, TeamMemory, User } from "../api/types";
+import type { Entities as EntityList, Users, EntityCreated, Entity, EntityKind, Me, MemorySummary, EntityProfile } from "../api/types";
 import {
   Badge,
   Button,
@@ -42,7 +42,7 @@ const CREATABLE: EntityKind[] = ["project", "product", "company", "person", "cus
 export function Entities() {
   const list = useQuery({
     queryKey: ["entities"],
-    queryFn: () => api<{ items: Entity[] }>("/v1/entities"),
+    queryFn: () => api<EntityList>("/v1/entities"),
   });
   const [creating, setCreating] = useState(false);
   const groups: Array<[string, EntityKind[]]> = [
@@ -120,7 +120,7 @@ function CreateDialog({ close }: { close: () => void }) {
     event.preventDefault();
     setError("");
     try {
-      const created = await api<{ slug: string }>("/v1/entities", {
+      const created = await api<EntityCreated>("/v1/entities", {
         method: "POST",
         body: JSON.stringify({
           kind,
@@ -197,19 +197,13 @@ function CreateDialog({ close }: { close: () => void }) {
   );
 }
 
-interface Profile {
-  entity: Entity;
-  about: TeamMemory[];
-  in_scope: TeamMemory[];
-}
-
 export function EntityDetail() {
   const { slug } = useParams({ strict: false }) as { slug: string };
   const search = useSearch({ strict: false }) as { tab?: string };
   const navigate = useNavigate();
   const profile = useQuery({
     queryKey: ["entity", slug],
-    queryFn: () => api<Profile>(`/v1/entities/${encodeURIComponent(slug)}/profile`),
+    queryFn: () => api<EntityProfile>(`/v1/entities/${encodeURIComponent(slug)}/profile`),
   });
 
   if (profile.isLoading) return <Loading />;
@@ -287,7 +281,7 @@ export function EntityDetail() {
 }
 
 /** One fact, linking into the drawer by search param so any screen can open it. */
-function MemoryLine({ memory }: { memory: TeamMemory }) {
+function MemoryLine({ memory }: { memory: MemorySummary }) {
   return (
     <Link className="list-row" to="." search={(old) => ({ ...old, memory: memory.id })}>
       <span className="list-primary">
@@ -378,7 +372,7 @@ function Members({ entity, onChanged }: { entity: Entity; onChanged: () => void 
   const me = useQuery({ queryKey: ["me"], queryFn: () => api<Me>("/v1/auth/me") });
   const people = useQuery({
     queryKey: ["users"],
-    queryFn: () => api<{ items: User[] }>("/v1/users"),
+    queryFn: () => api<Users>("/v1/users"),
   });
   const [handle, setHandle] = useState("");
   const [role, setRole] = useState("member");

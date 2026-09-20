@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Copy, KeyRound, ShieldCheck, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "../api/client";
-import type { ApiKey, Me, User } from "../api/types";
+import type { ApiKeys, Users, KeyCreated, ApiKey, Me, User } from "../api/types";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -43,7 +43,7 @@ export function Team() {
   const me = useQuery({ queryKey: ["me"], queryFn: () => api<Me>("/v1/auth/me") });
   const people = useQuery({
     queryKey: ["users"],
-    queryFn: () => api<{ items: User[] }>("/v1/users"),
+    queryFn: () => api<Users>("/v1/users"),
   });
   const [inviting, setInviting] = useState(false);
   const isAdmin = me.data?.role === "admin";
@@ -269,14 +269,14 @@ function MyKeys() {
   const client = useQueryClient();
   const keys = useQuery({
     queryKey: ["api-keys"],
-    queryFn: () => api<{ items: ApiKey[] }>("/v1/api-keys"),
+    queryFn: () => api<ApiKeys>("/v1/api-keys"),
   });
   const [minted, setMinted] = useState<{ name: string; secret: string } | null>(null);
   const [revoking, setRevoking] = useState<ApiKey | null>(null);
 
   const create = useMutation({
     mutationFn: (name: string) =>
-      api<{ name: string; secret: string }>("/v1/api-keys", {
+      api<KeyCreated>("/v1/api-keys", {
         method: "POST",
         body: JSON.stringify({ name }),
       }),

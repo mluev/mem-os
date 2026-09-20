@@ -21,7 +21,7 @@ import {
 import { Link, Outlet, useRouter, useRouterState } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, forgetApiKey } from "../api/client";
-import type { Me, Stats } from "../api/types";
+import type { Health, Me, ReviewStats } from "../api/types";
 import {
   Button,
   Command as CommandMenu,
@@ -52,7 +52,6 @@ const NAV = [
   { to: "/ops", label: "Operations", icon: TerminalSquare },
 ] as const;
 
-interface Health { qdrant: { available: boolean; memories: number | null; raw: number | null }; outbox: { pending: number } }
 
 export function AuthGate({ children }: { children: React.ReactNode }) {
   const client = useQueryClient();
@@ -151,6 +150,7 @@ export function AppShell() {
   const health = useQuery({
     queryKey: ["health"],
     queryFn: () => api<Health>("/v1/admin/health"),
+    enabled: me.data?.role === "admin",
     refetchInterval: 15_000,
     retry: false,
   });
@@ -158,7 +158,7 @@ export function AppShell() {
   // not get done.
   const pending = useQuery({
     queryKey: ["stats", "review", "badge"],
-    queryFn: () => api<Stats<{ pending: number }>>("/v1/admin/stats/review?days=1"),
+    queryFn: () => api<ReviewStats>("/v1/admin/stats/review?days=1"),
     refetchInterval: 30_000,
     retry: false,
   });
@@ -208,13 +208,14 @@ export function AppShell() {
           ))}
         </nav>
         <div className="sidebar-foot">
-          <div className="service-status">
+          {me.data?.role === "admin" ? <div className="service-status">
             <span className={health.data ? "health-dot ok" : "health-dot bad"} />
             <div>
               <strong>{health.data?.qdrant.available ? "Service healthy" : "Needs attention"}</strong>
               <small>{health.data ? `${health.data.qdrant.memories ?? "—"} memories · ${health.data.outbox.pending} queued` : "Checking…"}</small>
             </div>
           </div>
+          : null}
           {me.data ? (
             <div className="identity">
               <div>
