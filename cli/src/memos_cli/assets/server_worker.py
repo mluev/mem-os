@@ -64,7 +64,14 @@ def write(path, content):
     try:
         with os.fdopen(fd, "w") as stream:
             stream.write(content)
+            stream.flush()
+            os.fsync(stream.fileno())
         os.replace(temporary, path)
+        parent = os.open(Path(path).parent, os.O_RDONLY)
+        try:
+            os.fsync(parent)
+        finally:
+            os.close(parent)
     finally:
         if os.path.exists(temporary):
             os.unlink(temporary)
@@ -155,12 +162,77 @@ c.close()
 """
 
 
-RESTORE = """import os,subprocess,sys
-subprocess.run([
- 'pg_restore','--dbname',os.environ['MEMKIT_DATABASE_URL'],
- '--clean','--if-exists','--no-owner','--no-privileges',
- '--single-transaction','--exit-on-error',sys.argv[1],
-],check=True)
+RESTORE = """import json,subprocess,sys,uuid
+from psycopg import sql
+from psycopg.conninfo import make_conninfo
+from memkit import db,operations
+from memkit.config import get_settings
+s=get_settings()
+with db.connect(s.database_url) as current:
+ name=current.info.dbname
+if name in {'postgres','template0','template1'}:
+ raise RuntimeError('Managed restore requires a dedicated application database')
+replay=getattr(operations,'replay_erasures',None)
+if replay is not None:
+ from memkit.privacy import erasure_manifest
+ erasure_manifest(s.backup_dir)
+elif db.SCHEMA_VERSION >= 2 or (s.backup_dir.expanduser()/'erasures').exists():
+ raise RuntimeError('This image cannot replay retained erasure receipts; use a compatible image')
+token=uuid.uuid4().hex[:12]
+candidate=name[:40]+'_restore_'+token
+previous=name[:40]+'_previous_'+token
+target=make_conninfo(s.database_url,dbname=candidate)
+switched=False
+blocked=False
+with db.connect(make_conninfo(s.database_url,dbname='postgres')) as admin:
+ admin.execute(sql.SQL('CREATE DATABASE {}').format(sql.Identifier(candidate)))
+ try:
+  subprocess.run([
+   'pg_restore','--dbname',target,'--no-owner','--no-privileges',
+   '--single-transaction','--exit-on-error',sys.argv[1],
+  ],check=True,timeout=900)
+  db.init_db(target)
+  if replay is not None:
+   replay(s.model_copy(update={'database_url':target}))
+  admin.execute(sql.SQL('ALTER DATABASE {} ALLOW_CONNECTIONS false').format(sql.Identifier(candidate)))
+  admin.execute(sql.SQL('ALTER DATABASE {} ALLOW_CONNECTIONS false').format(sql.Identifier(name)))
+  blocked=True
+  active=admin.execute(
+   "SELECT count(*) AS n FROM pg_stat_activity WHERE datname IN (%s,%s) AND backend_type='client backend'",
+   (name,candidate),
+  ).fetchone()['n']
+  if active:
+   raise RuntimeError('Other database clients remain; original database unchanged')
+  with admin.transaction():
+   admin.execute(sql.SQL('ALTER DATABASE {} RENAME TO {}').format(sql.Identifier(name),sql.Identifier(previous)))
+   admin.execute(sql.SQL('ALTER DATABASE {} RENAME TO {}').format(sql.Identifier(candidate),sql.Identifier(name)))
+   admin.execute(sql.SQL('ALTER DATABASE {} ALLOW_CONNECTIONS true').format(sql.Identifier(name)))
+  switched=True
+ finally:
+  if not switched:
+   if blocked:
+    admin.execute(sql.SQL('ALTER DATABASE {} ALLOW_CONNECTIONS true').format(sql.Identifier(name)))
+   admin.execute(sql.SQL('DROP DATABASE IF EXISTS {} WITH (FORCE)').format(sql.Identifier(candidate)))
+print(json.dumps({'retained_database':previous}))
+"""
+
+
+RESTORE_CLEANUP = """import shutil
+from memkit import vectors
+from memkit.config import get_settings
+s=get_settings()
+client=vectors.get_client(s.qdrant_url)
+try:
+ vectors.erase_all_indices(client)
+finally:
+ client.close()
+root=s.export_dir.expanduser().resolve()
+if root.exists():
+ for path in root.iterdir():
+  if path.is_symlink() or not path.is_dir():
+   path.unlink()
+  else:
+   shutil.rmtree(path)
 """
 
 
@@ -206,6 +278,11 @@ def locked(p, directory, marker):
         str(directory / "compose.json"),
     ]
     metadata = json.loads(marker.read_text()) if marker.exists() else {}
+    if metadata.get("restore_incomplete") and action in {"start", "restart", "install", "upgrade"}:
+        raise RuntimeError(
+            "An incomplete restore keeps this service offline. Inspect server status and "
+            "retry server backup restore; do not reopen before erasure replay and cleanup finish."
+        )
 
     def dc(*args, input=None, timeout=900):
         return run([*compose, *args], input=input, timeout=timeout)
@@ -464,6 +541,15 @@ def locked(p, directory, marker):
         if action == "backup-restore":
             if p.get("confirm") != "RESTORE":
                 raise RuntimeError("Restore requires explicit confirmation")
+            progress = dict(metadata.get("restore_incomplete") or {})
+            progress.update(artifact_id=artifact["id"], stage="stopping application")
+            metadata["restore_incomplete"] = progress
+
+            def checkpoint(stage, **values):
+                progress.update(stage=stage, **values)
+                write(marker, json.dumps(metadata))
+
+            checkpoint("stopping application")
             dc("stop", "app")
             # Refuse if another connection can write into this database.
             active = dc(
@@ -483,21 +569,40 @@ def locked(p, directory, marker):
                     "Other database clients remain; app left stopped. Disconnect them before restoring."
                 )
             recovery = create_backup("--protected")
-            stage = "database restore"
+            stage = "database restore and erasure replay"
+            retained = None
             try:
-                dc("run", "--rm", "--no-deps", "app", "python", "-c", RESTORE, artifact["path"])
+                checkpoint(stage, recovery_backup=recovery["id"])
+                restored = json.loads(
+                    dc("run", "--rm", "--no-deps", "app", "python", "-c", RESTORE, artifact["path"])
+                )
+                retained = restored["retained_database"]
+                stage = "derived index and export cleanup"
+                checkpoint(stage, retained_database=retained)
+                dc("run", "--rm", "--no-deps", "app", "python", "-c", RESTORE_CLEANUP)
                 stage = "index rebuild"
+                checkpoint(stage)
                 dc("run", "--rm", "--no-deps", "app", "memkit", "reindex")
                 stage = "service startup"
+                checkpoint(stage)
                 dc("up", "-d", "--wait", "--wait-timeout", "600")
                 ready()
+                progress["stage"] = "complete"
+                metadata["last_restore"] = metadata.pop("restore_incomplete")
+                write(marker, json.dumps(metadata))
             except Exception:
                 with contextlib.suppress(RuntimeError):
                     dc("stop", "app")
                 raise RuntimeError(
-                    f"Restore failed during {stage}; app stop requested. Inspect server status before restarting. Recovery backup: {recovery['id']}"
+                    f"Restore failed during {stage}; app stop requested. Inspect server status before restarting. "
+                    f"Recovery backup: {recovery['id']}. Retained database: {retained or 'not confirmed; inspect database names'}. "
+                    "Replay the latest erasure receipts and finish index/export cleanup before reopening."
                 ) from None
-            return {"restored": artifact["id"], "recovery_backup": recovery["id"]}
+            return {
+                "restored": artifact["id"],
+                "recovery_backup": recovery["id"],
+                "retained_database": retained,
+            }
         return {"verified": True, "path": str(path), "sha256": artifact["sha256"]}
     raise RuntimeError("Unknown server operation")
 

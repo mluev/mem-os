@@ -28,9 +28,10 @@ def main() -> None:
     args = parser.parse_args()
     target = args.output.resolve()
     archive = target.with_name(target.name + ".tar.gz")
+    checksum_path = archive.with_name(archive.name + ".sha256")
     if git("status", "--porcelain", "--untracked-files=no"):
         raise SystemExit("Commit tracked changes before bundling; source provenance must be exact.")
-    if target.exists() or archive.exists():
+    if any(path.exists() or path.is_symlink() for path in (target, archive, checksum_path)):
         raise SystemExit(f"Output already exists: {target}; choose a fresh output directory.")
     packages = []
     for pattern in (
@@ -53,9 +54,22 @@ def main() -> None:
         shutil.copy2(package, target / "packages" / package.name)
     for path in (requirements, ROOT / "uv.lock", ROOT / "openapi.json"):
         shutil.copy2(path, target / path.name)
-    shutil.copytree(ROOT / "docs", target / "docs")
-    shutil.copy2(
-        ROOT / "integrations/claude-code/skills/mem-os/SKILL.md", target / "AGENT-GUIDE.md"
+    for relative in git("ls-files", "-z", "--", "docs").split("\0"):
+        if not relative:
+            continue
+        source = ROOT / relative
+        if source.is_symlink():
+            raise SystemExit(f"Documentation symlinks are not supported: {relative}")
+        destination = target / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination)
+    guide = Path("integrations/claude-code/skills/mem-os")
+    (target / guide).mkdir(parents=True)
+    for name in ("SKILL.md", "HTTP.md"):
+        shutil.copy2(ROOT / guide / name, target / guide / name)
+    (target / "AGENT-GUIDE.md").write_text(
+        f"# Agent guide\n\n[Capabilities and commands]({guide}/SKILL.md) · "
+        f"[HTTP fallback]({guide}/HTTP.md)\n"
     )
     subprocess.run(  # noqa: S603 -- committed repository archive only
         [GIT, "archive", "--format=tar.gz", f"--output={target / 'source.tar.gz'}", revision],
@@ -75,6 +89,11 @@ def main() -> None:
     manifest = {
         "source_commit": revision,
         "schema_version": SCHEMA_VERSION,
+        "package_provenance": (
+            "Packages are prebuilt inputs. CI rebuilds them at this checkout; "
+            "local callers must do the same. The bundler verifies committed source "
+            "and file checksums, not package build provenance."
+        ),
         "files": [
             {
                 "path": str(path.relative_to(target)),
@@ -96,7 +115,7 @@ def main() -> None:
     with tarfile.open(archive, "w:gz") as handle:
         handle.add(target, arcname="mem-os-release")
     checksum = hashlib.sha256(archive.read_bytes()).hexdigest()
-    archive.with_name(archive.name + ".sha256").write_text(f"{checksum}  {archive.name}\n")
+    checksum_path.write_text(f"{checksum}  {archive.name}\n")
     print(json.dumps({"archive": str(archive), "sha256": checksum, "source_commit": revision}))
 
 

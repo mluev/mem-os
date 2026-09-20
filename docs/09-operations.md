@@ -22,6 +22,17 @@ Before deployment, retain a verified schema-v2-compatible application rollback a
 
 ## Offline recovery
 
+For CLI-managed installations, `memos server backup restore <id> --confirm RESTORE`
+automates the offline sequence: protected recovery backup, restore into an empty
+database, schema migration and latest erasure replay, database switch, removal of
+managed vector generations and exports, reindex, and readiness verification.
+The previous database is retained with connections disabled. Never enable it to
+serve without applying current erasure receipts and rebuilding derived data.
+A durable `restore_incomplete` marker blocks ordinary start/restart/upgrade after
+failure; retry restore after resolving the reported failure. A process killed
+during the database switch may require an operator to inspect database names and
+connection gates first. Keep traffic stopped until cleanup and recovery finish.
+
 1. Stop every application process and block external traffic. Preserve the **latest** external erasure manifest; do not replace it with an older copy from the backup date.
 2. Verify the chosen archive, create a new empty PostgreSQL database, and set `MEMKIT_RESTORE_DATABASE_URL` to that replacement. Preserve the former database intact. Restore with matching PostgreSQL client tools:
 

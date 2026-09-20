@@ -747,3 +747,99 @@ def test_common_guide_commands_parse_against_the_installed_cli(monkeypatch, caps
         argv = ["3" if token == "N" else token for token in shlex.split(command)]
         result = cli.main(argv)
         assert result == 0, (command, capsys.readouterr())
+
+
+@pytest.mark.parametrize("failure", [None, "restore", "cleanup", "reindex"])
+def test_managed_restore_replays_and_cleans_before_reopening(tmp_path, monkeypatch, failure):
+    import hashlib
+
+    worker = managed_worker(tmp_path)
+    backup = tmp_path / "backups/one.dump"
+    backup.parent.mkdir()
+    backup.write_bytes(b"verified fixture")
+    artifact = {
+        "id": "one",
+        "path": "/backups/one.dump",
+        "sha256": hashlib.sha256(backup.read_bytes()).hexdigest(),
+    }
+    stages = []
+    original_config = (tmp_path / "compose.json").read_bytes()
+    original_env = (tmp_path / "server.env").read_bytes()
+
+    def run(argv, **kwargs):
+        if "backup" in argv and "list" in argv:
+            return json.dumps([artifact])
+        if "backup" in argv and "create" in argv:
+            return json.dumps({"id": "recovery"})
+        if "psql" in argv:
+            return "0\n"
+        stage = (
+            "restore"
+            if worker.RESTORE in argv
+            else "cleanup"
+            if worker.RESTORE_CLEANUP in argv
+            else "reindex"
+            if "reindex" in argv
+            else "start"
+            if "up" in argv
+            else "stop"
+            if "stop" in argv
+            else None
+        )
+        if stage:
+            assert json.loads((tmp_path / ".memos-managed.json").read_text()).get(
+                "restore_incomplete"
+            )
+            stages.append(stage)
+        if stage == failure and failure:
+            raise RuntimeError("injected failure")
+        return (
+            json.dumps({"retained_database": "memkit_previous_test"})
+            if stage == "restore"
+            else "{}"
+        )
+
+    monkeypatch.setattr(worker, "run", run)
+    request = {
+        "action": "backup-restore",
+        "directory": str(tmp_path),
+        "artifact_id": "one",
+        "confirm": "RESTORE",
+    }
+    if failure:
+        with pytest.raises(RuntimeError, match="Replay the latest erasure receipts"):
+            worker.perform(request)
+        assert "start" not in stages
+        assert stages[-1] == "stop"
+        saved = json.loads((tmp_path / ".memos-managed.json").read_text())
+        assert saved["restore_incomplete"]["recovery_backup"] == "recovery"
+        if failure != "restore":
+            assert saved["restore_incomplete"]["retained_database"] == "memkit_previous_test"
+        stages.clear()
+        failure = None
+        # A fresh command retries the same restore instead of bypassing its guard.
+        worker.perform(request)
+        assert stages == ["stop", "restore", "cleanup", "reindex", "start"]
+    else:
+        result = worker.perform(request)
+        assert result["retained_database"] == "memkit_previous_test"
+        assert stages == ["stop", "restore", "cleanup", "reindex", "start"]
+    saved = json.loads((tmp_path / ".memos-managed.json").read_text())
+    assert "restore_incomplete" not in saved
+    assert saved["last_restore"]["stage"] == "complete"
+    assert (tmp_path / "compose.json").read_bytes() == original_config
+    assert (tmp_path / "server.env").read_bytes() == original_env
+
+
+@pytest.mark.parametrize("action", ["start", "restart", "install", "upgrade"])
+def test_incomplete_restore_blocks_commands_that_reopen_service(tmp_path, monkeypatch, action):
+    worker = managed_worker(tmp_path)
+    marker = tmp_path / ".memos-managed.json"
+    metadata = json.loads(marker.read_text())
+    metadata["restore_incomplete"] = {"artifact_id": "one", "stage": "database restore"}
+    marker.write_text(json.dumps(metadata))
+    calls = []
+    monkeypatch.setattr(worker, "run", lambda argv, **kwargs: calls.append(argv) or "{}")
+    with pytest.raises(RuntimeError, match="incomplete restore"):
+        worker.perform({"action": action, "directory": str(tmp_path), "image": "memos:new"})
+    assert calls == []

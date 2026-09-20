@@ -148,7 +148,9 @@ print(json.dumps({'failure':str(failure),'transcripts':str(transcripts)}))
                 "--output",
                 str(folder / "backup.dump"),
             )
-            call("server", "backup", "restore", backup["id"], "--confirm", "RESTORE")
+            restored = call("server", "backup", "restore", backup["id"], "--confirm", "RESTORE")
+            assert restored["retained_database"].startswith("memkit_previous_")
+            assert "restore_incomplete" not in call("server", "status")["deployment"]
             call("memories", "get", memory_id)
             call("memories", "get", later, succeeds=False)
             call("export", "--wait", "60", "--output", str(folder / "export.json"))
