@@ -1,5 +1,9 @@
 # Production readiness implementation — 20 September 2026
 
+For the consolidated branch, current artifact bundle, and integration follow-ups,
+start with the [final handoff](../releases/2026-09-20-handoff.md). This review records
+the original readiness checkpoint and its measurements.
+
 Scope: one self-hosted production team. PostgreSQL remains authoritative and Qdrant remains rebuildable. No production service was changed. Work started from the remote `master` at `b4204ef`; this repository has no `main` branch. Changes are on `codex/production-readiness` in the separate `mem-os-readiness` worktree.
 
 ## Readiness judgment

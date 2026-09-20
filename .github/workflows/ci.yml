@@ -124,3 +124,16 @@ jobs:
           python -m venv /tmp/memkit-python-sdk
           /tmp/memkit-python-sdk/bin/pip install sdk/python/dist/*.whl
           /tmp/memkit-python-sdk/bin/python -c 'from memkit_client import AuthenticatedClient; c=AuthenticatedClient(base_url="http://localhost",token="k"); r=c.get_httpx_client().build_request("GET","/"); assert r.headers["X-API-Key"]=="k" and "Authorization" not in r.headers'
+      - name: Gather release candidate and recovery artifacts
+        run: |
+          uv build --project cli --wheel
+          pnpm --dir sdk/typescript pack --pack-destination ../../dist
+          uv export --locked --no-dev --no-emit-project -o dist/requirements.txt
+          uv run python tools/bundle_release.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mem-os-release-candidate-${{ github.sha }}
+          path: |
+            dist/release-bundle.tar.gz
+            dist/release-bundle.tar.gz.sha256
+          retention-days: 90

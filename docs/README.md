@@ -14,6 +14,6 @@ Normative reading order:
 
 Every measured number lives in [measurements.md](measurements.md), with its date and the command that produced it, and nowhere else; every "why not the alternative" lives in [decisions/](decisions/README.md).
 
-The [September readiness review](reviews/2026-09-20-production-readiness.md) separates verified safety behavior, measured retrieval quality, and remaining release limitations.
+The [consolidated handoff](releases/2026-09-20-handoff.md) gathers the current delivery and artifact bundle. The [September readiness review](reviews/2026-09-20-production-readiness.md) separates verified safety behavior, measured retrieval quality, and remaining release limitations.
 
 The audit inputs remain under `audits/`; accepted design is in `plans/`. ADRs are append-only. Superseded ADRs retain their original reasoning and link to the replacement decision.
