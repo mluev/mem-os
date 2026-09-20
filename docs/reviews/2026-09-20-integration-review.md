@@ -27,6 +27,10 @@ actual default branch is `master`; there is no `main` branch.
   checks use the generated package name rather than an obsolete version.
 - Pull requests exercise CLI deployment against an isolated SSH target on the
   disposable CI runner, including backup/restore and unhealthy-image recovery.
+- That live check exposed an empty-cache ownership reset: Docker copied the
+  image's UID back over the deployment user's initialized model volume. Managed
+  model mounts now disable copy-up; a separate Docker check attempts writes from
+  two fresh containers before the full remote installation test.
 
 ## Dependency repairs
 
@@ -45,4 +49,8 @@ answers on the opened fictional integration corpus. It establishes neither new
 model accuracy nor new provider latency. Semantic modes remain opt-in in shipped
 configuration; no production deployment is part of this PR.
 
-Final validation results are recorded in the PR after the integration checks.
+The integrated Linux backend passed 816 tests and 55 subtests (81.04% coverage;
+two optional tests skipped). Frontend checks passed 79 unit tests and six browser
+tests; Qdrant and clean server/SDK/CLI distributions passed. The original work
+was merged as PR #5 before the remote deployment check finished. Its discovered
+cache-permission repair and final live verification continue in a follow-up PR.
