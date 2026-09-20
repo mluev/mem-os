@@ -25,13 +25,28 @@ export function duration(ms: number | null | undefined): string {
   return ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`;
 }
 
-export function shortId(value: string): string {
-  return value.slice(0, 8);
+/**
+ * An exact instant, for the places a relative one is not enough.
+ *
+ * Provenance is one of them: "3 months ago" is fine for a listing, but an
+ * evidence span is a claim about a specific moment in a specific transcript,
+ * and a reader checking it needs the date it actually carries.
+ */
+export function dateTime(value: string | null | undefined): string {
+  if (!value) return "—";
+  const at = new Date(value);
+  if (Number.isNaN(at.getTime())) return "—";
+  return at.toLocaleString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
-export function guessLang(value: string): "ru" | "en" {
-  const letters = value.match(/[A-Za-zА-Яа-яЁё]/g) ?? [];
-  if (!letters.length) return "en";
-  const cyrillic = letters.filter((letter) => /[А-Яа-яЁё]/.test(letter)).length;
-  return cyrillic / letters.length > 0.3 ? "ru" : "en";
+/** A grouped integer, for counts that sit in tabular columns. */
+export function integer(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return "—";
+  return Math.round(value).toLocaleString();
 }

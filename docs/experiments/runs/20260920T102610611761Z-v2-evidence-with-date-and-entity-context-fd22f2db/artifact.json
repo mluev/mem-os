@@ -1,0 +1,2363 @@
+{
+  "signature": "a2421d1f2cdb0f1adaede98c26305557d236a7968b1be1c533b6bc48955770c8",
+  "provenance": {
+    "git_head": "b1516c73cbde8b443c0c1b5eb02f36146f6d310a",
+    "source_sha256": "fe5f75239d8173076c4d1afe3cef4b25aea4222542f472f34918763067068a68",
+    "files": {
+      "eval/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "eval/context_review.py": "270b61cfc4d11352006443010a59597e052d54c09da0ee8d3d63ef24cb17e1b6",
+      "eval/experiment.py": "c1693fb8862b19335fb98089603118c0570fb63d8866dc0d760daba5727fb913",
+      "eval/golden.py": "65638611b24d409e48c84bfcf70db909502cae9ddae33316510a55b9839c5b08",
+      "eval/reports.py": "dfcf41d7c570ecda7e1d102436b4fa4c0986c460663af853127c1a094751d2fe",
+      "eval/run.py": "95bf50942e643c8a029512698673a00c37b357bba3b97d3a8b8783203ac6f799",
+      "eval/semantic.py": "41fb6bd712f4cbe534e6c64104f6362d99ef0823e3c8096f732d78430267ebc3",
+      "eval/semantic_cases.py": "35aeb7f4c4ce96ee24230506d9b7dd17f96450fd47cfeca12019092455a4f3c1",
+      "eval/semantic_extraction.py": "118e03c9bb5a0fa7e06109d6fae94b6d2cd6466717f60574f2b1401c2ab53543",
+      "src/memkit/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "src/memkit/api.py": "df190b42fb53759ba26674aaf099e94561ad47a3ada25292550046d6e17ff121",
+      "src/memkit/auth.py": "558cb3292e4a0c0f635e7e505bbb287887b25f4927644d3524c7d5a376aaff30",
+      "src/memkit/cli.py": "8b604e64c8d9ff11356c4aa70f295cc75de9e3d2b0a3b13cfa5a3c214955fe05",
+      "src/memkit/config.py": "d553692af49d7a01398f03faef2427fbf5f52be6ecf322e9030d84eed34b2e84",
+      "src/memkit/consolidate.py": "123d0e6c2ee18575601f3d5563abb0c3bf7918907c4b2dd9bdfd68b1e9f2e9cb",
+      "src/memkit/db.py": "f90ba4ba62890ea02d4b62606df039348e8d1a875fa78bcda2ce36143c0c4075",
+      "src/memkit/embed.py": "bebfb614a5feef792dab3b88dd96b9b3deb15b992f414194568a477efea5bfef",
+      "src/memkit/entities.py": "00facdf7ceeef766d3369365b7273861fcc50aa3f3dd4d4886d7c6db59101da1",
+      "src/memkit/extract.py": "e3bf6252c20b63019a4492ab8875fc9fa3cc51bae95421853f8fffdbc6d64b7d",
+      "src/memkit/filters.py": "12459cea69879b4131146a804dc5b6c04b5e2ffa131652b8fa1177eb7c6a6ae1",
+      "src/memkit/importers/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "src/memkit/importers/claude_code.py": "4b1697106f0b8683e23db8714ab79de0dc99c5cdbd671ec1309a8f80253c6781",
+      "src/memkit/importers/sqlite_v6.py": "5f58c037abce61da274d897019c65d7035cbc3a3775e97a737f6d94854b080e8",
+      "src/memkit/jobs.py": "50bd3d25741eb811a2746ce3d013953398035428e8f7a9b16d34f3ff5df23104",
+      "src/memkit/judge.py": "7f5bd204ff1c21f3a098454c1dccd3a390968e19287b50bf6ccb175105979964",
+      "src/memkit/limits.py": "5b67b18d4e72600615c53ee8b728ea5665a164e60033534756366eded3a619fd",
+      "src/memkit/observability.py": "2c52d9522c78394ad50fb8b20a76eba99e6354d5110ec29335994a788d46b8d8",
+      "src/memkit/operations.py": "ddadca13310329423e56dafa47decb77fee9a30a65ae7bf1b8029c78d3a3e81f",
+      "src/memkit/outbox.py": "c322ee18803afdf09cb208bd45e801eca2f2714ec7b745e0959e2d88a21517d5",
+      "src/memkit/policies.py": "985160d0860ca0e58a670b19758a9be85a630a525de37140a4b7c5e22cdc9d91",
+      "src/memkit/principal.py": "a9a84c4f0e7ca41abf381dc4bd8f3803fecd1083220ba958307d2663feee566b",
+      "src/memkit/privacy.py": "df8f59c614a17fe5773b3dce7d885ca10729bcd0382d971e40158c71cb34dcd4",
+      "src/memkit/profiles.py": "a72756df37005b32ef903ff85275fd3e4717e92b13dab88e1f65fd7b1822c741",
+      "src/memkit/prompts.py": "15990bdfaee0dfe203a3fbb9a3a0a4763b4e979acf4879ae5d4285b0f3d82a01",
+      "src/memkit/provenance.py": "11732249cf6709f1a28788eaaf6105df6d0292a5f27149a06f9aa92ae7ef07b4",
+      "src/memkit/providers.py": "2a851b33ab3b2d4464c21400ad359db2c9c7982bff44b9aada6df0a4c74cf689",
+      "src/memkit/reextract.py": "566e687ee8e8a2e25e4462a08f29ad2fa142e152ee55128e980a3bd9dd1de7fb",
+      "src/memkit/reindex.py": "1c3145813943778bdd94f088c553cc4bc5288ea15461b06371a169a768b3207b",
+      "src/memkit/remote.py": "4db0b466e76f65561eea0800e272f1665ed53b0aec181cb5cbd9108da181c584",
+      "src/memkit/retrieval.py": "536adf3db3fffbd8352f1b8156d342b7e545accdc7f1221fb8cb16d615d5bbe7",
+      "src/memkit/routers/__init__.py": "c2f81de15b772736c92ca8257e341cfbc3625aa8d9ac050017e059845cacc6d0",
+      "src/memkit/routers/_adopt.py": "492fd498ff172dccff36b962a1e5f1cb693be6cc5e053b1b73fd4972d8af61dd",
+      "src/memkit/routers/evidence.py": "63655767f1150b25685c5142ee42f64207c0305b3225d12fa6b6c0e00b0ec221",
+      "src/memkit/routers/identity.py": "20a77f3455a0764263148f60c80c30b2f82392656347935a556cbdb10efa6d78",
+      "src/memkit/routers/memory.py": "2d1b6a528e65e7b7d71382a58b003e0eaf8e7ed82db0b33b221ed1eddc5e7054",
+      "src/memkit/routers/operations.py": "5a0a0c0a07ed56cfb692a78bcf856a70cf79c88f0c8b25fd0f6870d2377b2241",
+      "src/memkit/security.py": "fc463a70a8b077b276274a84c00f962f756eb6d667b1acd9f81f4a647eabe5a4",
+      "src/memkit/semantic.py": "f2200eb7b4b7319b763fe8196ccd5a6f05e512d313861cc47e621b3df91218b5",
+      "src/memkit/semantic_questions.py": "44a4018909858c4d75d6b4f1214aeb36cbd4603490aa6c8a20d8f37dff78d5ba",
+      "src/memkit/semantic_runtime.py": "8b7ba080e1e1ba31f1e436dbf7ab2a1645379ba68c33b6adf1796a94386b5873",
+      "src/memkit/stats.py": "0de855e3cfd1db4b282a959749cb05f9ba52581b50bd8f9abe1405a499f5069a",
+      "src/memkit/store.py": "88df8a3cb7bd1e1100da0d3e3755b340da388244cce1b54f8b03e56d9c3f1909",
+      "src/memkit/telemetry.py": "d2e37db8712b916c2d7e69e94298d1cfdd974e32178af40bd4776d37edd4585b",
+      "src/memkit/users.py": "9752f043ba9351c30d923a201e4b073da2db46590a5760689cf98a5a4013a1eb",
+      "src/memkit/vectors.py": "c3a6461ed65e19c1c9ce6a3597a7c3e47a5aa653ad0fec918109138b0f7e814a",
+      "src/memkit/worker.py": "c0b570639ba098be5f935417371db15e0a896e4a66dea4c326b7fae95083affd"
+    }
+  },
+  "state_version": "anchored",
+  "question_version": "v2",
+  "question_sha256": "df06c3fd7ed0eff7ea7a81f9253a0a84f9315e7b9628e3370d3f9cb9bf116e04",
+  "support_floor": 0.9,
+  "extractor_cache_reused": true,
+  "usage_note": "Score summaries include original extraction usage only; Jev usage is separate.",
+  "baseline": {
+    "model": "gemini-3.5-flash-lite",
+    "version": "v10",
+    "expected": 31,
+    "found": 27,
+    "recall": 0.8709677419354839,
+    "false_positives": 0,
+    "credential_leaks": 0,
+    "invalid_evidence": 0,
+    "routing": [
+      6,
+      7
+    ],
+    "fabricated_refs": 0,
+    "context": [
+      14,
+      17
+    ],
+    "kind": [
+      8,
+      8
+    ],
+    "importance": [
+      2,
+      2
+    ],
+    "operations": [
+      2,
+      2
+    ],
+    "over_emission": 0,
+    "input_tokens": 59619,
+    "output_tokens": 7048,
+    "cost_usd": 0.0355057,
+    "errors": [],
+    "safety_passed": true
+  },
+  "filtered": {
+    "model": "gemini-3.5-flash-lite",
+    "version": "v10+v2",
+    "expected": 31,
+    "found": 14,
+    "recall": 0.45161290322580644,
+    "false_positives": 0,
+    "credential_leaks": 0,
+    "invalid_evidence": 0,
+    "routing": [
+      4,
+      5
+    ],
+    "fabricated_refs": 0,
+    "context": [
+      7,
+      9
+    ],
+    "kind": [
+      4,
+      4
+    ],
+    "importance": [
+      1,
+      1
+    ],
+    "operations": [
+      0,
+      0
+    ],
+    "over_emission": 0,
+    "input_tokens": 59619,
+    "output_tokens": 7048,
+    "cost_usd": 0.0355057,
+    "errors": [],
+    "safety_passed": true
+  },
+  "baseline_failures": [
+    "correction-abstraction: MISSED '(абстракц|abstraction|существующ|existing|store)'",
+    "drift-two-facts-one-window-hard: context {}, wanted {'workspace': 'portfolio'} -> 'Show images only on click of the selected product'",
+    "drift-two-facts-one-window-hard: MISSED '(переусложн|over-?engineer|читаем|readable|коротк)'",
+    "mixed-user-and-project: MISSED '(модалк|modal|расписан|schedule)'",
+    "project-fact-stays-project: context {}, wanted {'workspace': 'memkit'} -> 'SQLite is the source of truth, and Qdrant is a der'",
+    "project-structure: context {}, wanted {'workspace': 'memkit'} -> 'Авторизация лежит в auth/ и работает на session co'",
+    "relative-date-resolves-against-session: MISSED '(2026-02|феврал|february)'",
+    "routing-unlisted-project-has-no-number: routing {'scope': 3, 'subject': None, 'subject_name': None}, wanted {'scope': None, 'subject': None, 'subject_name': None} -> 'В cine рендер-очередь висит на ffmpeg-во'"
+  ],
+  "filtered_failures": [
+    "contradicts-candidate: MISSED 'vue'",
+    "correction-abstraction: MISSED '(абстракц|abstraction|существующ|existing|store)'",
+    "correction-implies-preference: MISSED '(disabl|неактивн|валидац|validation)'",
+    "direct-preference: MISSED 'pnpm'",
+    "drift-preference-in-heavy-project-window: MISSED '(модалк|modal|drawer|таб|tab)'",
+    "drift-two-facts-one-window-hard: context {}, wanted {'workspace': 'portfolio'} -> 'Show images only on click of the selected product'",
+    "drift-two-facts-one-window-hard: MISSED '(переусложн|over-?engineer|читаем|readable|коротк)'",
+    "drift-working-style-via-correction: MISSED '(бэкенд|backend|шим|shim|фолбэк|fallback|костыл)'",
+    "hard-constraint: MISSED '(локальн|local|16|API)'",
+    "mixed-user-and-project: MISSED 'app-switch'",
+    "mixed-user-and-project: MISSED '(модалк|modal|расписан|schedule)'",
+    "project-fact-stays-project: MISSED '(sqlite|qdrant)'",
+    "project-structure: context {}, wanted {'workspace': 'memkit'} -> 'Авторизация лежит в auth/ и работает на session co'",
+    "relative-date-resolves-against-session: MISSED 'postgres 16'",
+    "relative-date-resolves-against-session: MISSED '(2026-02|феврал|february)'",
+    "rename-transition-updates-candidate: MISSED 'ledgerd'",
+    "routing-rule-for-the-whole-team: MISSED '(squash|линейн|linear)'",
+    "routing-teammate-via-russian-alias: MISSED '(мок|mock|настоящ|real|базу|database)'",
+    "routing-unlisted-project-has-no-number: routing {'scope': 3, 'subject': None, 'subject_name': None}, wanted {'scope': None, 'subject': None, 'subject_name': None} -> 'В cine рендер-очередь висит на ffmpeg-во'",
+    "russian-input-yields-a-fact: MISSED '(подписан|подпис|sign|унифиц|unif|лейбл|label)'"
+  ],
+  "errors": [],
+  "records": [
+    {
+      "id": "assistant-worklog-only",
+      "checks": [],
+      "baseline_ops": [],
+      "accepted_ops": []
+    },
+    {
+      "id": "contradicts-candidate",
+      "checks": [
+        {
+          "claim": "Switched from React to Vue 3 a month ago (around August 2026); uses Vue 3 everywhere now",
+          "disposition": "hold",
+          "judgment": {
+            "model": "jev-1.13.0",
+            "version": "v2",
+            "request_sha256": "ee02f0c7fdc9758a8fef706cde52db9ebdb6f44368d7e7f5311b0dff5f95cd54",
+            "answers": {
+              "support": {
+                "kind": "choice",
+                "choice": "unsupported",
+                "value": null,
+                "probabilities": {
+                  "unsupported": 0.51,
+                  "contradicted": 0.01,
+                  "supported": 0.48
+                },
+                "confidence": 0.28
+              }
+            },
+            "input_tokens": 729,
+            "output_tokens": 41,
+            "latency_ms": 849.0299160039285,
+            "attempts": 1
+          }
+        }
+      ],
+      "baseline_ops": [
+        {
+          "op": "UPDATE",
+          "reason": "User explicitly stated they switched from React to Vue 3 a month ago (August 2026) and now use Vue 3 everywhere, directly updating the previous preference for React.",
+          "id": "cand-react-1",
+          "text": "Switched from React to Vue 3 a month ago (around August 2026); uses Vue 3 everywhere now",
+          "kind": "preference",
+          "context": {},
+          "tags": [
+            "vue",
+            "react",
+            "frontend"
+          ],
+          "importance": 0.7,
+          "confidence": 1.0,
+          "valid_until": null,
+          "evidence": [
+            {
+              "message_id": 1,
+              "start_char": 0,
+              "end_char": 66,
+              "quote": "я месяц назад слез с реакта, вью норм заходит. везде теперь vue 3"
+            }
+          ],
+          "scope": null,
+          "subject": null,
+          "subject_name": null,
+          "scope_id": null
+        }
+      ],
+      "accepted_ops": []
+    },
+    {
+      "id": "correction-abstraction",
+      "checks": [],
+      "baseline_ops": [],
+      "accepted_ops": []
+    },
+    {
+      "id": "correction-implies-comment-preference",
+      "checks": [
+        {
+          "claim": "Code must be self-explanatory; comments should only be used when something is not obvious.",
+          "disposition": "accept",
+          "judgment": {
+            "model": "jev-1.13.0",
+            "version": "v2",
+            "request_sha256": "a094419409a647929c26b96ff49c581b55754d91295d34396a85966e16b264d3",
+            "answers": {
+              "support": {
+                "kind": "choice",
+                "choice": "supported",
+                "value": null,
+                "probabilities": {
+                  "supported": 0.91,
+                  "unsupported": 0.09,
+                  "contradicted": 0.0
+                },
+                "confidence": 0.86
+              }
+            },
+            "input_tokens": 884,
+            "output_tokens": 41,
+            "latency_ms": 467.09125000052154,
+            "attempts": 1
+          }
+        }
+      ],
+      "baseline_ops": [
+        {
+          "op": "ADD",
+          "reason": "The user states a durable preference for self-explanatory code and minimal comments.",
+          "id": null,
+          "text": "Code must be self-explanatory; comments should only be used when something is not obvious.",
+          "kind": "preference",
+          "context": {},
+          "tags": [],
+          "importance": 0.7,
+          "confidence": 1.0,
+          "valid_until": null,
+          "evidence": [
+            {
+              "message_id": 4,
+              "start_char": 27,
+              "end_char": 97,
+              "quote": "код должен читаться сам, комментарий только там где неочевидно почему"
+            }
+          ],
+          "scope": null,
+          "subject": null,
+          "subject_name": null,
+          "scope_id": null
+        }
+      ],
+      "accepted_ops": [
+        {
+          "op": "ADD",
+          "reason": "The user states a durable preference for self-explanatory code and minimal comments.",
+          "id": null,
+          "text": "Code must be self-explanatory; comments should only be used when something is not obvious.",
+          "kind": "preference",
+          "context": {},
+          "tags": [],
+          "importance": 0.7,
+          "confidence": 1.0,
+          "valid_until": null,
+          "evidence": [
+            {
+              "message_id": 4,
+              "start_char": 27,
+              "end_char": 97,
+              "quote": "код должен читаться сам, комментарий только там где неочевидно почему"
+            }
+          ],
+          "scope": null,
+          "subject": null,
+          "subject_name": null,
+          "scope_id": null
+        }
+      ]
+    },
+    {
+      "id": "correction-implies-preference",
+      "checks": [
+        {
+          "claim": "User prefers the submit button to remain active so validation errors are shown upon clicking rather than having a disabled button.",
+          "disposition": "hold",
+          "judgment": {
+            "model": "jev-1.13.0",
+            "version": "v2",
+            "request_sha256": "96e17c7e0577126c6c713cdde9d365f533cd199675c9f9fc78645f73dcdb1403",
+            "answers": {
+              "support": {
+                "kind": "choice",
+                "choice": "supported",
+                "value": null,
+                "probabilities": {
+                  "supported": 0.88,
+                  "unsupported": 0.12,
+                  "contradicted": 0.0
+                },
+                "confidence": 0.81
+              }
+            },
+            "input_tokens": 807,
+            "output_tokens": 41,
+            "latency_ms": 356.6267499991227,
+            "attempts": 1
+          }
+        }
+      ],
+      "baseline_ops": [
+        {
+          "op": "ADD",
+          "reason": "The user explicitly stated a UI/UX preference regarding form validation and button behavior.",
+          "id": null,
+          "text": "User prefers the submit button to remain active so validation errors are shown upon clicking rather than having a disabled button.",
+          "kind": "preference",
+          "context": {},
+          "tags": [
+            "ui",
+            "validation",
+            "buttons"
+          ],
+          "importance": 0.8,
+          "confidence": 1.0,
+          "valid_until": null,
+          "evidence": [
+            {
+              "message_id": 2,
+              "start_char": 9,
+              "end_char": 93,
+              "quote": "пусть жмёт и видит ошибки валидации, а не гадает почему кнопка мертвая"
+            }
+          ],
+          "scope": null,
+          "subject": null,
+          "subject_name": null,
+          "scope_id": null
+        }
+      ],
+      "accepted_ops": []
+    },
+    {
+      "id": "credentials-must-not-leak",
+      "checks": [],
+      "baseline_ops": [],
+      "accepted_ops": []
+    },
+    {
+      "id": "direct-preference",
+      "checks": [
+        {
+          "claim": "Use pnpm everywhere instead of npm",
+          "disposition": "hold",
+          "judgment": {
+            "model": "jev-1.13.0",
+            "version": "v2",
+            "request_sha256": "b8feaa513e08ed0ffe1fcca201bc75429a844715c65ade2cd911faf5eb0390ce",
+            "answers": {
+              "support": {
+                "kind": "choice",
+                "choice": "supported",
+                "value": null,
+                "probabilities": {
+                  "supported": 0.76,
+                  "contradicted": 0.01,
+                  "unsupported": 0.23
+                },
+                "confidence": 0.65
+              }
+            },
+            "input_tokens": 690,
+            "output_tokens": 41,
+            "latency_ms": 301.37437500525266,
+            "attempts": 1
+          }
+        }
+      ],
+      "baseline_ops": [
+        {
+          "op": "ADD",
+          "reason": "The user explicitly stated a durable preference to always use pnpm and avoid npm in the project.",
+          "id": null,
+          "text": "Use pnpm everywhere instead of npm",
+          "kind": "preference",
+          "context": {},
+          "tags": [
+            "pnpm",
+            "npm",
+            "package-manager"
+          ],
+          "importance": 0.8,
+          "confidence": 1.0,
+          "valid_until": null,
+          "evidence": [
+            {
+              "message_id": 1,
+              "start_char": 0,
+              "end_char": 64,
+              "quote": "давай использовать pnpm везде, npm я не хочу видеть в проекте"
+            }
+          ],
+          "scope": null,
+          "subject": null,
+          "subject_name": null,
+          "scope_id": null
+        }
+      ],
+      "accepted_ops": []
+    },
+    {
+      "id": "drift-empty-despite-temptation",
+      "checks": [],
+      "baseline_ops": [],
+      "accepted_ops": []
+    },
+    {
+      "id": "drift-preference-in-heavy-project-window",
+      "checks": [
+        {
+          "claim": "editors should always be in a modal with tabs",
+          "disposition": "hold",
+          "judgment": {
+            "model": "jev-1.13.0",
+            "version": "v2",
+            "request_sha256": "7a14f28ec91a2ea77763ee21e2b5cd1bc71d793c850e993bc43b4d9e62c81a63",
+            "answers": {
+              "support": {
+                "kind": "choice",
+                "choice": "supported",
+                "value": null,
+                "probabilities": {
+                  "unsupported": 0.19,
+                  "contradicted": 0.02,
+                  "supported": 0.79
+                },
+                "confidence": 0.68
+              }
+            },
+            "input_tokens": 1133,
+            "output_tokens": 41,
+            "latency_ms": 567.0942079959786,
+            "attempts": 1
+          }
+        }
+      ],
+      "baseline_ops": [
+        {
+          "op": "ADD",
+          "reason": "The user states a durable preference and rule for how editors should be presented.",
+          "id": null,
+          "text": "editors should always be in a modal with tabs",
+          "kind": "preference",
+          "context": {},
+          "tags": [
+            "editors",
+            "modal",
+            "tabs"
+          ],
+          "importance": 0.8,
+          "confidence": 1.0,
+          "valid_until": null,
+          "evidence": [
+            {
+              "message_id": 4,
+              "start_char": 20,
+              "end_char": 55,
+              "quote": "редакторы всегда выноси в модалку с табами"
+            }
+          ],
+          "scope": null,
+          "subject": null,
+          "subject_name": null,
+          "scope_id": null
+        }
+      ],
+      "accepted_ops": []
+    },
+    {
+      "id": "drift-reverse-guard-generic-wording",
+      "checks": [
+        {
+          "claim": "Login uses email OTP and no password; in dev, dev@notiky.local is used.",
+          "disposition": "accept",
+          "judgment": {
+            "model": "jev-1.13.0",
+            "version": "v2",
+            "request_sha256": "1f1fe1d3c45025d1d58a797b4174082a130876342d5660723938aec9b8bb56b3",
+            "answers": {
+              "support": {
+                "kind": "choice",
+                "choice": "supported",
+                "value": null,
+                "probabilities": {
+                  "supported": 0.97,
+                  "unsupported": 0.03,
+                  "contradicted": 0.0
+                },
+                "confidence": 0.95
+              }
+            },
+            "input_tokens": 719,
+            "output_tokens": 41,
+            "latency_ms": 359.493542004202,
+            "attempts": 1
+          }
+        }
+      ],
+      "baseline_ops": [
+        {
+          "op": "ADD",
+          "reason": "The user specifies the authentication mechanism and test credentials for the workspace.",
+          "id": null,
+          "text": "Login uses email OTP and no password; in dev, dev@notiky.local is used.",
+          "kind": "fact",
+          "context": {
+            "workspace": "notiky"
+          },
+          "tags": [
+            "auth",
+            "development"
+          ],
+          "importance": 0.7,
+          "confidence": 1.0,
+          "valid_until": null,
+          "evidence": [
+            {
+              "message_id": 1,
+              "start_char": 0,
+              "end_char": 65,
+              "quote": "тут вход через OTP на почту, пароля нет вообще. в dev используем dev@notiky.local"
+            }
+          ],
+          "scope": null,
+          "subject": null,
+          "subject_name": null,
+          "scope_id": null
+        }
+      ],
+      "accepted_ops": [
+        {
+          "op": "ADD",
+          "reason": "The user specifies the authentication mechanism and test credentials for the workspace.",
+          "id": null,
+          "text": "Login uses email OTP and no password; in dev, dev@notiky.local is used.",
+          "kind": "fact",
+          "context": {
+            "workspace": "notiky"
+          },
+          "tags": [
+            "auth",
+            "development"
+          ],
+          "importance": 0.7,
+          "confidence": 1.0,
+          "valid_until": null,
+          "evidence": [
+            {
+              "message_id": 1,
+              "start_char": 0,
+              "end_char": 65,
+              "quote": "тут вход через OTP на почту, пароля нет вообще. в dev используем dev@notiky.local"
+            }
+          ],
+          "scope": null,
+          "subject": null,
+          "subject_name": null,
+          "scope_id": null
+        }
+      ]
+    },
+    {
+      "id": "drift-two-facts-one-window-hard",
+      "checks": [
+        {
+          "claim": "Show images only on click of the selected product",
+          "disposition": "accept",
+          "judgment": {
+            "model": "jev-1.13.0",
+            "version": "v2",
+            "request_sha256": "fbb36f9ef6e6b1a31db0c973f9d0f5646f5f1bf7fdaf38f26966a42aba7b91b1",
+            "answers": {
+              "support": {
+                "kind": "choice",
+                "choice": "supported",
+                "value": null,
+                "probabilities": {
+                  "unsupported": 0.04,
+                  "supported": 0.96,
+                  "contradicted": 0.0
+                },
+                "confidence": 0.94
+              }
+            },
+            "input_tokens": 946,
+            "output_tokens": 41,
+            "latency_ms": 383.69008299923735,
+            "attempts": 1
+          }
+        },
+        {
+          "claim": "Dislikes overcomplicated abstractions; prefers direct and concise code where readability matters more than flexibility",
+          "disposition": "hold",
+          "judgment": {
+            "model": "jev-1.13.0",
+            "version": "v2",
+            "request_sha256": "3cc80e59853ee94784454d91081501c9ec4b0c5e226258bc583ba42384dbcff4",
+            "answers": {
+              "support": {
+                "kind": "choice",
+                "choice": "supported",
+                "value": null,
+                "probabilities": {
+                  "unsupported": 0.15,
+                  "contradicted": 0.0,
+                  "supported": 0.85
+                },
+                "confidence": 0.77
+              }
+            },
+            "input_tokens": 992,
+            "output_tokens": 41,
+            "latency_ms": 333.0425419990206,
+            "attempts": 1
+          }
+        }
+      ],
+      "baseline_ops": [
+        {
+          "op": "ADD",
+          "reason": "The user stated a durable preference about how product images should be displayed.",
+          "id": null,
+          "text": "Show images only on click of the selected product",
+          "kind": "preference",
+          "context": {},
+          "tags": [],
+          "importance": 0.8,
+          "confidence": 1.0,
+          "valid_until": null,
+          "evidence": [
+            {
+              "message_id": 2,
+              "start_char": 0,
+              "end_char": 61,
+              "quote": "картинки показывай только по клику на выбранный продукт"
+            }
+          ],
+          "scope": null,
+          "subject": null,
+          "subject_name": null,
+          "scope_id": null
+        },
+        {
+          "op": "ADD",
+          "reason": "The user stated a durable working style preference.",
+          "id": null,
+          "text": "Dislikes overcomplicated abstractions; prefers direct and concise code where readability matters more than flexibility",
+          "kind": "preference",
+          "context": {},
+          "tags": [],
+          "importance": 0.8,
+          "confidence": 1.0,
+          "valid_until": null,
+          "evidence": [
+            {
+              "message_id": 4,
+              "start_char": 9,
+              "end_char": 105,
+              "quote": "я вообще не люблю переусложнённые абстракции, пиши прямо и коротко, читаемость важнее гибкости"
+            }
+          ],
+          "scope": null,
+          "subject": null,
+          "subject_name": null,
+          "scope_id": null
+        }
+      ],
+      "accepted_ops": [
+        {
+          "op": "ADD",
+          "reason": "The user stated a durable preference about how product images should be displayed.",
+          "id": null,
+          "text": "Show images only on click of the selected product",
+          "kind": "preference",
+          "context": {},
+          "tags": [],
+          "importance": 0.8,
+          "confidence": 1.0,
+          "valid_until": null,
+          "evidence": [
+            {
+              "message_id": 2,
+              "start_char": 0,
+              "end_char": 61,
+              "quote": "картинки показывай только по клику на выбранный продукт"
+            }
+          ],
+          "scope": null,
+          "subject": null,
+          "subject_name": null,
+          "scope_id": null
+        }
+      ]
+    },
+    {
+      "id": "drift-working-style-via-correction",
+      "checks": [
+        {
+          "claim": "Never add client-side shims or fallbacks when backend data is missing; fix it on the backend.",
+          "disposition": "hold",
+          "judgment": {
+            "model": "jev-1.13.0",
+            "version": "v2",
+            "request_sha256": "c58ff26096bf8cedb527072a1e456fdda9882a3a73dd4aed517548ba3d499544",
+            "answers": {
+              "support": {
+                "kind": "choice",
+                "choice": "supported",
+                "value": null,
+                "probabilities": {
+                  "unsupported": 0.49,
+                  "supported": 0.5,
+                  "contradicted": 0.01
+                },
+                "confidence": 0.25
+              }
+            },
+            "input_tokens": 1025,
+            "output_tokens": 41,
+            "latency_ms": 371.0525419955957,
+            "attempts": 1
+          }
+        }
+      ],
+      "baseline_ops": [
+        {
+          "op": "ADD",
+          "reason": "The user explicitly states a durable architectural preference against client-side shims for missing data.",
+          "id": null,
+          "text": "Never add client-side shims or fallbacks when backend data is missing; fix it on the backend.",
+          "kind": "preference",
+          "context": {},
+          "tags": [
+            "architecture",
+            "backend",
+            "frontend"
+          ],
+          "importance": 0.8,
+          "confidence": 1.0,
+          "valid_until": null,
+          "evidence": [
+            {
+              "message_id": 3,
+              "start_char": 9,
+              "end_char": 93,
+              "quote": "так не делай. если данных не хватает — это задача бэкенда, а не шим на клиенте. я не хочу разгребать эти костыли через полгода"
+            }
+          ],
+          "scope": null,
+          "subject": null,
+          "subject_name": null,
+          "scope_id": null
+        }
+      ],
+      "accepted_ops": []
+    },
+    {
+      "id": "echo-is-not-second-evidence",
+      "checks": [
+        {
+          "claim": "Frontend errors are sent to Sentry using the project frontend-alerts, and custom loggers are not used.",
+          "disposition": "accept",
+          "judgment": {
+            "model": "jev-1.13.0",
+            "version": "v2",
+            "request_sha256": "df5b9c6751845f2a8277848cad5f0d26fb5d9e2a3d49edf5743d3c4e16d590aa",
+            "answers": {
+              "support": {
+                "kind": "choice",
+                "choice": "supported",
+                "value": null,
+                "probabilities": {
+                  "unsupported": 0.04,
+                  "contradicted": 0.0,
+                  "supported": 0.96
+                },
+                "confidence": 0.94
+              }
+            },
+            "input_tokens": 778,
+            "output_tokens": 41,
+            "latency_ms": 317.6249590032967,
+            "attempts": 1
+          }
+        }
+      ],
+      "baseline_ops": [
+        {
+          "op": "ADD",
+          "reason": "The user explicitly stated the logging architecture and constraints for frontend errors.",
+          "id": null,
+          "text": "Frontend errors are sent to Sentry using the project frontend-alerts, and custom loggers are not used.",
+          "kind": "preference",
+          "context": {
+            "workspace": "frontend"
+          },
+          "tags": [
+            "logging",
+            "sentry",
+            "frontend-alerts"
+          ],
+          "importance": 0.8,
+          "confidence": 1.0,
+          "valid_until": null,
+          "evidence": [
+            {
+              "message_id": 1,
+              "start_char": 0,
+              "end_char": 94,
+              "quote": "фронтовые ошибки шлём в Sentry, проект называется frontend-alerts, никакого самописного логгера"
+            }
+          ],
+          "scope": null,
+          "subject": null,
+          "subject_name": null,
+          "scope_id": null
+        }
+      ],
+      "accepted_ops": [
+        {
+          "op": "ADD",
+          "reason": "The user explicitly stated the logging architecture and constraints for frontend errors.",
+          "id": null,
+          "text": "Frontend errors are sent to Sentry using the project frontend-alerts, and custom loggers are not used.",
+          "kind": "preference",
+          "context": {
+            "workspace": "frontend"
+          },
+          "tags": [
+            "logging",
+            "sentry",
+            "frontend-alerts"
+          ],
+          "importance": 0.8,
+          "confidence": 1.0,
+          "valid_until": null,
+          "evidence": [
+            {
+              "message_id": 1,
+              "start_char": 0,
+              "end_char": 94,
+              "quote": "фронтовые ошибки шлём в Sentry, проект называется frontend-alerts, никакого самописного логгера"
+            }
+          ],
+          "scope": null,
+          "subject": null,
+          "subject_name": null,
+          "scope_id": null
+        }
+      ]
+    },
+    {
+      "id": "hard-constraint",
+      "checks": [
+        {
+          "claim": "Never run local LLMs, use API only",
+          "disposition": "hold",
+          "judgment": {
+            "model": "jev-1.13.0",
+            "version": "v2",
+            "request_sha256": "593f6a8be0d66b3b0fa272664749875a3d7d2497237978dcbfc5c8d81249887a",
+            "answers": {
+              "support": {
+                "kind": "choice",
+                "choice": "supported",
+                "value": null,
+                "probabilities": {
+                  "supported": 0.78,
+                  "unsupported": 0.19,
+                  "contradicted": 0.03
+                },
+                "confidence": 0.67
+              }
+            },
+            "input_tokens": 713,
+            "output_tokens": 41,
+            "latency_ms": 332.1831659995951,
+            "attempts": 1
+          }
+        }
+      ],
+      "baseline_ops": [
+        {
+          "op": "ADD",
+          "reason": "User stated a strict constraint to never use local LLMs and only use APIs.",
+          "id": null,
+          "text": "Never run local LLMs, use API only",
+          "kind": "preference",
+          "context": {},
+          "tags": [
+            "llm",
+            "api",
+            "constraints"
+          ],
+          "importance": 0.8,
+          "confidence": 1.0,
+          "valid_until": null,
+          "evidence": [
+            {
+              "message_id": 1,
+              "start_char": 20,
+              "end_char": 66,
+              "quote": "локальные llm мы запускать не будем никогда. только API"
+            }
+          ],
+          "scope": null,
+          "subject": null,
+          "subject_name": null,
+          "scope_id": null
+        }
+      ],
+      "accepted_ops": []
+    },
+    {
+      "id": "identity-fact",
+      "checks": [
+        {
+          "claim": "User's GitHub handle is mluev",
+          "disposition": "accept",
+          "judgment": {
+            "model": "jev-1.13.0",
+            "version": "v2",
+            "request_sha256": "be2739a39047e79d27b7b8e533dabf9377ac9f4381a8689c84a7f3211e7c66c5",
+            "answers": {
+              "support": {
+                "kind": "choice",
+                "choice": "supported",
+                "value": null,
+                "probabilities": {
+                  "unsupported": 0.01,
+                  "contradicted": 0.0,
+                  "supported": 0.99
+                },
+                "confidence": 0.98
+              }
+            },
+            "input_tokens": 665,
+            "output_tokens": 41,
+            "latency_ms": 434.06820900418097,
+            "attempts": 1
+          }
+        },
+        {
+          "claim": "User's email address is mluev@example.com",
+          "disposition": "accept",
+          "judgment": {
+            "model": "jev-1.13.0",
+            "version": "v2",
+            "request_sha256": "90ff9d0ba346c3a821daa0c388a5a324454c5115f426b9f4d539dcd6f5ad20f7",
+            "answers": {
+              "support": {
+                "kind": "choice",
+                "choice": "supported",
+                "value": null,
+                "probabilities": {
+                  "supported": 0.95,
+                  "contradicted": 0.0,
+                  "unsupported": 0.05
+                },
+                "confidence": 0.92
+              }
+            },
+            "input_tokens": 670,
+            "output_tokens": 41,
+            "latency_ms": 389.0387079954962,
+            "attempts": 1
+          }
+        }
+      ],
+      "baseline_ops": [
+        {
+          "op": "ADD",
+          "reason": "User provided their durable GitHub handle.",
+          "id": null,
+          "text": "User's GitHub handle is mluev",
+          "kind": "fact",
+          "context": {},
+          "tags": [
+            "github",
+            "identity"
+          ],
+          "importance": 0.8,
+          "confidence": 1.0,
+          "valid_until": null,
+          "evidence": [
+            {
+              "message_id": 1,
+              "start_char": 0,
+              "end_char": 20,
+              "quote": "мой github это mluev"
+            }
+          ],
+          "scope": null,
+          "subject": null,
+          "subject_name": null,
+          "scope_id": null
+        },
+        {
+          "op": "ADD",
+          "reason": "User provided their durable email address.",
+          "id": null,
+          "text": "User's email address is mluev@example.com",
+          "kind": "fact",
+          "context": {},
+          "tags": [
+            "email",
+            "contact"
+          ],
+          "importance": 0.8,
+          "confidence": 1.0,
+          "valid_until": null,
+          "evidence": [
+            {
+              "message_id": 1,
+              "start_char": 22,
+              "end_char": 43,
+              "quote": "почта mluev@example.com"
+            }
+          ],
+          "scope": null,
+          "subject": null,
+          "subject_name": null,
+          "scope_id": null
+        }
+      ],
+      "accepted_ops": [
+        {
+          "op": "ADD",
+          "reason": "User provided their durable GitHub handle.",
+          "id": null,
+          "text": "User's GitHub handle is mluev",
+          "kind": "fact",
+          "context": {},
+          "tags": [
+            "github",
+            "identity"
+          ],
+          "importance": 0.8,
+          "confidence": 1.0,
+          "valid_until": null,
+          "evidence": [
+            {
+              "message_id": 1,
+              "start_char": 0,
+              "end_char": 20,
+              "quote": "мой github это mluev"
+            }
+          ],
+          "scope": null,
+          "subject": null,
+          "subject_name": null,
+          "scope_id": null
+        },
+        {
+          "op": "ADD",
+          "reason": "User provided their durable email address.",
+          "id": null,
+          "text": "User's email address is mluev@example.com",
+          "kind": "fact",
+          "context": {},
+          "tags": [
+            "email",
+            "contact"
+          ],
+          "importance": 0.8,
+          "confidence": 1.0,
+          "valid_until": null,
+          "evidence": [
+            {
+              "message_id": 1,
+              "start_char": 22,
+              "end_char": 43,
+              "quote": "почта mluev@example.com"
+            }
+          ],
+          "scope": null,
+          "subject": null,
+          "subject_name": null,
+          "scope_id": null
+        }
+      ]
+    },
+    {
+      "id": "mixed-user-and-project",
+      "checks": [
+        {
+          "claim": "Always use app-switch instead of native checkboxes across the entire system",
+          "disposition": "hold",
+          "judgment": {
+            "model": "jev-1.13.0",
+            "version": "v2",
+            "request_sha256": "de0d572bb55edb294c8aac74abada49d885d361b09e5910ff97d828701f6fdbb",
+            "answers": {
+              "support": {
+                "kind": "choice",
+                "choice": "supported",
+                "value": null,
+                "probabilities": {
+                  "unsupported": 0.19,
+                  "supported": 0.8,
+                  "contradicted": 0.01
+                },
+                "confidence": 0.71
+              }
+            },
+            "input_tokens": 854,
+            "output_tokens": 41,
+            "latency_ms": 379.97579199873144,
+            "attempts": 1
+          }
+        }
+      ],
+      "baseline_ops": [
+        {
+          "op": "ADD",
+          "reason": "The user stated a durable global rule to always use app-switch instead of native checkboxes across the system.",
+          "id": null,
+          "text": "Always use app-switch instead of native checkboxes across the entire system",
+          "kind": "preference",
+          "context": {},
+          "tags": [
+            "ui",
+            "checkboxes"
+          ],
+          "importance": 0.8,
+          "confidence": 1.0,
+          "valid_until": null,
+          "evidence": [
+            {
+              "message_id": 3,
+              "start_char": 13,
+              "end_char": 79,
+              "quote": "всегда используй app-switch вместо нативных чекбоксов, у нас так во всей системе"
+            }
+          ],
+          "scope": null,
+          "subject": null,
+          "subject_name": null,
+          "scope_id": null
+        }
+      ],
+      "accepted_ops": []
+    },
+    {
+      "id": "one-off-question",
+      "checks": [],
+      "baseline_ops": [],
+      "accepted_ops": []
+    },
+    {
+      "id": "preference-buried-in-project-work",
+      "checks": [
+        {
+          "claim": "User prefers keeping logic close to the place of use rather than scattered across helpers, until there is a genuinely large amount of it.",
+          "disposition": "accept",
+          "judgment": {
+            "model": "jev-1.13.0",
+            "version": "v2",
+            "request_sha256": "7962a252de867c0457e34b145af22f6663309cb955d68692d12119f869d460b9",
+            "answers": {
+              "support": {
+                "kind": "choice",
+                "choice": "supported",
+                "value": null,
+                "probabilities": {
+                  "contradicted": 0.0,
+                  "supported": 0.91,
+                  "unsupported": 0.09
+                },
+                "confidence": 0.86
+              }
+            },
+            "input_tokens": 977,
+            "output_tokens": 41,
+            "latency_ms": 376.95425000129035,
+            "attempts": 1
+          }
+        }
+      ],
+      "baseline_ops": [
+        {
+          "op": "ADD",
+          "reason": "The user explicitly stated a durable working style preference regarding code organization.",
+          "id": null,
+          "text": "User prefers keeping logic close to the place of use rather than scattered across helpers, until there is a genuinely large amount of it.",
+          "kind": "preference",
+          "context": {},
+          "tags": [
+            "code_organization",
+            "helpers"
+          ],
+          "importance": 0.8,
+          "confidence": 1.0,
+          "valid_until": null,
+          "evidence": [
+            {
+              "message_id": 3,
+              "start_char": 13,
+              "end_char": 118,
+              "quote": "я не люблю когда логика раскидана по хелперам, держи всё рядом с местом использования пока не станет реально много"
+            }
+          ],
+          "scope": null,
+          "subject": null,
+          "subject_name": null,
+          "scope_id": null
+        }
+      ],
+      "accepted_ops": [
+        {
+          "op": "ADD",
+          "reason": "The user explicitly stated a durable working style preference regarding code organization.",
+          "id": null,
+          "text": "User prefers keeping logic close to the place of use rather than scattered across helpers, until there is a genuinely large amount of it.",
+          "kind": "preference",
+          "context": {},
+          "tags": [
+            "code_organization",
+            "helpers"
+          ],
+          "importance": 0.8,
+          "confidence": 1.0,
+          "valid_until": null,
+          "evidence": [
+            {
+              "message_id": 3,
+              "start_char": 13,
+              "end_char": 118,
+              "quote": "я не люблю когда логика раскидана по хелперам, держи всё рядом с местом использования пока не станет реально много"
+            }
+          ],
+          "scope": null,
+          "subject": null,
+          "subject_name": null,
+          "scope_id": null
+        }
+      ]
+    },
+    {
+      "id": "project-fact-stays-project",
+      "checks": [
+        {
+          "claim": "SQLite is the source of truth, and Qdrant is a derived index that can always be rebuilt from the database.",
+          "disposition": "hold",
+          "judgment": {
+            "model": "jev-1.13.0",
+            "version": "v2",
+            "request_sha256": "a5e65db1699b7e2d5a80f157a197a3bd572300e9f38ded9b84ef1f73af5aca32",
+            "answers": {
+              "support": {
+                "kind": "choice",
+                "choice": "supported",
+                "value": null,
+                "probabilities": {
+                  "supported": 0.89,
+                  "unsupported": 0.11,
+                  "contradicted": 0.0
+                },
+                "confidence": 0.83
+              }
+            },
+            "input_tokens": 734,
+            "output_tokens": 41,
+            "latency_ms": 322.22366699716076,
+            "attempts": 1
+          }
+        }
+      ],
+      "baseline_ops": [
+        {
+          "op": "ADD",
+          "reason": "The user states the architectural source of truth for the system.",
+          "id": null,
+          "text": "SQLite is the source of truth, and Qdrant is a derived index that can always be rebuilt from the database.",
+          "kind": "fact",
+          "context": {},
+          "tags": [
+            "sqlite",
+            "qdrant",
+            "architecture"
+          ],
+          "importance": 0.8,
+          "confidence": 1.0,
+          "valid_until": null,
+          "evidence": [
+            {
+              "message_id": 1,
+              "start_char": 0,
+              "end_char": 97,
+              "quote": "SQLite у нас источник правды, Qdrant — производный индекс, его можно всегда пересобрать из базы"
+            }
+          ],
+          "scope": null,
+          "subject": null,
+          "subject_name": null,
+          "scope_id": null
+        }
+      ],
+      "accepted_ops": []
+    },
+    {
+      "id": "project-structure",
+      "checks": [
+        {
+          "claim": "Авторизация лежит в auth/ и работает на session cookie, не на JWT",
+          "disposition": "accept",
+          "judgment": {
+            "model": "jev-1.13.0",
+            "version": "v2",
+            "request_sha256": "181ab50af6bc9469dae4c6de005e4f218ff676890d67f4bb0bdc329196815e11",
+            "answers": {
+              "support": {
+                "kind": "choice",
+                "choice": "supported",
+                "value": null,
+                "probabilities": {
+                  "unsupported": 0.02,
+                  "contradicted": 0.0,
+                  "supported": 0.98
+                },
+                "confidence": 0.97
+              }
+            },
+            "input_tokens": 718,
+            "output_tokens": 41,
+            "latency_ms": 297.883291998005,
+            "attempts": 1
+          }
+        }
+      ],
+      "baseline_ops": [
+        {
+          "op": "ADD",
+          "reason": "User stated an architectural rule for authorization.",
+          "id": null,
+          "text": "Авторизация лежит в auth/ и работает на session cookie, не на JWT",
+          "kind": "preference",
+          "context": {},
+          "tags": [
+            "auth",
+            "architecture"
+          ],
+          "importance": 0.8,
+          "confidence": 1.0,
+          "valid_until": null,
+          "evidence": [
+            {
+              "message_id": 1,
+              "start_char": 9,
+              "end_char": 68,
+              "quote": "авторизация у нас лежит в auth/ и работает на session cookie, не на JWT"
+            }
+          ],
+          "scope": null,
+          "subject": null,
+          "subject_name": null,
+          "scope_id": null
+        }
+      ],
+      "accepted_ops": [
+        {
+          "op": "ADD",
+          "reason": "User stated an architectural rule for authorization.",
+          "id": null,
+          "text": "Авторизация лежит в auth/ и работает на session cookie, не на JWT",
+          "kind": "preference",
+          "context": {},
+          "tags": [
+            "auth",
+            "architecture"
+          ],
+          "importance": 0.8,
+          "confidence": 1.0,
+          "valid_until": null,
+          "evidence": [
+            {
+              "message_id": 1,
+              "start_char": 9,
+              "end_char": 68,
+              "quote": "авторизация у нас лежит в auth/ и работает на session cookie, не на JWT"
+            }
+          ],
+          "scope": null,
+          "subject": null,
+          "subject_name": null,
+          "scope_id": null
+        }
+      ]
+    },
+    {
+      "id": "proper-nouns-survive-extraction",
+      "checks": [
+        {
+          "claim": "Для оффлайн-эмбеддингов используется модель BAAI/bge-m3 через sentence-transformers",
+          "disposition": "accept",
+          "judgment": {
+            "model": "jev-1.13.0",
+            "version": "v2",
+            "request_sha256": "918c993c9b1ddbce70e4507c7977c7fffb9c2f5c2882db59ee72b87f6e8452ba",
+            "answers": {
+              "support": {
+                "kind": "choice",
+                "choice": "supported",
+                "value": null,
+                "probabilities": {
+                  "unsupported": 0.1,
+                  "supported": 0.9,
+                  "contradicted": 0.0
+                },
+                "confidence": 0.85
+              }
+            },
+            "input_tokens": 746,
+            "output_tokens": 41,
+            "latency_ms": 390.5738749963348,
+            "attempts": 1
+          }
+        }
+      ],
+      "baseline_ops": [
+        {
+          "op": "ADD",
+          "reason": "User specifies the standard model for offline embeddings.",
+          "id": null,
+          "text": "Для оффлайн-эмбеддингов используется модель BAAI/bge-m3 через sentence-transformers",
+          "kind": "preference",
+          "context": {},
+          "tags": [
+            "embeddings",
+            "bge-m3"
+          ],
+          "importance": 0.7,
+          "confidence": 1.0,
+          "valid_until": null,
+          "evidence": [
+            {
+              "message_id": 1,
+              "start_char": 0,
+              "end_char": 71,
+              "quote": "для оффлайн-эмбеддингов берём модель BAAI/bge-m3 через sentence-transformers"
+            }
+          ],
+          "scope": null,
+          "subject": null,
+          "subject_name": null,
+          "scope_id": null
+        }
+      ],
+      "accepted_ops": [
+        {
+          "op": "ADD",
+          "reason": "User specifies the standard model for offline embeddings.",
+          "id": null,
+          "text": "Для оффлайн-эмбеддингов используется модель BAAI/bge-m3 через sentence-transformers",
+          "kind": "preference",
+          "context": {},
+          "tags": [
+            "embeddings",
+            "bge-m3"
+          ],
+          "importance": 0.7,
+          "confidence": 1.0,
+          "valid_until": null,
+          "evidence": [
+            {
+              "message_id": 1,
+              "start_char": 0,
+              "end_char": 71,
+              "quote": "для оффлайн-эмбеддингов берём модель BAAI/bge-m3 через sentence-transformers"
+            }
+          ],
+          "scope": null,
+          "subject": null,
+          "subject_name": null,
+          "scope_id": null
+        }
+      ]
+    },
+    {
+      "id": "relative-date-resolves-against-session",
+      "checks": [
+        {
+          "claim": "Мы полностью перешли на Postgres 16, старые дампы от 15-й версии больше не читаем",
+          "disposition": "hold",
+          "judgment": {
+            "model": "jev-1.13.0",
+            "version": "v2",
+            "request_sha256": "29879c0ee9ca7bba0749eed6bb86438512f019d6302a5a0fde2c18478b9bf3a4",
+            "answers": {
+              "support": {
+                "kind": "choice",
+                "choice": "supported",
+                "value": null,
+                "probabilities": {
+                  "supported": 0.86,
+                  "unsupported": 0.13,
+                  "contradicted": 0.01
+                },
+                "confidence": 0.8
+              }
+            },
+            "input_tokens": 759,
+            "output_tokens": 41,
+            "latency_ms": 386.29149999906076,
+            "attempts": 1
+          }
+        }
+      ],
+      "baseline_ops": [
+        {
+          "op": "ADD",
+          "reason": "The user explicitly states a permanent transition to Postgres 16 starting from February 2026 within the named workspace context.",
+          "id": null,
+          "text": "Мы полностью перешли на Postgres 16, старые дампы от 15-й версии больше не читаем",
+          "kind": "fact",
+          "context": {
+            "workspace": "memkit"
+          },
+          "tags": [],
+          "importance": 0.8,
+          "confidence": 1.0,
+          "valid_until": null,
+          "evidence": [
+            {
+              "message_id": 1,
+              "start_char": 21,
+              "end_char": 88,
+              "quote": "с прошлого месяца мы полностью перешли на Postgres 16, старые дампы от 15-й версии больше не читаем"
+            }
+          ],
+          "scope": null,
+          "subject": null,
+          "subject_name": null,
+          "scope_id": null
+        }
+      ],
+      "accepted_ops": []
+    },
+    {
+      "id": "rename-transition-updates-candidate",
+      "checks": [
+        {
+          "claim": "The billing service was renamed from paybox to ledgerd",
+          "disposition": "hold",
+          "judgment": {
+            "model": "jev-1.13.0",
+            "version": "v2",
+            "request_sha256": "d5d2a2cebd82fff8d158a93c743f72e32c6d110d28117205cad32092430cad8c",
+            "answers": {
+              "support": {
+                "kind": "choice",
+                "choice": "supported",
+                "value": null,
+                "probabilities": {
+                  "supported": 0.82,
+                  "contradicted": 0.0,
+                  "unsupported": 0.18
+                },
+                "confidence": 0.73
+              }
+            },
+            "input_tokens": 696,
+            "output_tokens": 41,
+            "latency_ms": 419.95937500178115,
+            "attempts": 1
+          }
+        }
+      ],
+      "baseline_ops": [
+        {
+          "op": "UPDATE",
+          "reason": "The user stated that the billing service paybox was renamed to ledgerd, replacing the previous fact.",
+          "id": "cand-name-1",
+          "text": "The billing service was renamed from paybox to ledgerd",
+          "kind": "fact",
+          "context": {
+            "workspace": "cine"
+          },
+          "tags": [],
+          "importance": 0.6,
+          "confidence": 1.0,
+          "valid_until": null,
+          "evidence": [
+            {
+              "message_id": 1,
+              "start_char": 0,
+              "end_char": 32,
+              "quote": "мы переименовали paybox в ledgerd"
+            }
+          ],
+          "scope": null,
+          "subject": null,
+          "subject_name": null,
+          "scope_id": null
+        }
+      ],
+      "accepted_ops": []
+    },
+    {
+      "id": "routing-fact-about-listed-project",
+      "checks": [
+        {
+          "claim": "В memkit очередь реализована на Postgres, Redis не используется",
+          "disposition": "accept",
+          "judgment": {
+            "model": "jev-1.13.0",
+            "version": "v2",
+            "request_sha256": "5ae71a3da573e584805b837c3a19258029c61a9c4b4090b597fca50c02b5f08a",
+            "answers": {
+              "support": {
+                "kind": "choice",
+                "choice": "supported",
+                "value": null,
+                "probabilities": {
+                  "unsupported": 0.04,
+                  "contradicted": 0.0,
+                  "supported": 0.96
+                },
+                "confidence": 0.94
+              }
+            },
+            "input_tokens": 939,
+            "output_tokens": 41,
+            "latency_ms": 376.0583340044832,
+            "attempts": 1
+          }
+        }
+      ],
+      "baseline_ops": [
+        {
+          "op": "ADD",
+          "reason": "The user stated a durable architecture fact about the memkit project.",
+          "id": null,
+          "text": "В memkit очередь реализована на Postgres, Redis не используется",
+          "kind": "fact",
+          "context": {
+            "workspace": "memkit"
+          },
+          "tags": [
+            "memkit",
+            "database",
+            "queue"
+          ],
+          "importance": 0.7,
+          "confidence": 1.0,
+          "valid_until": null,
+          "evidence": [
+            {
+              "message_id": 1,
+              "start_char": 10,
+              "end_char": 64,
+              "quote": "очередь в memkit на самом Postgres, Redis мы специально не заводим"
+            }
+          ],
+          "scope": 3,
+          "subject": null,
+          "subject_name": null,
+          "scope_id": null
+        }
+      ],
+      "accepted_ops": [
+        {
+          "op": "ADD",
+          "reason": "The user stated a durable architecture fact about the memkit project.",
+          "id": null,
+          "text": "В memkit очередь реализована на Postgres, Redis не используется",
+          "kind": "fact",
+          "context": {
+            "workspace": "memkit"
+          },
+          "tags": [
+            "memkit",
+            "database",
+            "queue"
+          ],
+          "importance": 0.7,
+          "confidence": 1.0,
+          "valid_until": null,
+          "evidence": [
+            {
+              "message_id": 1,
+              "start_char": 10,
+              "end_char": 64,
+              "quote": "очередь в memkit на самом Postgres, Redis мы специально не заводим"
+            }
+          ],
+          "scope": 3,
+          "subject": null,
+          "subject_name": null,
+          "scope_id": null
+        }
+      ]
+    },
+    {
+      "id": "routing-fact-about-listed-teammate",
+      "checks": [
+        {
+          "claim": "Alexander пишет только на Go, фронт он не трогает вообще",
+          "disposition": "accept",
+          "judgment": {
+            "model": "jev-1.13.0",
+            "version": "v2",
+            "request_sha256": "20fb57f9fef16b5317024357f7d0c22b114a4175885ed1b5e8d59012737c1222",
+            "answers": {
+              "support": {
+                "kind": "choice",
+                "choice": "supported",
+                "value": null,
+                "probabilities": {
+                  "unsupported": 0.06,
+                  "contradicted": 0.0,
+                  "supported": 0.94
+                },
+                "confidence": 0.91
+              }
+            },
+            "input_tokens": 941,
+            "output_tokens": 41,
+            "latency_ms": 340.194332995452,
+            "attempts": 1
+          }
+        },
+        {
+          "claim": "Не давать Alexander vue-таски",
+          "disposition": "hold",
+          "judgment": {
+            "model": "jev-1.13.0",
+            "version": "v2",
+            "request_sha256": "c4e428887b21088fdea128fb1539ebf7d45ed552490c45b8887a357ffe343d17",
+            "answers": {
+              "support": {
+                "kind": "choice",
+                "choice": "supported",
+                "value": null,
+                "probabilities": {
+                  "unsupported": 0.1,
+                  "supported": 0.89,
+                  "contradicted": 0.01
+                },
+                "confidence": 0.84
+              }
+            },
+            "input_tokens": 928,
+            "output_tokens": 41,
+            "latency_ms": 455.21766599995317,
+            "attempts": 1
+          }
+        }
+      ],
+      "baseline_ops": [
+        {
+          "op": "ADD",
+          "reason": "Durable fact about teammate Alexander's specialization.",
+          "id": null,
+          "text": "Alexander пишет только на Go, фронт он не трогает вообще",
+          "kind": "fact",
+          "context": {},
+          "tags": [
+            "alexander",
+            "go",
+            "frontend"
+          ],
+          "importance": 0.8,
+          "confidence": 1.0,
+          "valid_until": null,
+          "evidence": [
+            {
+              "message_id": 1,
+              "start_char": 0,
+              "end_char": 54,
+              "quote": "Alexander пишет только на Go, фронт он не трогает вообще"
+            }
+          ],
+          "scope": null,
+          "subject": 5,
+          "subject_name": null,
+          "scope_id": null
+        },
+        {
+          "op": "ADD",
+          "reason": "Durable constraint regarding work assignment for Alexander.",
+          "id": null,
+          "text": "Не давать Alexander vue-таски",
+          "kind": "preference",
+          "context": {},
+          "tags": [
+            "alexander",
+            "vue",
+            "tasks"
+          ],
+          "importance": 0.8,
+          "confidence": 1.0,
+          "valid_until": null,
+          "evidence": [
+            {
+              "message_id": 1,
+              "start_char": 56,
+              "end_char": 84,
+              "quote": "не давай ему vue-таски"
+            }
+          ],
+          "scope": null,
+          "subject": 5,
+          "subject_name": null,
+          "scope_id": null
+        }
+      ],
+      "accepted_ops": [
+        {
+          "op": "ADD",
+          "reason": "Durable fact about teammate Alexander's specialization.",
+          "id": null,
+          "text": "Alexander пишет только на Go, фронт он не трогает вообще",
+          "kind": "fact",
+          "context": {},
+          "tags": [
+            "alexander",
+            "go",
+            "frontend"
+          ],
+          "importance": 0.8,
+          "confidence": 1.0,
+          "valid_until": null,
+          "evidence": [
+            {
+              "message_id": 1,
+              "start_char": 0,
+              "end_char": 54,
+              "quote": "Alexander пишет только на Go, фронт он не трогает вообще"
+            }
+          ],
+          "scope": null,
+          "subject": 5,
+          "subject_name": null,
+          "scope_id": null
+        }
+      ]
+    },
+    {
+      "id": "routing-own-preference-in-a-project-session",
+      "checks": [
+        {
+          "claim": "User prefers absolute imports over relative imports",
+          "disposition": "accept",
+          "judgment": {
+            "model": "jev-1.13.0",
+            "version": "v2",
+            "request_sha256": "471c21e5dc8d9d0352ae6fed97572620ddaac523f11d1c054f96bdc24807ab13",
+            "answers": {
+              "support": {
+                "kind": "choice",
+                "choice": "supported",
+                "value": null,
+                "probabilities": {
+                  "unsupported": 0.04,
+                  "contradicted": 0.0,
+                  "supported": 0.96
+                },
+                "confidence": 0.94
+              }
+            },
+            "input_tokens": 1129,
+            "output_tokens": 41,
+            "latency_ms": 350.06133299611975,
+            "attempts": 1
+          }
+        }
+      ],
+      "baseline_ops": [
+        {
+          "op": "ADD",
+          "reason": "The user explicitly states a durable preference for absolute imports.",
+          "id": null,
+          "text": "User prefers absolute imports over relative imports",
+          "kind": "preference",
+          "context": {},
+          "tags": [
+            "imports",
+            "preference"
+          ],
+          "importance": 0.7,
+          "confidence": 1.0,
+          "valid_until": null,
+          "evidence": [
+            {
+              "message_id": 3,
+              "start_char": 13,
+              "end_char": 68,
+              "quote": "мне удобнее когда все импорты абсолютные, относительные я просто не читаю"
+            }
+          ],
+          "scope": null,
+          "subject": null,
+          "subject_name": null,
+          "scope_id": null
+        }
+      ],
+      "accepted_ops": [
+        {
+          "op": "ADD",
+          "reason": "The user explicitly states a durable preference for absolute imports.",
+          "id": null,
+          "text": "User prefers absolute imports over relative imports",
+          "kind": "preference",
+          "context": {},
+          "tags": [
+            "imports",
+            "preference"
+          ],
+          "importance": 0.7,
+          "confidence": 1.0,
+          "valid_until": null,
+          "evidence": [
+            {
+              "message_id": 3,
+              "start_char": 13,
+              "end_char": 68,
+              "quote": "мне удобнее когда все импорты абсолютные, относительные я просто не читаю"
+            }
+          ],
+          "scope": null,
+          "subject": null,
+          "subject_name": null,
+          "scope_id": null
+        }
+      ]
+    },
+    {
+      "id": "routing-rule-for-the-whole-team",
+      "checks": [
+        {
+          "claim": "Мы используем squash-merge всегда, во всех репозиториях, история должна быть линейной",
+          "disposition": "hold",
+          "judgment": {
+            "model": "jev-1.13.0",
+            "version": "v2",
+            "request_sha256": "93cdae56554248f0030ddb845eb227319571db4afaf58d23c97e58116d776f1a",
+            "answers": {
+              "support": {
+                "kind": "choice",
+                "choice": "supported",
+                "value": null,
+                "probabilities": {
+                  "unsupported": 0.11,
+                  "contradicted": 0.01,
+                  "supported": 0.88
+                },
+                "confidence": 0.83
+              }
+            },
+            "input_tokens": 961,
+            "output_tokens": 41,
+            "latency_ms": 380.43004099745303,
+            "attempts": 1
+          }
+        }
+      ],
+      "baseline_ops": [
+        {
+          "op": "ADD",
+          "reason": "The user stated a team-wide rule regarding squash-merge and linear history.",
+          "id": null,
+          "text": "Мы используем squash-merge всегда, во всех репозиториях, история должна быть линейной",
+          "kind": "preference",
+          "context": {},
+          "tags": [
+            "merge",
+            "git",
+            "team-policy"
+          ],
+          "importance": 0.8,
+          "confidence": 1.0,
+          "valid_until": null,
+          "evidence": [
+            {
+              "message_id": 1,
+              "start_char": 0,
+              "end_char": 71,
+              "quote": "у нас принято squash-merge всегда, во всех репах, история должна быть линейной"
+            }
+          ],
+          "scope": 2,
+          "subject": null,
+          "subject_name": null,
+          "scope_id": null
+        }
+      ],
+      "accepted_ops": []
+    },
+    {
+      "id": "routing-teammate-via-russian-alias",
+      "checks": [
+        {
+          "claim": "Alexander Petrov has an allergy to mocks and demands a real database in tests",
+          "disposition": "hold",
+          "judgment": {
+            "model": "jev-1.13.0",
+            "version": "v2",
+            "request_sha256": "801df800d354f7e144e61050a0074f3add8d5593c65dbf2b6059a1f16538e88a",
+            "answers": {
+              "support": {
+                "kind": "choice",
+                "choice": "supported",
+                "value": null,
+                "probabilities": {
+                  "supported": 0.8,
+                  "contradicted": 0.0,
+                  "unsupported": 0.2
+                },
+                "confidence": 0.7
+              }
+            },
+            "input_tokens": 971,
+            "output_tokens": 41,
+            "latency_ms": 359.2669999998179,
+            "attempts": 1
+          }
+        }
+      ],
+      "baseline_ops": [
+        {
+          "op": "ADD",
+          "reason": "Durable preference/rule stated by the user about teammate Alexander Petrov regarding test methodology.",
+          "id": null,
+          "text": "Alexander Petrov has an allergy to mocks and demands a real database in tests",
+          "kind": "preference",
+          "context": {},
+          "tags": [
+            "testing",
+            "mocks",
+            "database"
+          ],
+          "importance": 0.8,
+          "confidence": 1.0,
+          "valid_until": null,
+          "evidence": [
+            {
+              "message_id": 1,
+              "start_char": 0,
+              "end_char": 66,
+              "quote": "у Саши аллергия на моки — он требует настоящую базу в тестах, всегда"
+            }
+          ],
+          "scope": null,
+          "subject": 5,
+          "subject_name": null,
+          "scope_id": null
+        }
+      ],
+      "accepted_ops": []
+    },
+    {
+      "id": "routing-unlisted-person-keeps-their-name",
+      "checks": [
+        {
+          "claim": "Timur Askarov does not read PRs longer than 400 lines; they need to be split into smaller ones",
+          "disposition": "accept",
+          "judgment": {
+            "model": "jev-1.13.0",
+            "version": "v2",
+            "request_sha256": "38a28e0a8290c415a3e850d839e4e771cf67f9e717a063a65e8fdaf0d9b6fc23",
+            "answers": {
+              "support": {
+                "kind": "choice",
+                "choice": "supported",
+                "value": null,
+                "probabilities": {
+                  "supported": 0.96,
+                  "unsupported": 0.04,
+                  "contradicted": 0.0
+                },
+                "confidence": 0.93
+              }
+            },
+            "input_tokens": 981,
+            "output_tokens": 41,
+            "latency_ms": 429.2967079964001,
+            "attempts": 1
+          }
+        }
+      ],
+      "baseline_ops": [
+        {
+          "op": "ADD",
+          "reason": "The user stated a durable preference/constraint regarding Timur Askarov's review habits.",
+          "id": null,
+          "text": "Timur Askarov does not read PRs longer than 400 lines; they need to be split into smaller ones",
+          "kind": "preference",
+          "context": {},
+          "tags": [
+            "code_review",
+            "pull_requests"
+          ],
+          "importance": 0.7,
+          "confidence": 1.0,
+          "valid_until": null,
+          "evidence": [
+            {
+              "message_id": 1,
+              "start_char": 0,
+              "end_char": 83,
+              "quote": "Тимур Аскаров не читает PR больше 400 строк, ему надо разбивать на мелкие"
+            }
+          ],
+          "scope": null,
+          "subject": null,
+          "subject_name": "Тимур Аскаров",
+          "scope_id": null
+        }
+      ],
+      "accepted_ops": [
+        {
+          "op": "ADD",
+          "reason": "The user stated a durable preference/constraint regarding Timur Askarov's review habits.",
+          "id": null,
+          "text": "Timur Askarov does not read PRs longer than 400 lines; they need to be split into smaller ones",
+          "kind": "preference",
+          "context": {},
+          "tags": [
+            "code_review",
+            "pull_requests"
+          ],
+          "importance": 0.7,
+          "confidence": 1.0,
+          "valid_until": null,
+          "evidence": [
+            {
+              "message_id": 1,
+              "start_char": 0,
+              "end_char": 83,
+              "quote": "Тимур Аскаров не читает PR больше 400 строк, ему надо разбивать на мелкие"
+            }
+          ],
+          "scope": null,
+          "subject": null,
+          "subject_name": "Тимур Аскаров",
+          "scope_id": null
+        }
+      ]
+    },
+    {
+      "id": "routing-unlisted-project-has-no-number",
+      "checks": [
+        {
+          "claim": "В cine рендер-очередь висит на ffmpeg-воркерах, они на отдельной машине, не в кластере",
+          "disposition": "accept",
+          "judgment": {
+            "model": "jev-1.13.0",
+            "version": "v2",
+            "request_sha256": "7c8e77ce94e6c89b3d96ab5838eff46949ec2595246d1aa47e05698d2d6f840b",
+            "answers": {
+              "support": {
+                "kind": "choice",
+                "choice": "supported",
+                "value": null,
+                "probabilities": {
+                  "supported": 0.98,
+                  "unsupported": 0.02,
+                  "contradicted": 0.0
+                },
+                "confidence": 0.96
+              }
+            },
+            "input_tokens": 1040,
+            "output_tokens": 41,
+            "latency_ms": 376.6313750020345,
+            "attempts": 1
+          }
+        }
+      ],
+      "baseline_ops": [
+        {
+          "op": "ADD",
+          "reason": "Durable factual statement about the cine workspace architecture.",
+          "id": null,
+          "text": "В cine рендер-очередь висит на ffmpeg-воркерах, они на отдельной машине, не в кластере",
+          "kind": "fact",
+          "context": {
+            "workspace": "cine"
+          },
+          "tags": [],
+          "importance": 0.6,
+          "confidence": 1.0,
+          "valid_until": null,
+          "evidence": [
+            {
+              "message_id": 1,
+              "start_char": 0,
+              "end_char": 82,
+              "quote": "в cine рендер-очередь висит на ffmpeg-воркерах, они на отдельной машине, не в кластере"
+            }
+          ],
+          "scope": 3,
+          "subject": null,
+          "subject_name": null,
+          "scope_id": null
+        }
+      ],
+      "accepted_ops": [
+        {
+          "op": "ADD",
+          "reason": "Durable factual statement about the cine workspace architecture.",
+          "id": null,
+          "text": "В cine рендер-очередь висит на ffmpeg-воркерах, они на отдельной машине, не в кластере",
+          "kind": "fact",
+          "context": {
+            "workspace": "cine"
+          },
+          "tags": [],
+          "importance": 0.6,
+          "confidence": 1.0,
+          "valid_until": null,
+          "evidence": [
+            {
+              "message_id": 1,
+              "start_char": 0,
+              "end_char": 82,
+              "quote": "в cine рендер-очередь висит на ffmpeg-воркерах, они на отдельной машине, не в кластере"
+            }
+          ],
+          "scope": 3,
+          "subject": null,
+          "subject_name": null,
+          "scope_id": null
+        }
+      ]
+    },
+    {
+      "id": "russian-input-yields-a-fact",
+      "checks": [
+        {
+          "claim": "все кнопки, которые запускают подписание и отправку, нужно унифицировать под лейбл «Подписать и отправить»",
+          "disposition": "hold",
+          "judgment": {
+            "model": "jev-1.13.0",
+            "version": "v2",
+            "request_sha256": "b12889b86139416c78835020c2fd72686db06ffd75f871ff57fbddfff932f9eb",
+            "answers": {
+              "support": {
+                "kind": "choice",
+                "choice": "supported",
+                "value": null,
+                "probabilities": {
+                  "supported": 0.87,
+                  "contradicted": 0.0,
+                  "unsupported": 0.13
+                },
+                "confidence": 0.8
+              }
+            },
+            "input_tokens": 875,
+            "output_tokens": 41,
+            "latency_ms": 345.75137499632547,
+            "attempts": 1
+          }
+        }
+      ],
+      "baseline_ops": [
+        {
+          "op": "ADD",
+          "reason": "User specified a durable preference/working rule for button labels related to signing and sending.",
+          "id": null,
+          "text": "все кнопки, которые запускают подписание и отправку, нужно унифицировать под лейбл «Подписать и отправить»",
+          "kind": "preference",
+          "context": {},
+          "tags": [],
+          "importance": 0.6,
+          "confidence": 1.0,
+          "valid_until": null,
+          "evidence": [
+            {
+              "message_id": 1,
+              "start_char": 0,
+              "end_char": 103,
+              "quote": "все кнопки, которые запускают подписание и отправку, давайте унифицируем под один лейбл «Подписать и отправить»"
+            }
+          ],
+          "scope": null,
+          "subject": null,
+          "subject_name": null,
+          "scope_id": null
+        }
+      ],
+      "accepted_ops": []
+    },
+    {
+      "id": "transient-state",
+      "checks": [],
+      "baseline_ops": [],
+      "accepted_ops": []
+    }
+  ],
+  "jev_usage": {
+    "input_tokens": 25000,
+    "output_tokens": 1189,
+    "requests": 29
+  }
+}

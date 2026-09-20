@@ -44,3 +44,16 @@ pnpm --dir web build
 ```
 
 CI adds a dependency audit, a real pinned-Qdrant job, SDK regeneration diffed against the committed output, and a clean wheel plus consumer install. Model-quality experiments stay explicit and budgeted; the golden comparison, the retrieval eval, and any human evaluation are release artifacts rather than ordinary CI fixtures.
+
+Optional [Jev experiments](experiments/jev.md) add semantic support, relation, and
+relevance probes. Their corpus validates offline in CI; live inference remains an
+explicit command. `JEV` and `TYPESAFE_API_KEY` are blanked by both the pytest guard
+and the HTTP harness, so configuring a local experiment key cannot make ordinary
+tests call the provider.
+
+The [experiment archive](experiments/README.md) keeps versioned reports, exact
+synthetic results, provenance, labels and decisions for future model/technology
+comparisons. CI validates both semantic corpora and saved artifact hashes. The
+explicit hybrid experiment uses disposable PostgreSQL, real BGE and local exact
+Qdrant; it never opens the configured production database. Its server-ANN and
+real-user limitations are recorded with its results.

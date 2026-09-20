@@ -33,7 +33,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 os.environ.setdefault("MEMKIT_DATABASE_URL", "postgresql://memkit@127.0.0.1:5433/memkit-test")
 os.environ["MEMKIT_TELEMETRY_HMAC_KEY"] = "test-hmac-key-that-is-long-enough-32ch"
 os.environ["MEMKIT_COOKIE_SECURE"] = "false"
+for _block in ("DEDUP", "RETRIEVAL", "SUPPORT", "CONTEXT"):
+    os.environ[f"MEMKIT_SEMANTIC_{_block}"] = "off"
 for _credential in (
+    "JEV",
+    "TYPESAFE_API_KEY",
     "ANTHROPIC_API_KEY",
     "GEMINI_API_KEY",
     "GOOGLE_API_KEY",

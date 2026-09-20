@@ -20,7 +20,7 @@ import psycopg
 from psycopg.types.json import Jsonb
 from qdrant_client import QdrantClient
 
-from . import outbox, provenance, security, vectors
+from . import filters, outbox, provenance, security, vectors
 from .db import Row, as_datetime, iso, utcnow
 from .embed import Embedder
 from .limits import MAX_MEMORY_CHARS, MAX_MESSAGE_CHARS, MIN_INDEX_CHARS
@@ -219,6 +219,7 @@ def ensure_raw_outbox(conn: psycopg.Connection, message_ids: list[int]) -> int:
 
 
 def search_raw(
+    conn: psycopg.Connection,
     client: QdrantClient,
     embedder: Embedder,
     *,
@@ -226,9 +227,11 @@ def search_raw(
     scope_ids: Sequence[str],
     limit: int = 30,
     vector: list[float] | None = None,
+    expression: dict[str, Any] | None = None,
+    kinds: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Semantic search over retained user turns, within the caller's scopes."""
-    if not scope_ids:
+    if not scope_ids or (kinds and "evidence" not in kinds):
         return []
     # The memory search on the same request already embedded this query; pass
     # its vector rather than paying for the identical encode twice.
@@ -238,18 +241,44 @@ def search_raw(
         vectors.RAW,
         vector,
         limit=limit,
-        must=[vectors.keyword("scope_id", list(scope_ids))],
+        must=[vectors.keyword("scope_id", list(scope_ids)), vectors.keyword("role", "user")],
     )
+    scores = {}
+    for hit in hits:
+        try:
+            scores[int(hit.id)] = round(float(hit.score), 4)
+        except (TypeError, ValueError):
+            continue
+    if not scores:
+        return []
+    # An outbox backlog can leave stale ownership or text in the index.
+    # Only the current Postgres row can authorize or supply a quotation.
+    rows = conn.execute(
+        """SELECT m.*,s.agent_id FROM messages m JOIN sessions s ON s.id=m.session_id
+           WHERE m.id=ANY(%s) AND s.scope_id=ANY(%s) AND m.role='user'""",
+        (list(scores), [uuid.UUID(str(scope)) for scope in scope_ids]),
+    ).fetchall()
     return [
         {
-            "message_id": hit.payload.get("message_id"),
-            "text": hit.payload.get("text", ""),
-            "similarity": round(float(hit.score), 4),
-            "context": hit.payload.get("context") or {},
-            "session_id": hit.payload.get("session_id"),
-            "created_at": hit.payload.get("created_at"),
+            "message_id": int(row["id"]),
+            "text": row["content"],
+            "similarity": scores[int(row["id"])],
+            "context": dict(row["context"] or {}),
+            "session_id": row["session_id"],
+            "created_at": iso(row["created_at"]),
+            "source_role": "user",
         }
-        for hit in hits
+        for row in sorted(rows, key=lambda r: (-scores[int(r["id"])], int(r["id"])))
+        if filters.matches(
+            {
+                "kind": "evidence",
+                "context": dict(row["context"] or {}),
+                "tags": [],
+                "agent_id": row["agent_id"],
+                "subject_id": None,
+            },
+            expression,
+        )
     ]
 
 
@@ -258,6 +287,7 @@ def evidence_excerpts(
     memory_ids: list[str],
     *,
     per_memory: int = 3,
+    scope_ids: Sequence[str] | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
     """Verbatim source spans for search results — search facts, return evidence.
 
@@ -273,9 +303,15 @@ def evidence_excerpts(
         """SELECT e.memory_id,e.message_id,e.start_char,e.end_char,e.excerpt_sha256,
                   m.content,m.role,m.created_at
              FROM memory_evidence e JOIN messages m ON m.id=e.message_id
+             JOIN sessions s ON s.id=m.session_id
             WHERE e.memory_id = ANY(%s)
+              AND (%s::uuid[] IS NULL OR s.scope_id=ANY(%s::uuid[]))
             ORDER BY e.memory_id,e.message_id,e.start_char""",
-        ([uuid.UUID(str(mid)) for mid in memory_ids],),
+        (
+            [uuid.UUID(str(mid)) for mid in memory_ids],
+            [uuid.UUID(str(s)) for s in scope_ids] if scope_ids is not None else None,
+            [uuid.UUID(str(s)) for s in scope_ids] if scope_ids is not None else None,
+        ),
     ).fetchall()
     excerpts: dict[str, list[dict[str, Any]]] = {}
     for row in rows:

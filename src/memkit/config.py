@@ -6,6 +6,7 @@ import os
 import stat
 import sys
 from pathlib import Path
+from typing import Literal
 
 from pydantic import AliasChoices, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -37,6 +38,24 @@ class Settings(BaseSettings):
 
     # Read unprefixed: the SDKs and every other tool expect these exact names.
     anthropic_api_key: str = Field(default="", validation_alias="ANTHROPIC_API_KEY")
+
+    # Optional semantic judgments. Merely configuring a key enables no calls.
+    jev_api_key: str = Field(
+        default="", validation_alias=AliasChoices("JEV", "TYPESAFE_API_KEY"), repr=False
+    )
+    jev_model: str = "jev-1.13.0"
+    semantic_version: Literal["v1", "v2", "v3", "v4"] = "v2"
+    semantic_dedup: Literal["off", "shadow", "verify"] = "off"
+    semantic_retrieval: Literal["off", "shadow", "rerank", "filter", "contribution"] = "off"
+    semantic_support: Literal["off", "shadow"] = "off"
+    # Applies only when a caller explicitly requests include_raw. Original
+    # user passages and facts then share one selection and one token budget.
+    semantic_context: Literal["off", "select", "compact"] = "off"
+    semantic_contribution_floor: float = Field(default=0.7, ge=0, le=1)
+    semantic_redundancy_floor: float = Field(default=0.7, ge=0, le=1)
+    semantic_timeout_seconds: float = Field(default=3, gt=0, le=20)
+    semantic_duplicate_floor: float = Field(default=0.9, ge=0, le=1)
+    semantic_relevance_floor: float = Field(default=2.0, ge=0, le=3)
 
     # Gemini through either the Developer API or Vertex AI:
     #

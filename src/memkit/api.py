@@ -18,6 +18,7 @@ and forty handlers that read it, which is exactly what made it single-user.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import time
 import uuid
@@ -29,7 +30,7 @@ from typing import Annotated, Any, Literal
 import psycopg
 from fastapi import Cookie, Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.security import APIKeyHeader
 from fastapi.staticfiles import StaticFiles
 from psycopg.types.json import Jsonb
@@ -39,6 +40,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from . import (
     auth,
     consolidate,
+    context_assembly,
     entities,
     extract,
     jobs,
@@ -378,6 +380,7 @@ class ProfileOut(StrictModel):
     budget_tokens: int
     generated_at: str
     policy_id: str
+    scope: dict[str, Any] | None = None
 
 
 class SessionOut(StrictModel):
@@ -435,6 +438,16 @@ def _validate_runtime(settings: Settings) -> None:
             "MEMKIT_TELEMETRY_HMAC_KEY must be at least 32 characters: stored query "
             "identities are HMAC'd with it"
         )
+    if not settings.jev_api_key and any(
+        mode != "off"
+        for mode in (
+            settings.semantic_dedup,
+            settings.semantic_retrieval,
+            settings.semantic_support,
+            settings.semantic_context,
+        )
+    ):
+        raise RuntimeError("enabled semantic blocks require JEV or TYPESAFE_API_KEY")
 
 
 @asynccontextmanager
@@ -469,9 +482,15 @@ async def lifespan(app: FastAPI):
         telemetry.prune(conn, retention_days=settings.telemetry_retention_days)
 
     app.state.maintenance = False
+    from .semantic_runtime import from_settings
+
+    app.state.semantic = from_settings(settings)
+    app.state.reranker = app.state.semantic
     _start_durable_worker(app)
     yield
     app.state.worker.stop()
+    if app.state.semantic is not None:
+        app.state.semantic.client.close()
     app.state.db.close_all()
     app.state.qdrant.close()
 
@@ -721,6 +740,7 @@ def _run_extraction(job_id: str) -> None:
                 client=app.state.qdrant,
                 embedder=app.state.embedder,
                 dedup_cosine=settings.dedup_cosine,
+                semantic=getattr(app.state, "semantic", None),
             )
             _drain()
             # A forced run (an explicit "remember this", or a closed session)
@@ -810,6 +830,9 @@ def _run_export(job_id: str) -> None:
                 private_scope_id=data["private_scope_id"],
                 authored_scopes=data.get("authored_scopes"),
             )
+            # The local exporter returns a Path for operator callers; durable
+            # job results are JSON and need the corresponding string.
+            result["path"] = str(result["path"])
             jobs.finish(conn, job_id, status="complete", result=result)
     except Exception as exc:
         logger.exception("export job %s failed", job_id)
@@ -1493,6 +1516,12 @@ def entity_profile(
 
 
 def _memory_summary(row: Any) -> dict[str, Any]:
+    """The shape every list and panel reports a memory in.
+
+    It carries the slugs as well as the names because a name is not a link: a
+    predecessor revision or an entity panel has to be able to navigate to the
+    scope or subject it mentions.
+    """
     data = dict(row)
     return {
         "id": str(data["id"]),
@@ -1502,7 +1531,13 @@ def _memory_summary(row: Any) -> dict[str, Any]:
         "confidence": float(data["confidence"]),
         "review_status": data["review_status"],
         "source_role": data["source_role"],
+        "status": data.get("status"),
         "scope": data.get("scope_name"),
+        "scope_slug": data.get("scope_slug"),
+        "subject": data.get("subject_name"),
+        "subject_slug": data.get("subject_slug"),
+        "tags": list(data.get("tags") or []),
+        "created_at": iso(data.get("created_at")),
         "updated_at": iso(data["updated_at"]),
         "revision": int(data["revision"]),
     }
@@ -1521,7 +1556,13 @@ def post_message(
     conn: psycopg.Connection = Depends(get_conn),
     settings: Settings = Depends(get_settings),
 ) -> MessageOut:
-    scope_id = principal_module.resolve_scope(conn, principal, body.scope, write=True)
+    scope_id = (
+        principal_module.resolve_scope(conn, principal, body.scope, write=True)
+        if body.scope
+        else principal_module.scope_for_workspace(
+            conn, principal, str(body.context.get("source_workspace") or "")
+        )
+    )
     try:
         with conn.transaction():
             message_id, deduplicated, redacted = store.add_message(
@@ -1587,7 +1628,13 @@ def post_evidence_batch(
     try:
         with conn.transaction():
             for event in body.events:
-                scope_id = principal_module.resolve_scope(conn, principal, event.scope, write=True)
+                scope_id = (
+                    principal_module.resolve_scope(conn, principal, event.scope, write=True)
+                    if event.scope
+                    else principal_module.scope_for_workspace(
+                        conn, principal, str(event.context.get("source_workspace") or "")
+                    )
+                )
                 message_id, duplicate, redacted = store.add_message(
                     conn,
                     session_id=event.session_id,
@@ -1795,16 +1842,28 @@ def patch_memory(
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
     _drain()
-    return {"id": memory_id, "revision": int(saved["revision"]), "status": saved["status"]}
+    return {
+        "id": memory_id,
+        "revision": int(saved["revision"]),
+        "status": saved["status"],
+        # An edit by the extractor returns a fact to review, so the caller has
+        # to be told what it now is rather than refetching to find out.
+        "review_status": saved["review_status"],
+    }
 
 
 @app.delete("/v1/memories/{memory_id}")
 def delete_memory(
     memory_id: str,
+    expected_revision: int | None = Query(None, ge=1),
     principal: Principal = Depends(get_principal),
     conn: psycopg.Connection = Depends(get_conn),
 ) -> EntityOut:
-    """Archive a memory. Reversible, because a mistaken delete is common."""
+    """Archive a memory. Reversible, because a mistaken delete is common.
+
+    The precondition is optional here and required on a patch: archiving is
+    reversible, so a lost race costs an undo rather than someone's wording.
+    """
     memory_id = _memory_id(memory_id)
     try:
         with conn.transaction():
@@ -1813,6 +1872,7 @@ def delete_memory(
                 memory_id=memory_id,
                 scopes=sorted(principal.writable_scope_ids),
                 status="archived",
+                expected_revision=expected_revision,
             )
     except KeyError as exc:
         raise HTTPException(404, "unknown memory") from exc
@@ -1825,6 +1885,7 @@ def delete_memory(
 @app.post("/v1/memories/{memory_id}/restore")
 def restore_memory(
     memory_id: str,
+    expected_revision: int | None = Query(None, ge=1),
     principal: Principal = Depends(get_principal),
     conn: psycopg.Connection = Depends(get_conn),
 ) -> EntityOut:
@@ -1836,6 +1897,7 @@ def restore_memory(
                 memory_id=memory_id,
                 scopes=sorted(principal.writable_scope_ids),
                 status="active",
+                expected_revision=expected_revision,
             )
     except KeyError as exc:
         raise HTTPException(404, "unknown memory") from exc
@@ -2042,8 +2104,9 @@ def get_memory(
                 for item in conn.execute(
                     """SELECT DISTINCT ms.session_id FROM memory_sources s
                          JOIN messages ms ON ms.id = s.message_id
-                        WHERE s.memory_id=%s""",
-                    (memory_id,),
+                         JOIN sessions session ON session.id=ms.session_id
+                        WHERE s.memory_id=%s AND session.scope_id=ANY(%s)""",
+                    (memory_id, principal.scopes()),
                 )
             ],
         }
@@ -2059,28 +2122,49 @@ def memory_sources(
 ) -> MemorySourcesOut:
     memory_id = _memory_id(memory_id)
     memory = conn.execute(
-        "SELECT * FROM memories WHERE id=%s AND scope_id = ANY(%s)",
+        """SELECT m.*, sc.name AS scope_name, sc.slug AS scope_slug,
+                  sub.name AS subject_name, sub.slug AS subject_slug
+             FROM memories m
+             JOIN entities sc ON sc.id = m.scope_id
+             LEFT JOIN entities sub ON sub.id = m.subject_id
+            WHERE m.id=%s AND m.scope_id = ANY(%s)""",
         (memory_id, principal.scopes()),
     ).fetchone()
     if memory is None:
         raise HTTPException(404, "unknown memory")
-    evidence = [
-        {
-            "message_id": int(row["message_id"]),
-            "start_char": int(row["start_char"]),
-            "end_char": int(row["end_char"]),
-            "excerpt_sha256": row["excerpt_sha256"],
-            "role": row["role"],
-            "content": row["content"],
-            "created_at": iso(row["created_at"]),
-        }
-        for row in conn.execute(
-            """SELECT e.*,m.role,m.content,m.created_at FROM memory_evidence e
-                 JOIN messages m ON m.id=e.message_id WHERE e.memory_id=%s
-                 ORDER BY e.message_id,e.start_char""",
-            (memory_id,),
+    # The span is verified here, not by the caller. It was returning the whole
+    # cited message with the offsets and the hash and leaving the client to do
+    # the check -- which shipped a transcript per span and made "verbatim" a
+    # claim nobody was enforcing.
+    evidence = []
+    for row in conn.execute(
+        """SELECT e.*,m.role,m.created_at,length(m.content) AS content_length,
+                  substring(m.content FROM e.start_char + 1 FOR e.end_char - e.start_char)
+                      AS excerpt
+             FROM memory_evidence e JOIN messages m ON m.id=e.message_id
+             JOIN sessions s ON s.id=m.session_id
+            WHERE e.memory_id=%s AND s.scope_id=ANY(%s)
+            ORDER BY e.message_id,e.start_char""",
+        (memory_id, principal.scopes()),
+    ):
+        excerpt = str(row["excerpt"] or "")
+        evidence.append(
+            {
+                "message_id": int(row["message_id"]),
+                "start_char": int(row["start_char"]),
+                "end_char": int(row["end_char"]),
+                "excerpt": excerpt,
+                # False means the message moved under the citation. The span is
+                # still reported, because its absence would read as "no
+                # evidence" rather than "evidence that no longer checks out".
+                "verified": (
+                    0 <= row["start_char"] < row["end_char"] <= row["content_length"]
+                    and hashlib.sha256(excerpt.encode()).hexdigest() == row["excerpt_sha256"]
+                ),
+                "role": row["role"],
+                "created_at": iso(row["created_at"]),
+            }
         )
-    ]
     return {
         "memory": _memory_summary(memory),
         "source_role": str(memory["source_role"]),
@@ -2096,7 +2180,12 @@ def memory_history(
 ) -> MemoryHistoryOut:
     memory_id = _memory_id(memory_id)
     memory = conn.execute(
-        "SELECT * FROM memories WHERE id=%s AND scope_id = ANY(%s)",
+        """SELECT m.*, sc.name AS scope_name, sc.slug AS scope_slug,
+                  sub.name AS subject_name, sub.slug AS subject_slug
+             FROM memories m
+             JOIN entities sc ON sc.id = m.scope_id
+             LEFT JOIN entities sub ON sub.id = m.subject_id
+            WHERE m.id=%s AND m.scope_id = ANY(%s)""",
         (memory_id, principal.scopes()),
     ).fetchone()
     if memory is None:
@@ -2117,17 +2206,26 @@ def memory_history(
             "created_at": iso(row["created_at"]),
         }
         for row in conn.execute(
-            "SELECT * FROM memory_revisions WHERE memory_id=%s ORDER BY revision DESC",
-            (memory_id,),
+            """SELECT * FROM memory_revisions WHERE memory_id=%s
+               AND scope_id=ANY(%s) ORDER BY revision DESC""",
+            (memory_id, principal.scopes()),
         )
     ]
+    chain = """SELECT m.*, sc.name AS scope_name, sc.slug AS scope_slug,
+                      sub.name AS subject_name, sub.slug AS subject_slug
+                 FROM memories m
+                 JOIN entities sc ON sc.id = m.scope_id
+                 LEFT JOIN entities sub ON sub.id = m.subject_id
+                WHERE {clause} AND m.scope_id=ANY(%s)"""
     predecessors = [
         _memory_summary(row)
-        for row in conn.execute("SELECT * FROM memories WHERE superseded_by=%s", (memory_id,))
+        for row in conn.execute(
+            chain.format(clause="m.superseded_by=%s"), (memory_id, principal.scopes())
+        )
     ]
     successor_row = (
         conn.execute(
-            "SELECT * FROM memories WHERE id=%s", (str(memory["superseded_by"]),)
+            chain.format(clause="m.id=%s"), (str(memory["superseded_by"]), principal.scopes())
         ).fetchone()
         if memory["superseded_by"]
         else None
@@ -2170,6 +2268,9 @@ def search_memories(
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
     started = time.perf_counter()
+    semantic = getattr(app.state, "semantic", None)
+    assemble = bool(body.include_raw and semantic is not None and semantic.context != "off")
+    raw = None
     try:
         result = retrieval.explain(
             conn,
@@ -2179,12 +2280,43 @@ def search_memories(
             scope_ids=scopes,
             expression=expression,
             kinds=body.kinds,
-            limit=body.limit,
-            budget_tokens=body.budget_tokens,
+            limit=60 if assemble else body.limit,
+            budget_tokens=120_000 if assemble else body.budget_tokens,
             policy=policy,
             include_untrusted=body.include_untrusted,
-            reranker=getattr(app.state, "reranker", None),
+            reranker=None if assemble else getattr(app.state, "reranker", None),
         )
+        if assemble:
+            context_started = time.perf_counter()
+            result, raw = context_assembly.assemble(
+                conn,
+                app.state.qdrant,
+                result,
+                query=body.query,
+                scope_ids=scopes,
+                expression=expression,
+                kinds=body.kinds,
+                budget_tokens=body.budget_tokens,
+                limit=body.limit,
+                select=lambda query, candidates: semantic.select_context(
+                    query, candidates, budget_tokens=body.budget_tokens, max_results=body.limit
+                ),
+            )
+            result.timings["context_ms"] = (time.perf_counter() - context_started) * 1000
+            result.timings["total_ms"] = (time.perf_counter() - started) * 1000
+        elif body.include_raw:
+            raw = store.search_raw(
+                conn,
+                app.state.qdrant,
+                app.state.embedder,
+                query=body.query,
+                scope_ids=scopes,
+                limit=body.limit,
+                vector=result.query_vector,
+                expression=expression,
+                kinds=body.kinds,
+            )
+            result.timings["total_ms"] = (time.perf_counter() - started) * 1000
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
     except Exception as exc:
@@ -2193,6 +2325,20 @@ def search_memories(
         logger.warning("vector search failed; dependency monitor will reconnect")
         raise HTTPException(503, "vector search dependency is temporarily unavailable") from exc
     result.timings["request_ms"] = (time.perf_counter() - started) * 1000
+    selected_excerpts = {}
+    if body.include_sources and result.chosen:
+        excerpts = store.evidence_excerpts(
+            conn, [item.id for item in result.chosen], scope_ids=scopes
+        )
+        for item in result.chosen:
+            selected_excerpts[item.id] = []
+            for source in excerpts.get(item.id, []):
+                if assemble:
+                    cost = retrieval._token_count(source["excerpt"]) + 6
+                    if result.used_tokens + cost > body.budget_tokens:
+                        continue
+                    result.used_tokens += cost
+                selected_excerpts[item.id].append(source)
     with conn.transaction():
         retrieval_id = telemetry.record_retrieval_run(
             conn,
@@ -2202,27 +2348,15 @@ def search_memories(
             results=[item.as_dict() for item in result.chosen],
             timings=result.timings,
             used_tokens=result.used_tokens,
+            has_evidence=bool(raw),
         )
         if result.chosen:
             store.record_retrieval(conn, [item.id for item in result.chosen])
-    raw = (
-        store.search_raw(
-            app.state.qdrant,
-            app.state.embedder,
-            query=body.query,
-            scope_ids=scopes,
-            limit=body.limit,
-            vector=result.query_vector,
-        )
-        if body.include_raw
-        else []
-    )
     payload = result.as_dict()
     if body.include_sources and result.chosen:
-        excerpts = store.evidence_excerpts(conn, [item.id for item in result.chosen])
         for memory in payload["memories"]:
-            memory["sources"] = excerpts.get(memory["id"], [])
-    return {**payload, "raw": raw, "retrieval_id": retrieval_id}
+            memory["sources"] = selected_excerpts.get(memory["id"], [])
+    return {**payload, "raw": raw or [], "retrieval_id": retrieval_id}
 
 
 @app.post("/v1/retrieval-feedback", status_code=201)
@@ -2317,11 +2451,12 @@ def review_queue(
                  LEFT JOIN users u ON u.id = m.author_id
                  LEFT JOIN memory_revisions prev
                         ON prev.memory_id = m.id AND prev.revision = m.revision - 1
+                       AND prev.scope_id=ANY(%s)
                 WHERE m.scope_id = ANY(%s) AND m.status='active'
                   AND m.review_status='pending'
                 ORDER BY m.created_at DESC
                 LIMIT %s OFFSET %s""",
-            (principal.scopes(), limit, offset),
+            (principal.scopes(), principal.scopes(), limit, offset),
         ).fetchall()
         for row in rows:
             item = _memory_summary(row)
@@ -2404,7 +2539,14 @@ def review_queue(
             )["s"]
         )
         limit_usd = settings.monthly_cost_limit_usd
-        if limit_usd and spend >= limit_usd * 0.8:
+        dismissed = conn.execute(
+            """SELECT 1 FROM needs_attention
+                WHERE user_id=%s AND kind='budget' AND status='resolved'
+                  AND to_char(resolved_at AT TIME ZONE 'UTC','YYYY-MM')
+                      = to_char(now() AT TIME ZONE 'UTC','YYYY-MM')""",
+            (principal.user_id,),
+        ).fetchone()
+        if limit_usd and spend >= limit_usd * 0.8 and dismissed is None:
             items.append(
                 {
                     "id": "budget",
@@ -2416,6 +2558,52 @@ def review_queue(
                 }
             )
     return {"items": items}
+
+
+def _dismiss_computed(
+    conn: psycopg.Connection,
+    principal: Principal,
+    item_id: str,
+    body: AttentionResolveIn,
+) -> dict[str, Any]:
+    """Close a queue item that had no row until now.
+
+    The review queue reads failed jobs and the budget warning straight from
+    live state, so dismissing one has to write the row that suppresses it. The
+    queue's own `NOT EXISTS` clause is what then hides it.
+    """
+    if body.action != "dismiss":
+        raise HTTPException(404, "unknown or already resolved item")
+    kind = "budget" if item_id == "budget" else "failed_job"
+    job_id: str | None = None
+    if kind == "failed_job":
+        try:
+            job_id = str(uuid.UUID(item_id))
+        except ValueError as exc:
+            raise HTTPException(404, "unknown or already resolved item") from exc
+        job = conn.execute(
+            """SELECT id FROM jobs
+                WHERE id=%s AND status='failed'
+                  AND (user_id = %s OR user_id IS NULL OR %s)""",
+            (job_id, principal.user_id, principal.is_admin),
+        ).fetchone()
+        if job is None:
+            raise HTTPException(404, "unknown or already resolved item")
+    with conn.transaction():
+        conn.execute(
+            """INSERT INTO needs_attention
+               (id,user_id,kind,ref_job_id,payload,status,resolved_at,resolved_by)
+               VALUES (%s,%s,%s,%s,%s,'resolved',now(),%s)""",
+            (
+                str(uuid.uuid4()),
+                principal.user_id,
+                kind,
+                job_id,
+                Jsonb({"dismissed": item_id}),
+                principal.user_id,
+            ),
+        )
+    return {"id": item_id, "status": "resolved", "action": "dismiss"}
 
 
 @app.post("/v1/attention/{item_id}/resolve")
@@ -2435,7 +2623,12 @@ def resolve_attention(
         (item_id, principal.user_id),
     ).fetchone()
     if row is None:
-        raise HTTPException(404, "unknown or already resolved item")
+        # A failed job and a budget warning are computed from live state rather
+        # than stored, so there is no row to close until somebody dismisses
+        # one. Both advertise `dismiss` in the queue; recording the dismissal
+        # is what makes that true instead of a 404.
+        return _dismiss_computed(conn, principal, item_id, body)
+
     resolution: dict[str, Any] = {"action": body.action}
     with conn.transaction():
         if body.action == "link_entity":
@@ -2498,7 +2691,7 @@ def render_profile(
         # map to an entity should still get the rest of the profile.
         with suppress(ScopeForbidden, UnknownScope):
             project_scope_id = principal_module.resolve_scope(conn, principal, body.workspace)
-    return profiles.render(
+    rendered = profiles.render(
         conn,
         own_scope_id=principal.own_entity_id,
         team_scope_id=principal.team_entity_id,
@@ -2509,6 +2702,22 @@ def render_profile(
         blocks=body.blocks,
         include_untrusted=body.include_untrusted,
     )
+    # What the workspace resolved to, named here rather than inferred from the
+    # project block: that block is empty exactly when a scope is new, which is
+    # when a client most needs to tell the user where their words are going.
+    scope = (
+        conn.execute(
+            "SELECT slug,name FROM entities WHERE id=%s",
+            (project_scope_id or principal.own_entity_id,),
+        ).fetchone()
+        or {}
+    )
+    rendered["scope"] = {
+        "slug": scope.get("slug"),
+        "name": scope.get("name"),
+        "shared": bool(project_scope_id) and project_scope_id != principal.own_entity_id,
+    }
+    return rendered
 
 
 # ---------------------------------------------------------------------------
@@ -2713,6 +2922,45 @@ def list_jobs(
             for row in rows
         ]
     }
+
+
+@app.get(
+    "/v1/jobs/{job_id}/download",
+    response_class=FileResponse,
+    responses={
+        200: {"content": {"application/json": {"schema": {"type": "string", "format": "binary"}}}}
+    },
+)
+def download_export(
+    job_id: str,
+    principal: Principal = Depends(get_principal),
+    conn: psycopg.Connection = Depends(get_conn),
+    settings: Settings = Depends(get_settings),
+) -> FileResponse:
+    """Download an export owned by this caller, never an arbitrary server path."""
+    try:
+        row = jobs.get(conn, job_id)
+    except KeyError as exc:
+        raise HTTPException(404, "unknown export") from exc
+    # Even administrators cannot download another person's private export.
+    if row["kind"] != "export" or str(row["user_id"]) != principal.user_id:
+        raise HTTPException(404, "unknown export")
+    if row["status"] != "complete":
+        raise HTTPException(409, "export is not complete")
+    result = row.get("result") or {}
+    raw_path = result.get("path")
+    if not isinstance(raw_path, str):
+        raise HTTPException(404, "export artifact unavailable")
+    path = Path(raw_path).resolve()
+    root = settings.export_dir.expanduser().resolve()
+    if not path.is_relative_to(root) or not path.is_file():
+        raise HTTPException(404, "export artifact unavailable")
+    return FileResponse(
+        path,
+        media_type="application/json",
+        filename=f"memos-export-{job_id}.json",
+        headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"},
+    )
 
 
 @app.get("/v1/jobs/{job_id}")

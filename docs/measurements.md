@@ -538,3 +538,304 @@ implied by "зачем? есть же company store") returns nothing under v8 o
 run, and `mixed-user-and-project` yields the general rule but drops the second,
 concrete fact. They are left failing on purpose: both are real corpus shapes, and
 a golden case weakened to make a version pass measures nothing.
+
+## Jev semantic judgments: first experiment
+
+<!-- measured: 2026-09-20 · commands and artifacts below -->
+
+**Decision:** retain an explicit experiment component and reranker adapter. Do not
+enable a hard evidence gate: its synthetic results did not transfer to the current
+extractor outputs. Duplicate verification is the most promising next production
+experiment. No production settings, memory rows, or deployed behavior changed.
+
+The [implementation and runbook](experiments/jev.md) cover the component. All calls
+resolved to `jev-1.13.0`. The synthetic corpus has **88 unique cases**: 50 development
+and 38 heldout. Development versions ran twice each; the selected `v2` ran three
+times on heldout. Repeats measure variability, not additional independent samples.
+Labels were authored for this experiment, not independently human-adjudicated.
+
+Corpus SHA-256:
+`ed15b53c96e6ca3530c924a65b2d07d6c53a8139ad5e9ed40db7effef188be3b`.
+Selected question-set SHA-256:
+`df06c3fd7ed0eff7ea7a81f9253a0a84f9315e7b9628e3370d3f9cb9bf116e04`.
+
+### Development iterations
+
+Fixed policy thresholds before heldout: supported probability ≥0.90, equivalent
+probability ≥0.90, relevance score ≥2 on the 0–3 rubric. No thresholds were lowered
+to make a corpus pass. Relation labels themselves are recorded independently from
+the high-probability decision to treat two facts as duplicates.
+
+| Measure, repeated development observations | v1 | v2 | v3 |
+|---|---:|---:|---:|
+| Supported examples accepted | 10/14 | 12/14 | 12/14 |
+| Unsupported examples accepted | 0/26 | 0/26 | 0/26 |
+| Five-way relation label correct | 33/36 | 35/36 | 33/36 |
+| Equivalent pairs accepted as duplicates | 6/8 | 6/8 | 6/8 |
+| Non-equivalent pairs accepted as duplicates | 0/28 | 0/28 | 0/28 |
+| Answerable queries with relevant top result | 20/20 | 20/20 | 20/20 |
+| Unanswerable queries correctly empty | 4/4 | 4/4 | 4/4 |
+| Adapter/provider errors after correction | 0 | 0 | 0 |
+
+v2 made subject/reference and explicit-correction semantics clearer. v3 aligned
+the support criteria with the permission to resolve contextual references, but did
+not improve acceptance. The relation question was unchanged between v2 and v3;
+the different label counts therefore also expose model variation near boundaries.
+No corpus labels were changed after observing results. The remaining Russian
+equivalence example is linguistically ambiguous and needs independent review.
+
+The first v1 attempt rejected 16/100 responses in the adapter, before any question
+iteration. Investigation of the actual responses showed separately rounded scores
+and probabilities. The adapter now validates within the numerical rounding envelope
+instead of demanding exact reconstruction. A captured synthetic response is an
+offline regression test. This failed attempt is retained as `data/jev/v1-dev.json`;
+the comparable v1 baseline is `data/jev/v1-dev-fixed.json`.
+
+### Heldout results
+
+The following counts are **unique cases**; each result was reproduced across all
+three runs, except that the general relation classifications remain subject to the
+limitations described below.
+
+| Task | Selected Jev policy | Comparison |
+|---|---|---|
+| Support classification | 14/14 correct: accepted 5 supported, held 9 unsupported | Exact citation existence alone cannot make this distinction; this is not an end-to-end extractor baseline |
+| Equivalent versus non-equivalent | 12/12 correct: found 3 equivalents, accepted 0 of 9 non-equivalents | Cosine ≥0.90 found 0 of the 3 equivalents and accepted 4 non-equivalents |
+| Five-way relation label | 10/12 correct | Both mismatches were addition versus unrelated; neither led to a duplicate decision |
+| Relevant top result | 10/10 answerable queries | Actual BGE dense-only ordering also scored 10/10 |
+| Empty result when nothing answers | 2/2 unanswerable queries | Dense-only ordering without abstention returns candidates by construction |
+| Relevant candidate retention | 11/11 across the answerable queries | Includes a query needing two separate facts |
+
+The heldout relation mistakes concerned a person's different residences at
+different times, and test versus production databases. The model called them
+additions rather than unrelated situations; equivalent probabilities stayed zero.
+This supports testing a narrow duplicate decision, not automatically taking actions
+from all five labels.
+
+On development, dense-only ordering put the relevant item first in 9/10 answerable
+queries; Jev did so in 10/10. **The heldout result does not demonstrate a ranking
+gain**, since both methods were already perfect there. Candidate lists contain only
+three memories, so this is not a realistic large-corpus retrieval benchmark.
+
+The BGE baseline uses the configured, pinned `BAAI/bge-m3` embeddings, not invented
+similarity scores. It compares semantic pairs in isolation and ranks the same
+provided shortlists. It does not reproduce production scope/context candidate
+selection, hybrid lexical/identifier fusion, or the production relevance floor.
+The synthetic pairs are deliberately challenging, so the cosine error rate must
+not be presented as the deployed system's error rate.
+
+Heldout language counts: English 26, Russian 6, Uzbek 4, mixed 2. These slices are
+too small to establish multilingual reliability. The all-correct binary outcomes
+also do not establish a low production error rate.
+
+### Current-extractor transfer check: rejected hard gate
+
+Generated operations with `gemini-3.5-flash-lite` and extractor prompt `v10` on the
+existing 32-case golden corpus. Cached those operations once, validated exact user
+citations, and evaluated identical outputs with Jev v2 and v3.
+
+| Measure | Current extractor after exact-source checks | With v2 support gate | With v3 support gate |
+|---|---:|---:|---:|
+| Expected facts retained | 27/31 | 15/31 | 15/31 |
+| Golden false positives | 0 | 0 | 0 |
+| Semantic judgments | — | 29 | 29 |
+| Semantic service errors | — | 0 | 0 |
+
+The gate lost expected facts without fixing a measured false-positive problem in
+this run. Numerous straightforward Russian directives paraphrased as memories had
+supported probabilities below 0.90. Known aliases and a recording-date anchor were
+also absent from the semantic check's state, unlike the generative extractor's
+prompt. That is a concrete state-construction limitation, not proof that Jev could
+never verify these claims. It is sufficient evidence not to activate this gate.
+
+This transfer set is an additional diagnostic corpus, not a newly independent
+heldout sample. The regex-based golden scorer also does not certify every detail
+in an emitted claim. The comparison isolates gate retention on fixed extractor
+outputs; it does not execute the entire database write path.
+
+A final `v4` experiment changed support to a direct binary Noul question, including
+explicit treatment of imperatives as preferences/rules. At the same experimental
+0.90 probability threshold it accepted 10/14 repeated supported development
+observations, accepted 0/26 unsupported observations, and retained 16/31 expected
+facts from the cached extractor outputs. That does not rescue the hard gate.
+Because the heldout set had already been opened, v4 was evaluated only on development
+and the extractor diagnostic set; it was not promoted using a reused heldout score.
+Artifacts: `data/jev/v4-dev.json` and `data/jev/extractor-v4.json`.
+
+### Reproduction and artifacts
+
+```bash
+uv run python -m eval.semantic --split dev --version v1 --repeat 2 --embeddings --output data/jev/v1-dev-fixed.json
+uv run python -m eval.semantic --split dev --version v2 --repeat 2 --embeddings --output data/jev/v2-dev.json
+uv run python -m eval.semantic --split dev --version v3 --repeat 2 --embeddings --output data/jev/v3-dev.json
+uv run python -m eval.semantic --split heldout --version v2 --repeat 3 --embeddings --output data/jev/v2-heldout.json
+uv run python -m eval.semantic_extraction --version v3 --output data/jev/extractor-v3.json
+uv run python -m eval.semantic_extraction --version v2 --output data/jev/extractor-v2.json
+uv run python -m eval.semantic --split dev --version v4 --repeat 2 --embeddings --output data/jev/v4-dev.json
+uv run python -m eval.semantic_extraction --version v4 --output data/jev/extractor-v4.json
+```
+
+Raw artifacts under `data/jev/` are local and gitignored. They retain per-case
+judgments, expected labels, language slices, input fingerprints, model identities,
+and usage. The original generative outputs are cached in
+`data/jev/golden-extractor-outputs.json`. Two extraction reports initially displayed
+zero usage because only scoring counters had been populated; their accounting was
+corrected from the retained original responses without changing or rerunning any
+judgment. The runner now records that usage directly, separately from Jev usage.
+
+### Reliability issue found during regression checks
+
+The full backend regression run exposed an existing window-claim race: competing
+workers claimed a ten-message window as separate groups of 9 and 1. A stronger
+regression with 25 ordered messages reproduced interleaved windows immediately
+before the fix. Row-level `SKIP LOCKED` prevented duplicate rows but did not make
+window assembly atomic.
+
+`extract.claim_window` now takes a per-session transaction advisory lock while
+assembling and leasing the window, and expired-claim cleanup is scoped to that
+session. The lock ends before any model call. A regression runs 12 races with 8
+workers and asserts intact contiguous windows; another holds a different session's
+lock and expired rows while verifying that the next session can still claim.
+This is an ordinary database correctness fix discovered by the experiment's
+verification, not a capability delegated to Jev.
+
+Final backend validation: `uv run pytest -q tests --cov=memkit --cov-report=term
+--cov-fail-under=75` passed **614 tests and 49 subtests**, with 2 optional tests
+skipped. Coverage was **78.43%** overall and **94%** for the semantic adapter.
+`uv build`, repository lint, changed-file formatting, golden/semantic corpus
+validation, and the documentation contract check passed. A root-level pytest
+attempt encountered an independently added CLI package whose import was not
+installed in this environment; the reported successful run targets the backend's
+`tests/` directory. Unrelated concurrent formatting edits were left untouched.
+
+## Modular semantic blocks and durable reports
+
+Date: 2026-09-20. Model: `jev-1.13.0`; frozen questions `v2`; equivalent-fact
+probability floor 0.90 and relevance score floor 2.0. Exact results and provenance
+for **13 experiments**, including prior rejected variants, are retained in the
+[experiment archive](experiments/README.md). Implementation and configuration:
+[ADR 0072](decisions/0072-semantic-blocks-and-experiment-archives.md).
+
+### Transfer across fictional scenarios
+
+`eval/corpora/multiscenario-v1.json` adds 72 authored probes in **12 related scenario
+families**, covering development, education and personal assistance in English,
+Russian, Uzbek and mixed language. Labels and thresholds were frozen before the
+run. Each probe was run twice: 144 observations, not 144 independent cases or users.
+No provider errors. The labels have not had independent human review.
+
+- Five-way relation: 48/48 repeated observations correct. With the stricter 0.90
+  probability policy, Jev accepted 20/24 true-duplicate observations and 0/24
+  nonduplicates. Correct classification alone does not mean a threshold accepts it.
+- Cosine at 0.90 accepted 22/24 true duplicates and 4/24 nonduplicates. Jev's
+  conservative threshold misses some Russian/Uzbek paraphrases; those facts remain
+  separate rather than being discarded.
+- Ranking: 24/24 answerable observations had a relevant first result, tied with
+  BGE dense ranking. Filtering retained 42/42 labeled relevant fragments and
+  abstained on 24/24 unanswerable observations. No ranking advantage is claimed.
+- Support: accepted 23/24 supported observations and 0/24 unsupported observations.
+  This synthetic result still does not transfer well enough to gate extraction.
+
+### Actual batched duplicate block
+
+A separate live diagnostic used `SemanticBlocks.verify_duplicates`, including its
+real batched state/question shape, on the 24 unique relation pairs and measured
+BGE proposals. It reuses the opened scenario set and is not fresh heldout evidence.
+
+| Outcome | Cosine proposal | Proposal + Jev verification |
+| --- | ---: | ---: |
+| True duplicates accepted / 12 | 11 | 9 |
+| Nonduplicates incorrectly accepted / 12 | 2 | 0 |
+| Precision | 84.6% | 100% |
+| Recall | 91.7% | 75.0% |
+| Overall binary accuracy | 87.5% | 87.5% |
+
+This is a precision/recall tradeoff, not an accuracy gain. Adopted as an explicitly
+configured conservative veto: provider failure or uncertainty keeps a new row.
+It does not broaden cosine candidate selection. Source/citation permissions and
+same-scope/subject/context/kind/validity constraints are tested separately through
+real PostgreSQL. The write transaction rechecks revision and eligibility under a
+row lock, preventing a stale comparison from attaching evidence to an edited fact.
+
+### Full hybrid retrieval diagnostic
+
+`eval.semantic_hybrid` executes the actual `retrieval.explain` path in a disposable
+PostgreSQL cluster with real configured BGE embeddings and Qdrant's local exact
+vector engine. It never opens the configured production database. All 25 fictional
+memory texts are in one pool; query-specific expected fragments remain fixed.
+The experiment applies the existing relevance floor, hybrid weights, limit 30 and
+800-token budget, then compares the optional Jev filter at 2.0.
+
+| Outcome over 24 queries | Hybrid baseline | Hybrid + Jev filter |
+| --- | ---: | ---: |
+| Relevant first result / 12 answerable queries | 12 | 12 |
+| Relevant fragments retained / 21 | 21 | 21 |
+| Correct empty results / 12 unanswerable queries | 0 | 12 |
+| Irrelevant fragments returned across queries | 334 | 0 |
+| Provider errors | — | 0 |
+
+Useful gain: less irrelevant context and correct silence, without a measured loss
+on this fixture. This is a small, reused synthetic diagnostic. It does not measure
+server ANN recall, production load, independent users or every broad preference
+query. Filtering remains an explicit switch with baseline fallback on outages;
+the distributed default is off.
+
+### Evidence-state iteration that did not work
+
+`eval.semantic_extraction --version v2 --state-version anchored` reused the exact
+32 cached golden extractor outputs and added known entities and recording dates
+to the verification state. The baseline retained 27/31 expected facts; a hypothetical
+hard gate retained only **14/31**, with 0 false positives before or after and 0
+service errors. Minimal-state v2 previously retained 15. One run does not attribute
+that difference solely to the state change, but the expanded state clearly did
+not rescue the gate. Runtime support is therefore diagnostic only.
+
+### Retention, reproducibility and validation
+
+All live runners now automatically save a new immutable folder under local
+`data/experiments/`, containing exact results, a schema-versioned manifest and a
+readable report. The manifest retains dataset/question hashes, model IDs, thresholds,
+labels, language/scenario/cohort slices, source hashes, errors and decisions.
+Execution provenance and archival provenance are distinct. Historical execution
+identity is unknown where it was not originally recorded; it is never filled in
+with today's code. Public retained reports use synthetic data only.
+
+The same runner accepts external labeled corpora and another TypeSafe model pin;
+the archive interface also accepts other technologies' results. Comparison rejects
+mismatched dataset identity, split, threshold policy or label provenance. CI checks
+both corpora and archived artifact hashes without paid calls.
+
+Reproduce the new live diagnostics:
+
+```bash
+uv run python -m eval.semantic --corpus eval/corpora/multiscenario-v1.json --split heldout --version v2 --repeat 2 --embeddings --data-class synthetic
+uv run python -m eval.semantic_dedup
+uv run python -m eval.semantic_hybrid
+uv run python -m eval.semantic_extraction --version v2 --state-version anchored --output data/jev/extractor-v2-anchored.json
+```
+
+Backend validation: **636 passed, 2 skipped, 49 subtests**, coverage **79.03%**.
+The new tests exercise actual writes under semantic approval, rejection and outage;
+shadow/filter/rerank policies; authorization before egress; stale revisions and
+changed subject/context/trust/expiry; advisory support through extraction; response
+key-order independence; and archive integrity/comparison rules. All ordinary tests
+blank credentials and disable runtime semantic switches, even if local `.env`
+contains an enabled profile.
+
+Final packaging and configuration check: wheel/sdist built successfully and the
+wheel contains all three semantic modules. After enabling the local profile,
+59 focused semantic/report tests still passed offline. All 13 public artifact
+hashes, both corpus schemas, golden schema, lint, formatting, documentation checks
+and `git diff --check` passed. Exact credential scanning found no Jev key in
+published reports or semantic sources. The local `.env` profile takes effect on
+the next service startup; no service restart or remote deployment was performed.
+
+## Detail-preserving context experiments
+
+2026-09-20: [full report and retained experiments](experiments/context-details.md).
+New frozen confirmation scenarios retained 36/40 details with contribution judgments
+versus 27/40 with evidence-aware hybrid search; irrelevant returns fell from 79 to 1.
+The real two-collection diagnostic retained 37/40 with optional compaction versus
+34/40 without Jev, with irrelevant returns falling from 70 to 0. Source-first
+selection without Jev retained all 40 details but added 74 irrelevant returns.
+These are small authored synthetic fixtures, not production-user measurements.

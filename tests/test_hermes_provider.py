@@ -13,12 +13,15 @@ provider does not secretly depend on anything else of Hermes's.
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
 import json
 import sys
 import types
 import unittest
 from pathlib import Path
+from tempfile import TemporaryDirectory
+from typing import ClassVar
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -65,13 +68,15 @@ plugin = _load_plugin()
 class FakeClient:
     """Stands in for the HTTP client. Records what the provider tried to do."""
 
-    def __init__(self, *, fail=False, memories=None):
+    def __init__(self, *, fail=False, memories=None, blocks=None):
         self.fail = fail
         self.memories = memories or []
+        self.blocks = blocks or {}
         self.messages: list[dict] = []
         self.memories_added: list[dict] = []
         self.closed: list[str] = []
         self.searches: list[str] = []
+        self.profiles: list[dict] = []
 
     def _boom(self):
         from memkit_hermes_plugin.client import MemkitError
@@ -83,6 +88,12 @@ class FakeClient:
         if self.fail:
             self._boom()
         return self.memories
+
+    def render_profile(self, **kwargs):
+        if self.fail:
+            self._boom()
+        self.profiles.append(kwargs)
+        return self.blocks
 
     def add_events(self, payloads):
         if self.fail:
@@ -109,6 +120,27 @@ def make_provider(*, client=None, config=None):
     if client is not None:
         provider._client = client
     return provider
+
+
+@contextlib.contextmanager
+def _no_client_config(**files):
+    """Point the config paths at a scratch directory.
+
+    Needed because `resolve_config` reads real files: a test asserting "no key
+    configured" would otherwise pass or fail depending on whether the developer
+    running it happens to have `~/.config/memkit/client.env`.
+    """
+    from memkit_hermes_plugin import client as client_module
+
+    with TemporaryDirectory() as directory:
+        paths = {
+            "CLIENT_ENV": Path(directory) / "client.env",
+            "LEGACY_ENV": Path(directory) / "legacy",
+        }
+        for name, contents in files.items():
+            paths[name].write_text(contents)
+        with patch.multiple(client_module, **paths):
+            yield paths
 
 
 class TestContract(unittest.TestCase):
@@ -153,7 +185,7 @@ class TestContract(unittest.TestCase):
 
     def test_unavailable_without_a_key(self):
         provider = plugin.MemkitProvider({"base_url": "http://x"})
-        with patch.dict("os.environ", {}, clear=True):
+        with patch.dict("os.environ", {}, clear=True), _no_client_config():
             self.assertFalse(provider.is_available())
 
     def test_restricted_key_file_supports_fresh_processes(self):
@@ -190,20 +222,23 @@ class TestContract(unittest.TestCase):
                 self.assertFalse(provider.is_available())
 
     def test_backup_paths_needs_no_initialize_and_no_network(self):
-        # hermes backup only walks HERMES_HOME; memkit's SQLite lives outside it, so
-        # an undeclared path means a backup/restore cycle loses every memory.
-        provider = plugin.MemkitProvider({"db_path": "~/dev/memkit/data/memkit.db"})
+        # hermes backup only walks HERMES_HOME; memkit's state lives outside it, so
+        # an undeclared path means a backup/restore cycle loses every memory. What
+        # that state is moved with decisions/0059: Postgres is the truth, so the
+        # recoverable artefact is the pg_dump directory, not a database file.
+        provider = plugin.MemkitProvider({"backup_dir": "~/dev/memkit/data/backups"})
         paths = provider.backup_paths()
         self.assertEqual(len(paths), 1)
-        self.assertTrue(paths[0].endswith("data/memkit.db"))
+        self.assertTrue(paths[0].endswith("data/backups"))
         self.assertNotIn("~", paths[0])
 
-    def test_backup_paths_has_a_sqlite_default(self):
+    def test_backup_paths_defaults_to_the_dump_directory(self):
         provider = plugin.MemkitProvider({})
         with patch.dict("os.environ", {}, clear=True):
             paths = provider.backup_paths()
         self.assertEqual(len(paths), 1)
-        self.assertTrue(paths[0].endswith("data/memkit.db"))
+        self.assertTrue(paths[0].endswith("data/backups"))
+        self.assertNotIn("memkit.db", paths[0], "there is no SQLite file to back up")
 
 
 class TestServiceDown(unittest.TestCase):
@@ -377,6 +412,163 @@ class TestWriteGuards(unittest.TestCase):
     def test_unknown_tool_is_an_error(self):
         provider = make_provider(client=FakeClient())
         self.assertIn("error", json.loads(provider.handle_tool_call("nope", {})))
+
+
+class TestPerUserKeys(unittest.TestCase):
+    """The key is an identity now, so where it comes from is a correctness claim.
+
+    There is no instance-wide key: `memkit api-keys create --user <handle>` mints
+    one per person, and it decides whose memory the plugin reads and writes. A
+    plugin looking somewhere the CLI and the hooks do not therefore does not
+    degrade -- it acts as the wrong person, or as nobody.
+    """
+
+    def test_the_precedence_matches_the_rest_of_the_system(self):
+        provider = plugin.MemkitProvider({})
+        with (
+            patch.dict("os.environ", {}, clear=True),
+            _no_client_config(CLIENT_ENV="MEMKIT_API_KEY=from-client-env\n"),
+        ):
+            self.assertEqual(provider._api_key(), "from-client-env")
+        with (
+            patch.dict("os.environ", {"MEMKIT_API_KEY": "from-env"}, clear=True),
+            _no_client_config(CLIENT_ENV="MEMKIT_API_KEY=from-client-env\n"),
+        ):
+            self.assertEqual(provider._api_key(), "from-env")
+        with (
+            patch.dict("os.environ", {}, clear=True),
+            _no_client_config(LEGACY_ENV="MEMKIT_API_KEY=legacy\n"),
+        ):
+            self.assertEqual(provider._api_key(), "legacy")
+
+    def test_the_base_url_also_comes_from_the_shared_config(self):
+        provider = plugin.MemkitProvider({})
+        with (
+            patch.dict("os.environ", {}, clear=True),
+            _no_client_config(CLIENT_ENV="MEMKIT_BASE_URL=http://memory.internal:8077\n"),
+        ):
+            self.assertEqual(provider._base_url(), "http://memory.internal:8077")
+
+    def test_the_hook_and_the_plugin_agree_on_the_paths(self):
+        """Two copies of the precedence, held together here.
+
+        `client.py` cannot import `memkit.remote`: the plugin runs under Hermes's
+        interpreter, which has no reason to have memkit installed. The
+        duplication is therefore correct and this is what stops it drifting.
+        """
+        from memkit_hermes_plugin import client as client_module
+
+        from memkit import remote
+
+        self.assertEqual(client_module.CLIENT_ENV, remote.CLIENT_ENV)
+        self.assertEqual(client_module.LEGACY_ENV, remote.LEGACY_ENV)
+        self.assertEqual(client_module.DEFAULT_BASE_URL, remote.DEFAULT_BASE_URL)
+
+
+class TestProfileShape(unittest.TestCase):
+    """`{stable, dynamic}` is gone; the profile is five named blocks."""
+
+    BLOCKS: ClassVar[dict] = {
+        "about": [{"id": "1", "text": "Lives in Tashkent", "kind": "fact"}],
+        "style": [{"id": "2", "text": "Wants comments that say why", "kind": "preference"}],
+        "team": [],
+        "project": [{"id": "3", "text": "Postgres is the truth", "kind": "fact"}],
+        "recent": [{"id": "4", "text": "Moved the schema to v1", "kind": "fact"}],
+    }
+
+    def test_the_client_asks_for_every_block_and_returns_them(self):
+        from memkit_hermes_plugin.client import PROFILE_BLOCKS, Client
+
+        client = Client("http://127.0.0.1:1", "k")
+        with patch.object(
+            client, "_request", return_value={"blocks": self.BLOCKS, "used_tokens": 20}
+        ) as request:
+            self.assertEqual(client.render_profile(workspace="mem-os"), self.BLOCKS)
+        body = request.call_args.args[2]
+        self.assertEqual(body["blocks"], list(PROFILE_BLOCKS))
+        self.assertEqual(body["workspace"], "mem-os")
+
+    def test_the_profile_matches_the_api_model(self):
+        """Assert against the model, not against remembered field names."""
+        from memkit_hermes_plugin.client import PROFILE_BLOCKS
+
+        from memkit import api
+
+        api.ProfileIn.model_validate({"blocks": list(PROFILE_BLOCKS), "budget_tokens": 800})
+        self.assertEqual(
+            list(PROFILE_BLOCKS), api.ProfileIn.model_fields["blocks"].default_factory()
+        )
+
+    def test_the_startup_warm_seeds_from_the_profile_not_a_made_up_query(self):
+        """It used to search for "user preferences and identity" -- nobody's query.
+
+        `/v1/profiles/render` answers that question properly, block by block,
+        each bounded by its own share of the budget.
+        """
+        client = FakeClient(blocks=self.BLOCKS)
+        provider = plugin.MemkitProvider({})
+        provider._client = client
+        provider._warm("")
+        self.assertEqual(client.searches, [])
+        self.assertEqual(len(client.profiles), 1)
+        seeded = [item["text"] for item in provider._cache[plugin._LAST]]
+        self.assertEqual(seeded[0], "Lives in Tashkent")
+        self.assertEqual(len(seeded), 4, "the empty team block contributes nothing")
+
+    def test_a_failed_profile_render_seeds_nothing(self):
+        provider = plugin.MemkitProvider({})
+        provider._client = FakeClient(fail=True)
+        provider._warm("")
+        self.assertEqual(provider._cache, {})
+
+
+class TestScopedWrites(unittest.TestCase):
+    """A shared scope is opt-in, and it changes what the model should say."""
+
+    def test_writes_are_private_unless_a_scope_is_configured(self):
+        client = FakeClient()
+        provider = make_provider(client=client)
+        provider.sync_turn("я предпочитаю pnpm", "понял", session_id="s-1")
+        provider.shutdown()
+        self.assertTrue(client.messages)
+        for message in client.messages:
+            self.assertNotIn("scope", message)
+        provider.handle_tool_call("memkit_remember", {"text": "Lives in Tashkent"})
+        self.assertIsNone(client.memories_added[0]["scope"])
+
+    def test_a_configured_scope_is_stamped_on_every_event(self):
+        """The session's scope is fixed from its first event, not set at the end."""
+        client = FakeClient()
+        provider = make_provider(client=client, config={"scope": "mem-os"})
+        provider.sync_turn("я предпочитаю pnpm", "понял", session_id="s-1")
+        provider.shutdown()
+        self.assertTrue(client.messages)
+        for message in client.messages:
+            self.assertEqual(message["scope"], "mem-os")
+
+    def test_the_event_payload_still_matches_the_api_model(self):
+        from memkit import api
+
+        provider = make_provider(client=FakeClient(), config={"scope": "mem-os"})
+        payload = provider._message("user", "я предпочитаю pnpm", "s-1")
+        self.assertLessEqual(set(payload), set(api.MessageIn.model_fields))
+        api.MessageIn.model_validate(payload)
+
+    def test_a_shared_remember_reports_that_it_needs_review(self):
+        """Saying "Remembered" about a pending shared write misreports it."""
+        client = FakeClient()
+        client.add_memory = lambda text, **kwargs: {"id": "m-1", "review_status": "pending"}
+        provider = make_provider(client=client, config={"scope": "mem-os"})
+        result = provider.handle_tool_call("memkit_remember", {"text": "Releases ship Thursday"})
+        self.assertIn("mem-os", result)
+        self.assertIn("review", result)
+
+    def test_the_system_prompt_says_where_memory_goes(self):
+        private = plugin.MemkitProvider({}).system_prompt_block()
+        shared = plugin.MemkitProvider({"scope": "mem-os"}).system_prompt_block()
+        self.assertIn("private", private)
+        self.assertIn("mem-os", shared)
+        self.assertIn("unconfirmed", shared)
 
 
 class TestSessionBoundaries(unittest.TestCase):

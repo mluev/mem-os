@@ -3,7 +3,7 @@
     Status:        accepted
     Date:          2026-08-28
     Supersedes:    —
-    Superseded by: —
+    Superseded by: 0071 (configuration, per-prompt injection, profile shape, breaker)
     Evidence:      tests/test_claude_code_integration.py
     Code:          integrations/claude-code/, src/memkit/cli.py (install-claude-code)
     Contract:      ../03-api.md, decisions/0006

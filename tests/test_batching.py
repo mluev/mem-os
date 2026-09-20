@@ -198,6 +198,7 @@ class QueryEmbeddingTest(TeamCase):
         self.assertNotIn("query_vector", result.as_dict())
 
         store.search_raw(
+            self.conn,
             client,
             embedder,
             query="which package manager",

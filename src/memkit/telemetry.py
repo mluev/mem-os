@@ -57,6 +57,7 @@ def record_retrieval_run(
     results: list[dict[str, Any]],
     timings: dict[str, float],
     used_tokens: int,
+    has_evidence: bool = False,
 ) -> str:
     """Store one search's scores and timings, without its text.
 
@@ -89,7 +90,7 @@ def record_retrieval_run(
             Jsonb(safe_results),
             Jsonb(timings),
             used_tokens,
-            not safe_results,
+            not safe_results and not has_evidence,
             utcnow(),
         ),
     )

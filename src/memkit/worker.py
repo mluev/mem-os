@@ -14,6 +14,11 @@ from .embed import Embedder
 
 logger = logging.getLogger(__name__)
 
+# Poll interval while the vector index is unreachable. Long enough not to
+# hammer a service that is down, short enough that recovery is noticed before
+# anyone asks why search is still 503.
+DEGRADED_POLL_SECONDS = 5.0
+
 
 class Worker:
     def __init__(
@@ -35,6 +40,11 @@ class Worker:
         self._wake = threading.Event()
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, name="memkit-worker", daemon=True)
+        # The last dependency failure we reported. A vector-index outage is a
+        # designed degraded state, not a fault in this code, so it is logged
+        # once when it begins and once when it ends -- not as a thirty-line
+        # traceback every second for as long as Qdrant happens to be down.
+        self._outage: str | None = None
 
     def start(self) -> None:
         jobs.recover_stale(self.db())
@@ -54,9 +64,25 @@ class Worker:
         # handshake per poll. It goes back to the pool when the application
         # closes it, which is also the only thing that may close it.
         while not self._stop.is_set():
+            wait = self.poll_seconds
             try:
                 vectors.ensure_collections(self.client)
-                self.dependency_status(True, None)
+            except Exception as exc:
+                # Degraded, by design: authoritative writes continue and the
+                # outbox holds their index updates until this succeeds again.
+                self.dependency_status(False, str(exc))
+                if self._outage is None:
+                    logger.warning("vector index unavailable; deliveries are queued: %s", exc)
+                self._outage = str(exc)
+                # No point asking a down service once a second.
+                self._wake.wait(max(wait, DEGRADED_POLL_SECONDS))
+                self._wake.clear()
+                continue
+            if self._outage is not None:
+                logger.info("vector index reachable again; draining queued deliveries")
+                self._outage = None
+            self.dependency_status(True, None)
+            try:
                 conn = self.db()
                 outbox.drain(conn, self.client, self.embedder, limit=100)
                 # A peek, not a claim: the handler that `dispatch` picks is the
@@ -67,8 +93,9 @@ class Worker:
                 if row is not None:
                     self.dispatch(str(row["id"]), str(row["kind"]))
                     continue
-            except Exception as exc:
-                self.dependency_status(False, str(exc))
+            except Exception:
+                # Anything else is a fault in this code or the database, and a
+                # traceback is exactly what is wanted.
                 logger.exception("durable worker iteration failed")
-            self._wake.wait(self.poll_seconds)
+            self._wake.wait(wait)
             self._wake.clear()

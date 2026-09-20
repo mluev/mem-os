@@ -317,11 +317,14 @@ def review(
     """
     start, end = _window(days)
     series: list[dict[str, Any]] = []
+    # Everything that ever needed a decision: still pending, or already
+    # decided. The earlier version counted every memory created, so a day on
+    # which nothing needed review still towered over the decisions made.
     opened = conn.execute(
         """SELECT (created_at AT TIME ZONE 'UTC')::date AS day, count(*) AS value
              FROM memories
             WHERE scope_id = ANY(%s) AND created_at >= %s
-              AND (review_status <> 'pending' OR status='active')
+              AND (review_status = 'pending' OR reviewed_at IS NOT NULL)
             GROUP BY day ORDER BY day""",
         (_scopes(scope_ids), start),
     ).fetchall()
@@ -441,18 +444,26 @@ def users(conn: psycopg.Connection, *, days: int = 30) -> dict[str, Any]:
             GROUP BY day, key ORDER BY day, key""",
         (start,),
     ).fetchall()
+    # Two counts per person, and the column names say which is which: a table
+    # headed by a range that reports all-time numbers is worse than no table.
     people = conn.execute(
         """SELECT u.handle, u.display_name, u.role, u.disabled_at,
-                  (SELECT count(*) FROM memories m WHERE m.author_id = u.id) AS memories,
-                  (SELECT count(*) FROM sessions s WHERE s.user_id = u.id) AS sessions,
-                  (SELECT count(*) FROM retrieval_runs r WHERE r.user_id = u.id) AS searches,
+                  (SELECT count(*) FROM memories m
+                    WHERE m.author_id = u.id AND m.created_at >= %(start)s) AS memories,
+                  (SELECT count(*) FROM sessions s
+                    WHERE s.user_id = u.id AND s.started_at >= %(start)s) AS sessions,
+                  (SELECT count(*) FROM retrieval_runs r
+                    WHERE r.user_id = u.id AND r.created_at >= %(start)s) AS searches,
+                  (SELECT count(*) FROM memories m WHERE m.author_id = u.id)
+                      AS memories_all_time,
                   (SELECT COALESCE(sum(j.cost_usd), 0) FROM judge_runs j
                     WHERE j.user_id = u.id
                       AND to_char(j.created_at AT TIME ZONE 'UTC', 'YYYY-MM')
                           = to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM')) AS month_spend_usd,
                   (SELECT max(k.last_used_at) FROM api_keys k WHERE k.user_id = u.id)
                       AS key_last_used_at
-             FROM users u ORDER BY u.handle"""
+             FROM users u ORDER BY u.handle""",
+        {"start": start},
     ).fetchall()
     return _envelope(
         start,
@@ -466,6 +477,7 @@ def users(conn: psycopg.Connection, *, days: int = 30) -> dict[str, Any]:
                     "role": row["role"],
                     "disabled": bool(row["disabled_at"]),
                     "memories": int(row["memories"]),
+                    "memories_all_time": int(row["memories_all_time"]),
                     "sessions": int(row["sessions"]),
                     "searches": int(row["searches"]),
                     "month_spend_usd": _plain(row["month_spend_usd"]),

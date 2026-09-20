@@ -1,0 +1,3193 @@
+{
+  "version": "context-details-v1",
+  "items": [
+    {
+      "id": "ledger-m0",
+      "family": "ledger",
+      "split": "dev",
+      "language": "ru",
+      "kind": "memory",
+      "text": "Ledger хранит основные данные в PostgreSQL.",
+      "facets": [
+        "ledger:base"
+      ]
+    },
+    {
+      "id": "ledger-m1",
+      "family": "ledger",
+      "split": "dev",
+      "language": "ru",
+      "kind": "memory",
+      "text": "Основное хранилище Ledger — PostgreSQL.",
+      "facets": [
+        "ledger:base"
+      ]
+    },
+    {
+      "id": "ledger-m2",
+      "family": "ledger",
+      "split": "dev",
+      "language": "ru",
+      "kind": "memory",
+      "text": "В Ledger для основных данных выбрана база PostgreSQL.",
+      "facets": [
+        "ledger:base"
+      ]
+    },
+    {
+      "id": "ledger-e0",
+      "family": "ledger",
+      "split": "dev",
+      "language": "ru",
+      "kind": "evidence",
+      "text": "Для Ledger мы выбрали PostgreSQL, потому что перевод денег должен быть атомарным.",
+      "facets": [
+        "ledger:reason",
+        "ledger:base"
+      ]
+    },
+    {
+      "id": "ledger-e1",
+      "family": "ledger",
+      "split": "dev",
+      "language": "ru",
+      "kind": "evidence",
+      "text": "Redis в Ledger оставляем только для временного кеша; баланс туда не записываем.",
+      "facets": [
+        "ledger:exception"
+      ]
+    },
+    {
+      "id": "ledger-e2",
+      "family": "ledger",
+      "split": "dev",
+      "language": "ru",
+      "kind": "evidence",
+      "text": "В Ledger кеш можно потерять: мы восстановим его из PostgreSQL.",
+      "facets": [
+        "ledger:detail"
+      ]
+    },
+    {
+      "id": "ledger-d",
+      "family": "ledger",
+      "split": "dev",
+      "language": "ru",
+      "kind": "distractor",
+      "text": "В проекте Ledger-demo баланс храним в Redis. Это демонстрация, отдельная от Ledger.",
+      "facets": []
+    },
+    {
+      "id": "seminar-m0",
+      "family": "seminar",
+      "split": "dev",
+      "language": "ru",
+      "kind": "memory",
+      "text": "На семинаре Лира каждый участник выступает.",
+      "facets": [
+        "seminar:base"
+      ]
+    },
+    {
+      "id": "seminar-m1",
+      "family": "seminar",
+      "split": "dev",
+      "language": "ru",
+      "kind": "memory",
+      "text": "Все участники Лиры должны подготовить выступление.",
+      "facets": [
+        "seminar:base"
+      ]
+    },
+    {
+      "id": "seminar-m2",
+      "family": "seminar",
+      "split": "dev",
+      "language": "ru",
+      "kind": "memory",
+      "text": "Семинар Лира предполагает выступление каждого участника.",
+      "facets": [
+        "seminar:base"
+      ]
+    },
+    {
+      "id": "seminar-e0",
+      "family": "seminar",
+      "split": "dev",
+      "language": "ru",
+      "kind": "evidence",
+      "text": "На семинаре Лира каждый выступает, чтобы потренироваться защищать свою позицию.",
+      "facets": [
+        "seminar:reason",
+        "seminar:base"
+      ]
+    },
+    {
+      "id": "seminar-e1",
+      "family": "seminar",
+      "split": "dev",
+      "language": "ru",
+      "kind": "evidence",
+      "text": "На Лире участники с потерей голоса могут вместо выступления прислать письменный разбор.",
+      "facets": [
+        "seminar:exception"
+      ]
+    },
+    {
+      "id": "seminar-e2",
+      "family": "seminar",
+      "split": "dev",
+      "language": "ru",
+      "kind": "evidence",
+      "text": "На Лире вопросы собираем после выступления, чтобы не сбивать начинающего докладчика.",
+      "facets": [
+        "seminar:detail"
+      ]
+    },
+    {
+      "id": "seminar-d",
+      "family": "seminar",
+      "split": "dev",
+      "language": "ru",
+      "kind": "distractor",
+      "text": "Семинар Вега допускает свободное посещение без выступлений; у Лиры другая программа.",
+      "facets": []
+    },
+    {
+      "id": "trail-m0",
+      "family": "trail",
+      "split": "dev",
+      "language": "en",
+      "kind": "memory",
+      "text": "The Cedar trip follows the ridge trail.",
+      "facets": [
+        "trail:base"
+      ]
+    },
+    {
+      "id": "trail-m1",
+      "family": "trail",
+      "split": "dev",
+      "language": "en",
+      "kind": "memory",
+      "text": "We chose the ridge route for the Cedar hike.",
+      "facets": [
+        "trail:base"
+      ]
+    },
+    {
+      "id": "trail-m2",
+      "family": "trail",
+      "split": "dev",
+      "language": "en",
+      "kind": "memory",
+      "text": "Cedar hikers normally take the ridge trail.",
+      "facets": [
+        "trail:base"
+      ]
+    },
+    {
+      "id": "trail-e0",
+      "family": "trail",
+      "split": "dev",
+      "language": "en",
+      "kind": "evidence",
+      "text": "For Cedar we take the ridge trail because the valley bridge is closed.",
+      "facets": [
+        "trail:reason",
+        "trail:base"
+      ]
+    },
+    {
+      "id": "trail-e1",
+      "family": "trail",
+      "split": "dev",
+      "language": "en",
+      "kind": "evidence",
+      "text": "For Cedar, if heavy rain is forecast we visit the local museum instead of hiking.",
+      "facets": [
+        "trail:exception"
+      ]
+    },
+    {
+      "id": "trail-e2",
+      "family": "trail",
+      "split": "dev",
+      "language": "en",
+      "kind": "evidence",
+      "text": "On Cedar everyone carries water; the spring marked on old maps has dried up.",
+      "facets": [
+        "trail:detail"
+      ]
+    },
+    {
+      "id": "trail-d",
+      "family": "trail",
+      "split": "dev",
+      "language": "en",
+      "kind": "distractor",
+      "text": "The Birch trip crosses the valley bridge and hikes in the rain; Cedar is a separate group.",
+      "facets": []
+    },
+    {
+      "id": "reader-m0",
+      "family": "reader",
+      "split": "dev",
+      "language": "en",
+      "kind": "memory",
+      "text": "Iris uses animated page transitions.",
+      "facets": [
+        "reader:base"
+      ]
+    },
+    {
+      "id": "reader-m1",
+      "family": "reader",
+      "split": "dev",
+      "language": "en",
+      "kind": "memory",
+      "text": "Page changes in Iris have an animation.",
+      "facets": [
+        "reader:base"
+      ]
+    },
+    {
+      "id": "reader-m2",
+      "family": "reader",
+      "split": "dev",
+      "language": "en",
+      "kind": "memory",
+      "text": "The Iris reader animates transitions between pages.",
+      "facets": [
+        "reader:base"
+      ]
+    },
+    {
+      "id": "reader-e0",
+      "family": "reader",
+      "split": "dev",
+      "language": "en",
+      "kind": "evidence",
+      "text": "Iris animates page changes to preserve the reader's spatial orientation.",
+      "facets": [
+        "reader:reason",
+        "reader:base"
+      ]
+    },
+    {
+      "id": "reader-e1",
+      "family": "reader",
+      "split": "dev",
+      "language": "en",
+      "kind": "evidence",
+      "text": "In Iris, disable transitions when the operating system requests reduced motion.",
+      "facets": [
+        "reader:exception"
+      ]
+    },
+    {
+      "id": "reader-e2",
+      "family": "reader",
+      "split": "dev",
+      "language": "en",
+      "kind": "evidence",
+      "text": "Iris keeps keyboard focus on the next page heading after a page change.",
+      "facets": [
+        "reader:detail"
+      ]
+    },
+    {
+      "id": "reader-d",
+      "family": "reader",
+      "split": "dev",
+      "language": "en",
+      "kind": "distractor",
+      "text": "Iris-marketing plays animated banners regardless of reduced-motion settings; it is a separate site.",
+      "facets": []
+    },
+    {
+      "id": "lunch-m0",
+      "family": "lunch",
+      "split": "dev",
+      "language": "ru",
+      "kind": "memory",
+      "text": "Группа Север заказывает вегетарианский обед.",
+      "facets": [
+        "lunch:base"
+      ]
+    },
+    {
+      "id": "lunch-m1",
+      "family": "lunch",
+      "split": "dev",
+      "language": "ru",
+      "kind": "memory",
+      "text": "Для Севера выбираем обед без мяса.",
+      "facets": [
+        "lunch:base"
+      ]
+    },
+    {
+      "id": "lunch-m2",
+      "family": "lunch",
+      "split": "dev",
+      "language": "ru",
+      "kind": "memory",
+      "text": "Обеды участников группы Север вегетарианские.",
+      "facets": [
+        "lunch:base"
+      ]
+    },
+    {
+      "id": "lunch-e0",
+      "family": "lunch",
+      "split": "dev",
+      "language": "ru",
+      "kind": "evidence",
+      "text": "Север заказывает вегетарианский обед, чтобы не собирать разные мясные заказы.",
+      "facets": [
+        "lunch:reason",
+        "lunch:base"
+      ]
+    },
+    {
+      "id": "lunch-e1",
+      "family": "lunch",
+      "split": "dev",
+      "language": "ru",
+      "kind": "evidence",
+      "text": "В обедах Севера не должно быть орехов даже в отдельной упаковке: у участника аллергия.",
+      "facets": [
+        "lunch:exception"
+      ]
+    },
+    {
+      "id": "lunch-e2",
+      "family": "lunch",
+      "split": "dev",
+      "language": "ru",
+      "kind": "evidence",
+      "text": "Для Севера молочные продукты подаём отдельно, а не смешиваем с основным блюдом.",
+      "facets": [
+        "lunch:detail"
+      ]
+    },
+    {
+      "id": "lunch-d",
+      "family": "lunch",
+      "split": "dev",
+      "language": "ru",
+      "kind": "distractor",
+      "text": "Группа Юг заказывает мясо и ореховый десерт. Их меню не распространяется на Север.",
+      "facets": []
+    },
+    {
+      "id": "alerts-m0",
+      "family": "alerts",
+      "split": "dev",
+      "language": "en",
+      "kind": "memory",
+      "text": "Harbor suppresses notifications during quiet hours.",
+      "facets": [
+        "alerts:base"
+      ]
+    },
+    {
+      "id": "alerts-m1",
+      "family": "alerts",
+      "split": "dev",
+      "language": "en",
+      "kind": "memory",
+      "text": "Quiet hours in Harbor mute notifications.",
+      "facets": [
+        "alerts:base"
+      ]
+    },
+    {
+      "id": "alerts-m2",
+      "family": "alerts",
+      "split": "dev",
+      "language": "en",
+      "kind": "memory",
+      "text": "Harbor notifications are normally silent in quiet hours.",
+      "facets": [
+        "alerts:base"
+      ]
+    },
+    {
+      "id": "alerts-e0",
+      "family": "alerts",
+      "split": "dev",
+      "language": "en",
+      "kind": "evidence",
+      "text": "Harbor mutes routine notifications at night so volunteers can sleep.",
+      "facets": [
+        "alerts:reason",
+        "alerts:base"
+      ]
+    },
+    {
+      "id": "alerts-e1",
+      "family": "alerts",
+      "split": "dev",
+      "language": "en",
+      "kind": "evidence",
+      "text": "Harbor smoke alarms bypass quiet hours; routine device-battery alerts do not.",
+      "facets": [
+        "alerts:exception"
+      ]
+    },
+    {
+      "id": "alerts-e2",
+      "family": "alerts",
+      "split": "dev",
+      "language": "en",
+      "kind": "evidence",
+      "text": "Harbor sends routine alerts held overnight as one morning digest.",
+      "facets": [
+        "alerts:detail"
+      ]
+    },
+    {
+      "id": "alerts-d",
+      "family": "alerts",
+      "split": "dev",
+      "language": "en",
+      "kind": "distractor",
+      "text": "Harbor-sandbox mutes every alarm, including smoke alarms, because it has no real devices.",
+      "facets": []
+    },
+    {
+      "id": "notes-m0",
+      "family": "notes",
+      "split": "dev",
+      "language": "uz",
+      "kind": "memory",
+      "text": "Navo konspektlari o'zbek tilida yoziladi.",
+      "facets": [
+        "notes:base"
+      ]
+    },
+    {
+      "id": "notes-m1",
+      "family": "notes",
+      "split": "dev",
+      "language": "uz",
+      "kind": "memory",
+      "text": "Navo dars yozuvlari uchun o'zbek tili tanlangan.",
+      "facets": [
+        "notes:base"
+      ]
+    },
+    {
+      "id": "notes-m2",
+      "family": "notes",
+      "split": "dev",
+      "language": "uz",
+      "kind": "memory",
+      "text": "Navo konspektlarining asosiy tili o'zbekcha.",
+      "facets": [
+        "notes:base"
+      ]
+    },
+    {
+      "id": "notes-e0",
+      "family": "notes",
+      "split": "dev",
+      "language": "uz",
+      "kind": "evidence",
+      "text": "Navo konspektlarini o'zbekcha yozamiz, chunki guruh shu tilda o'qiydi.",
+      "facets": [
+        "notes:reason",
+        "notes:base"
+      ]
+    },
+    {
+      "id": "notes-e1",
+      "family": "notes",
+      "split": "dev",
+      "language": "uz",
+      "kind": "evidence",
+      "text": "Navo konspektida aniq tarjimasi bo'lmagan texnik termin inglizcha qoladi, yonida izoh beriladi.",
+      "facets": [
+        "notes:exception"
+      ]
+    },
+    {
+      "id": "notes-e2",
+      "family": "notes",
+      "split": "dev",
+      "language": "uz",
+      "kind": "evidence",
+      "text": "Navo konspektlarida kod misollaridagi nomlar tarjima qilinmaydi.",
+      "facets": [
+        "notes:detail"
+      ]
+    },
+    {
+      "id": "notes-d",
+      "family": "notes",
+      "split": "dev",
+      "language": "uz",
+      "kind": "distractor",
+      "text": "Sado kursi konspektlari inglizcha; bu Navo kursining til qoidasi emas.",
+      "facets": []
+    },
+    {
+      "id": "vault-m0",
+      "family": "vault",
+      "split": "dev",
+      "language": "mixed",
+      "kind": "memory",
+      "text": "Vault делает резервную копию каждую ночь.",
+      "facets": [
+        "vault:base"
+      ]
+    },
+    {
+      "id": "vault-m1",
+      "family": "vault",
+      "split": "dev",
+      "language": "mixed",
+      "kind": "memory",
+      "text": "В Vault настроен nightly backup.",
+      "facets": [
+        "vault:base"
+      ]
+    },
+    {
+      "id": "vault-m2",
+      "family": "vault",
+      "split": "dev",
+      "language": "mixed",
+      "kind": "memory",
+      "text": "Резервное копирование Vault выполняется ночью.",
+      "facets": [
+        "vault:base"
+      ]
+    },
+    {
+      "id": "vault-e0",
+      "family": "vault",
+      "split": "dev",
+      "language": "mixed",
+      "kind": "evidence",
+      "text": "Vault делает nightly backup, чтобы копирование не мешало дневным операциям.",
+      "facets": [
+        "vault:reason",
+        "vault:base"
+      ]
+    },
+    {
+      "id": "vault-e1",
+      "family": "vault",
+      "split": "dev",
+      "language": "mixed",
+      "kind": "evidence",
+      "text": "В Vault каталог scratch исключён из backup: там только воспроизводимые temporary files.",
+      "facets": [
+        "vault:exception"
+      ]
+    },
+    {
+      "id": "vault-e2",
+      "family": "vault",
+      "split": "dev",
+      "language": "mixed",
+      "kind": "evidence",
+      "text": "Vault сохраняет оригинальные загрузки, даже если их thumbnails можно пересоздать.",
+      "facets": [
+        "vault:detail"
+      ]
+    },
+    {
+      "id": "vault-d",
+      "family": "vault",
+      "split": "dev",
+      "language": "mixed",
+      "kind": "distractor",
+      "text": "Vault-playground исключает и uploads, и scratch: это disposable instance, не основной Vault.",
+      "facets": []
+    },
+    {
+      "id": "invoice-m0",
+      "family": "invoice",
+      "split": "confirmation",
+      "language": "en",
+      "kind": "memory",
+      "text": "Maple sends automatic invoice reminders.",
+      "facets": [
+        "invoice:base"
+      ]
+    },
+    {
+      "id": "invoice-m1",
+      "family": "invoice",
+      "split": "confirmation",
+      "language": "en",
+      "kind": "memory",
+      "text": "Invoice reminders are automated in Maple.",
+      "facets": [
+        "invoice:base"
+      ]
+    },
+    {
+      "id": "invoice-m2",
+      "family": "invoice",
+      "split": "confirmation",
+      "language": "en",
+      "kind": "memory",
+      "text": "Maple normally reminds customers of unpaid invoices automatically.",
+      "facets": [
+        "invoice:base"
+      ]
+    },
+    {
+      "id": "invoice-e0",
+      "family": "invoice",
+      "split": "confirmation",
+      "language": "en",
+      "kind": "evidence",
+      "text": "Maple sends automatic reminders so staff do not chase every unpaid invoice manually.",
+      "facets": [
+        "invoice:reason",
+        "invoice:base"
+      ]
+    },
+    {
+      "id": "invoice-e1",
+      "family": "invoice",
+      "split": "confirmation",
+      "language": "en",
+      "kind": "evidence",
+      "text": "For Maple customers with an open billing dispute, automatic reminders are paused.",
+      "facets": [
+        "invoice:exception"
+      ]
+    },
+    {
+      "id": "invoice-e2",
+      "family": "invoice",
+      "split": "confirmation",
+      "language": "en",
+      "kind": "evidence",
+      "text": "Maple reminders contain a link to the invoice, never a copy of stored payment details.",
+      "facets": [
+        "invoice:detail"
+      ]
+    },
+    {
+      "id": "invoice-d",
+      "family": "invoice",
+      "split": "confirmation",
+      "language": "en",
+      "kind": "distractor",
+      "text": "Maple-demo sends reminders even for disputed invoices because it uses fictional customers.",
+      "facets": []
+    },
+    {
+      "id": "lab-m0",
+      "family": "lab",
+      "split": "confirmation",
+      "language": "ru",
+      "kind": "memory",
+      "text": "В лаборатории Кварц образцы замораживают.",
+      "facets": [
+        "lab:base"
+      ]
+    },
+    {
+      "id": "lab-m1",
+      "family": "lab",
+      "split": "confirmation",
+      "language": "ru",
+      "kind": "memory",
+      "text": "Кварц обычно хранит образцы в замороженном состоянии.",
+      "facets": [
+        "lab:base"
+      ]
+    },
+    {
+      "id": "lab-m2",
+      "family": "lab",
+      "split": "confirmation",
+      "language": "ru",
+      "kind": "memory",
+      "text": "Для хранения образцов Кварц использует заморозку.",
+      "facets": [
+        "lab:base"
+      ]
+    },
+    {
+      "id": "lab-e0",
+      "family": "lab",
+      "split": "confirmation",
+      "language": "ru",
+      "kind": "evidence",
+      "text": "Кварц замораживает обычные образцы, чтобы замедлить их разложение.",
+      "facets": [
+        "lab:reason",
+        "lab:base"
+      ]
+    },
+    {
+      "id": "lab-e1",
+      "family": "lab",
+      "split": "confirmation",
+      "language": "ru",
+      "kind": "evidence",
+      "text": "Живые культуры Кварца не замораживаем: они остаются в инкубаторе.",
+      "facets": [
+        "lab:exception"
+      ]
+    },
+    {
+      "id": "lab-e2",
+      "family": "lab",
+      "split": "confirmation",
+      "language": "ru",
+      "kind": "evidence",
+      "text": "Каждый образец Кварца маркируем до помещения в хранилище, а не после.",
+      "facets": [
+        "lab:detail"
+      ]
+    },
+    {
+      "id": "lab-d",
+      "family": "lab",
+      "split": "confirmation",
+      "language": "ru",
+      "kind": "distractor",
+      "text": "В учебной лаборатории Кварц-макет живых культур нет, поэтому замораживают всё.",
+      "facets": []
+    },
+    {
+      "id": "classroom-m0",
+      "family": "classroom",
+      "split": "confirmation",
+      "language": "en",
+      "kind": "memory",
+      "text": "The Otter class submits homework online.",
+      "facets": [
+        "classroom:base"
+      ]
+    },
+    {
+      "id": "classroom-m1",
+      "family": "classroom",
+      "split": "confirmation",
+      "language": "en",
+      "kind": "memory",
+      "text": "Otter homework is normally handed in through the online portal.",
+      "facets": [
+        "classroom:base"
+      ]
+    },
+    {
+      "id": "classroom-m2",
+      "family": "classroom",
+      "split": "confirmation",
+      "language": "en",
+      "kind": "memory",
+      "text": "Students in Otter use the portal for homework submission.",
+      "facets": [
+        "classroom:base"
+      ]
+    },
+    {
+      "id": "classroom-e0",
+      "family": "classroom",
+      "split": "confirmation",
+      "language": "en",
+      "kind": "evidence",
+      "text": "Otter uses online submission so students can see the teacher's written feedback.",
+      "facets": [
+        "classroom:reason",
+        "classroom:base"
+      ]
+    },
+    {
+      "id": "classroom-e1",
+      "family": "classroom",
+      "split": "confirmation",
+      "language": "en",
+      "kind": "evidence",
+      "text": "Otter students without home internet may hand in a paper copy at the next class.",
+      "facets": [
+        "classroom:exception"
+      ]
+    },
+    {
+      "id": "classroom-e2",
+      "family": "classroom",
+      "split": "confirmation",
+      "language": "en",
+      "kind": "evidence",
+      "text": "Otter group assignments list each contributor, even when only one student uploads the file.",
+      "facets": [
+        "classroom:detail"
+      ]
+    },
+    {
+      "id": "classroom-d",
+      "family": "classroom",
+      "split": "confirmation",
+      "language": "en",
+      "kind": "distractor",
+      "text": "The Fox class requires online submission without a paper option; its rules differ from Otter.",
+      "facets": []
+    },
+    {
+      "id": "photos-m0",
+      "family": "photos",
+      "split": "confirmation",
+      "language": "ru",
+      "kind": "memory",
+      "text": "Альбом уменьшает фотографии для просмотра.",
+      "facets": [
+        "photos:base"
+      ]
+    },
+    {
+      "id": "photos-m1",
+      "family": "photos",
+      "split": "confirmation",
+      "language": "ru",
+      "kind": "memory",
+      "text": "Для отображения Альбом создаёт уменьшенные фотографии.",
+      "facets": [
+        "photos:base"
+      ]
+    },
+    {
+      "id": "photos-m2",
+      "family": "photos",
+      "split": "confirmation",
+      "language": "ru",
+      "kind": "memory",
+      "text": "В Альбоме фотографии показываются в уменьшенном размере.",
+      "facets": [
+        "photos:base"
+      ]
+    },
+    {
+      "id": "photos-e0",
+      "family": "photos",
+      "split": "confirmation",
+      "language": "ru",
+      "kind": "evidence",
+      "text": "Альбом создаёт уменьшенные копии, чтобы страницы открывались быстрее.",
+      "facets": [
+        "photos:reason",
+        "photos:base"
+      ]
+    },
+    {
+      "id": "photos-e1",
+      "family": "photos",
+      "split": "confirmation",
+      "language": "ru",
+      "kind": "evidence",
+      "text": "После уменьшения в Альбоме оригинал сохраняем без изменений; уменьшенная копия его не заменяет.",
+      "facets": [
+        "photos:exception"
+      ]
+    },
+    {
+      "id": "photos-e2",
+      "family": "photos",
+      "split": "confirmation",
+      "language": "ru",
+      "kind": "evidence",
+      "text": "Альбом удаляет GPS только из публичной копии, а приватный оригинал сохраняет метаданные.",
+      "facets": [
+        "photos:detail"
+      ]
+    },
+    {
+      "id": "photos-d",
+      "family": "photos",
+      "split": "confirmation",
+      "language": "ru",
+      "kind": "distractor",
+      "text": "Альбом-демо удаляет оригиналы после уменьшения: там только тестовые картинки.",
+      "facets": []
+    },
+    {
+      "id": "meeting-m0",
+      "family": "meeting",
+      "split": "confirmation",
+      "language": "mixed",
+      "kind": "memory",
+      "text": "Orbit обсуждает статус работы асинхронно.",
+      "facets": [
+        "meeting:base"
+      ]
+    },
+    {
+      "id": "meeting-m1",
+      "family": "meeting",
+      "split": "confirmation",
+      "language": "mixed",
+      "kind": "memory",
+      "text": "В Orbit приняты async status updates.",
+      "facets": [
+        "meeting:base"
+      ]
+    },
+    {
+      "id": "meeting-m2",
+      "family": "meeting",
+      "split": "confirmation",
+      "language": "mixed",
+      "kind": "memory",
+      "text": "Команда Orbit обычно сообщает прогресс без созвонов.",
+      "facets": [
+        "meeting:base"
+      ]
+    },
+    {
+      "id": "meeting-e0",
+      "family": "meeting",
+      "split": "confirmation",
+      "language": "mixed",
+      "kind": "evidence",
+      "text": "Orbit делает status updates асинхронно, потому что участники в разных часовых поясах.",
+      "facets": [
+        "meeting:reason",
+        "meeting:base"
+      ]
+    },
+    {
+      "id": "meeting-e1",
+      "family": "meeting",
+      "split": "confirmation",
+      "language": "mixed",
+      "kind": "evidence",
+      "text": "При production incident Orbit сразу собирает созвон; обычный статус ждёт async update.",
+      "facets": [
+        "meeting:exception"
+      ]
+    },
+    {
+      "id": "meeting-e2",
+      "family": "meeting",
+      "split": "confirmation",
+      "language": "mixed",
+      "kind": "evidence",
+      "text": "Решение после созвона Orbit записываем текстом, чтобы отсутствовавшие могли его прочитать.",
+      "facets": [
+        "meeting:detail"
+      ]
+    },
+    {
+      "id": "meeting-d",
+      "family": "meeting",
+      "split": "confirmation",
+      "language": "mixed",
+      "kind": "distractor",
+      "text": "Orbit-sales проводит ежедневные созвоны; это отдельная команда с другой практикой.",
+      "facets": []
+    },
+    {
+      "id": "garden-m0",
+      "family": "garden",
+      "split": "confirmation",
+      "language": "uz",
+      "kind": "memory",
+      "text": "Bog' loyihasidagi o'simliklar har kuni sug'oriladi.",
+      "facets": [
+        "garden:base"
+      ]
+    },
+    {
+      "id": "garden-m1",
+      "family": "garden",
+      "split": "confirmation",
+      "language": "uz",
+      "kind": "memory",
+      "text": "Bog'da odatda kundalik sug'orish qo'llanadi.",
+      "facets": [
+        "garden:base"
+      ]
+    },
+    {
+      "id": "garden-m2",
+      "family": "garden",
+      "split": "confirmation",
+      "language": "uz",
+      "kind": "memory",
+      "text": "Bog' o'simliklari uchun har kungi sug'orish rejalashtirilgan.",
+      "facets": [
+        "garden:base"
+      ]
+    },
+    {
+      "id": "garden-e0",
+      "family": "garden",
+      "split": "confirmation",
+      "language": "uz",
+      "kind": "evidence",
+      "text": "Bog'da ko'p o'simliklarni har kuni sug'oramiz, chunki issiqxonada havo quruq.",
+      "facets": [
+        "garden:reason",
+        "garden:base"
+      ]
+    },
+    {
+      "id": "garden-e1",
+      "family": "garden",
+      "split": "confirmation",
+      "language": "uz",
+      "kind": "evidence",
+      "text": "Bog'dagi kaktuslar har kuni sug'orilmaydi; tuprog'i to'liq qurigandan keyingina suv beriladi.",
+      "facets": [
+        "garden:exception"
+      ]
+    },
+    {
+      "id": "garden-e2",
+      "family": "garden",
+      "split": "confirmation",
+      "language": "uz",
+      "kind": "evidence",
+      "text": "Bog'da yomg'ir suvini ishlatamiz, lekin idish tagida turgan iflos suvni qayta quymaymiz.",
+      "facets": [
+        "garden:detail"
+      ]
+    },
+    {
+      "id": "garden-d",
+      "family": "garden",
+      "split": "confirmation",
+      "language": "uz",
+      "kind": "distractor",
+      "text": "Dala loyihasida kaktuslar yo'q va hamma o'simlik har kuni sug'oriladi; bu Bog' qoidasi emas.",
+      "facets": []
+    },
+    {
+      "id": "migration-m0",
+      "family": "migration",
+      "split": "confirmation",
+      "language": "en",
+      "kind": "memory",
+      "text": "Finch is moving to the new API.",
+      "facets": [
+        "migration:base"
+      ]
+    },
+    {
+      "id": "migration-m1",
+      "family": "migration",
+      "split": "confirmation",
+      "language": "en",
+      "kind": "memory",
+      "text": "The Finch migration adopts the new API.",
+      "facets": [
+        "migration:base"
+      ]
+    },
+    {
+      "id": "migration-m2",
+      "family": "migration",
+      "split": "confirmation",
+      "language": "en",
+      "kind": "memory",
+      "text": "Finch clients are being migrated to the replacement API.",
+      "facets": [
+        "migration:base"
+      ]
+    },
+    {
+      "id": "migration-e0",
+      "family": "migration",
+      "split": "confirmation",
+      "language": "en",
+      "kind": "evidence",
+      "text": "Finch moves to the new API to support cursor-based pagination.",
+      "facets": [
+        "migration:reason",
+        "migration:base"
+      ]
+    },
+    {
+      "id": "migration-e1",
+      "family": "migration",
+      "split": "confirmation",
+      "language": "en",
+      "kind": "evidence",
+      "text": "Finch keeps the old API available for existing mobile clients until they upgrade.",
+      "facets": [
+        "migration:exception"
+      ]
+    },
+    {
+      "id": "migration-e2",
+      "family": "migration",
+      "split": "confirmation",
+      "language": "en",
+      "kind": "evidence",
+      "text": "If Finch's new API fails, route traffic back to the old API without rewriting stored data.",
+      "facets": [
+        "migration:detail"
+      ]
+    },
+    {
+      "id": "migration-d",
+      "family": "migration",
+      "split": "confirmation",
+      "language": "en",
+      "kind": "distractor",
+      "text": "Finch-lab removes its old API immediately; it has no mobile clients and is a separate deployment.",
+      "facets": []
+    },
+    {
+      "id": "print-m0",
+      "family": "print",
+      "split": "confirmation",
+      "language": "ru",
+      "kind": "memory",
+      "text": "Журнал Маяк использует крупный шрифт.",
+      "facets": [
+        "print:base"
+      ]
+    },
+    {
+      "id": "print-m1",
+      "family": "print",
+      "split": "confirmation",
+      "language": "ru",
+      "kind": "memory",
+      "text": "Текст Маяка набирается крупным шрифтом.",
+      "facets": [
+        "print:base"
+      ]
+    },
+    {
+      "id": "print-m2",
+      "family": "print",
+      "split": "confirmation",
+      "language": "ru",
+      "kind": "memory",
+      "text": "Для журнала Маяк выбран увеличенный размер текста.",
+      "facets": [
+        "print:base"
+      ]
+    },
+    {
+      "id": "print-e0",
+      "family": "print",
+      "split": "confirmation",
+      "language": "ru",
+      "kind": "evidence",
+      "text": "В Маяке используем крупный шрифт, потому что журнал читают люди со слабым зрением.",
+      "facets": [
+        "print:reason",
+        "print:base"
+      ]
+    },
+    {
+      "id": "print-e1",
+      "family": "print",
+      "split": "confirmation",
+      "language": "ru",
+      "kind": "evidence",
+      "text": "Подписи к иллюстрациям Маяка не уменьшаем относительно основного текста.",
+      "facets": [
+        "print:exception"
+      ]
+    },
+    {
+      "id": "print-e2",
+      "family": "print",
+      "split": "confirmation",
+      "language": "ru",
+      "kind": "evidence",
+      "text": "В Маяке длинную таблицу переносим на следующую страницу вместо уменьшения шрифта.",
+      "facets": [
+        "print:detail"
+      ]
+    },
+    {
+      "id": "print-d",
+      "family": "print",
+      "split": "confirmation",
+      "language": "ru",
+      "kind": "distractor",
+      "text": "В рекламной листовке Маяк-промо подписи мелкие; она не является выпуском журнала Маяк.",
+      "facets": []
+    }
+  ],
+  "queries": [
+    {
+      "id": "ledger-broad",
+      "family": "ledger",
+      "split": "dev",
+      "language": "ru",
+      "query": "Как устроено хранение в Ledger, почему так и какие есть исключения?",
+      "expected": [
+        "ledger:base",
+        "ledger:reason",
+        "ledger:exception",
+        "ledger:detail"
+      ],
+      "relevant_ids": [
+        "ledger-m0",
+        "ledger-m1",
+        "ledger-m2",
+        "ledger-e0",
+        "ledger-e1",
+        "ledger-e2"
+      ]
+    },
+    {
+      "id": "ledger-detail",
+      "family": "ledger",
+      "split": "dev",
+      "language": "ru",
+      "query": "Что в Ledger разрешено хранить в Redis?",
+      "expected": [
+        "ledger:exception"
+      ],
+      "relevant_ids": [
+        "ledger-m0",
+        "ledger-m1",
+        "ledger-m2",
+        "ledger-e0",
+        "ledger-e1",
+        "ledger-e2"
+      ]
+    },
+    {
+      "id": "ledger-unknown",
+      "family": "ledger",
+      "split": "dev",
+      "language": "ru",
+      "query": "Какой у Ledger пароль администратора?",
+      "expected": [],
+      "relevant_ids": []
+    },
+    {
+      "id": "seminar-broad",
+      "family": "seminar",
+      "split": "dev",
+      "language": "ru",
+      "query": "Какие правила у семинара Лира, включая исключения и причины?",
+      "expected": [
+        "seminar:base",
+        "seminar:reason",
+        "seminar:exception",
+        "seminar:detail"
+      ],
+      "relevant_ids": [
+        "seminar-m0",
+        "seminar-m1",
+        "seminar-m2",
+        "seminar-e0",
+        "seminar-e1",
+        "seminar-e2"
+      ]
+    },
+    {
+      "id": "seminar-detail",
+      "family": "seminar",
+      "split": "dev",
+      "language": "ru",
+      "query": "Когда участникам семинара Лира можно пропустить выступление?",
+      "expected": [
+        "seminar:exception"
+      ],
+      "relevant_ids": [
+        "seminar-m0",
+        "seminar-m1",
+        "seminar-m2",
+        "seminar-e0",
+        "seminar-e1",
+        "seminar-e2"
+      ]
+    },
+    {
+      "id": "seminar-unknown",
+      "family": "seminar",
+      "split": "dev",
+      "language": "ru",
+      "query": "Сколько стоит участие в семинаре Лира?",
+      "expected": [],
+      "relevant_ids": []
+    },
+    {
+      "id": "trail-broad",
+      "family": "trail",
+      "split": "dev",
+      "language": "en",
+      "query": "What are the plans, reasons and exceptions for the Cedar hiking trip?",
+      "expected": [
+        "trail:base",
+        "trail:reason",
+        "trail:exception",
+        "trail:detail"
+      ],
+      "relevant_ids": [
+        "trail-m0",
+        "trail-m1",
+        "trail-m2",
+        "trail-e0",
+        "trail-e1",
+        "trail-e2"
+      ]
+    },
+    {
+      "id": "trail-detail",
+      "family": "trail",
+      "split": "dev",
+      "language": "en",
+      "query": "What is the rain fallback for the Cedar trip?",
+      "expected": [
+        "trail:exception"
+      ],
+      "relevant_ids": [
+        "trail-m0",
+        "trail-m1",
+        "trail-m2",
+        "trail-e0",
+        "trail-e1",
+        "trail-e2"
+      ]
+    },
+    {
+      "id": "trail-unknown",
+      "family": "trail",
+      "split": "dev",
+      "language": "en",
+      "query": "Who paid for the Cedar trip tickets?",
+      "expected": [],
+      "relevant_ids": []
+    },
+    {
+      "id": "reader-broad",
+      "family": "reader",
+      "split": "dev",
+      "language": "en",
+      "query": "How should the Iris reader behave, including accessibility exceptions?",
+      "expected": [
+        "reader:base",
+        "reader:reason",
+        "reader:exception",
+        "reader:detail"
+      ],
+      "relevant_ids": [
+        "reader-m0",
+        "reader-m1",
+        "reader-m2",
+        "reader-e0",
+        "reader-e1",
+        "reader-e2"
+      ]
+    },
+    {
+      "id": "reader-detail",
+      "family": "reader",
+      "split": "dev",
+      "language": "en",
+      "query": "When should animation be disabled in Iris?",
+      "expected": [
+        "reader:exception"
+      ],
+      "relevant_ids": [
+        "reader-m0",
+        "reader-m1",
+        "reader-m2",
+        "reader-e0",
+        "reader-e1",
+        "reader-e2"
+      ]
+    },
+    {
+      "id": "reader-unknown",
+      "family": "reader",
+      "split": "dev",
+      "language": "en",
+      "query": "What font license did Iris purchase?",
+      "expected": [],
+      "relevant_ids": []
+    },
+    {
+      "id": "lunch-broad",
+      "family": "lunch",
+      "split": "dev",
+      "language": "ru",
+      "query": "Что нужно учесть при заказе обеда для группы Север?",
+      "expected": [
+        "lunch:base",
+        "lunch:reason",
+        "lunch:exception",
+        "lunch:detail"
+      ],
+      "relevant_ids": [
+        "lunch-m0",
+        "lunch-m1",
+        "lunch-m2",
+        "lunch-e0",
+        "lunch-e1",
+        "lunch-e2"
+      ]
+    },
+    {
+      "id": "lunch-detail",
+      "family": "lunch",
+      "split": "dev",
+      "language": "ru",
+      "query": "Какую еду нельзя добавлять в обед группы Север даже отдельно?",
+      "expected": [
+        "lunch:exception"
+      ],
+      "relevant_ids": [
+        "lunch-m0",
+        "lunch-m1",
+        "lunch-m2",
+        "lunch-e0",
+        "lunch-e1",
+        "lunch-e2"
+      ]
+    },
+    {
+      "id": "lunch-unknown",
+      "family": "lunch",
+      "split": "dev",
+      "language": "ru",
+      "query": "Какой номер карты используется для обедов группы Север?",
+      "expected": [],
+      "relevant_ids": []
+    },
+    {
+      "id": "alerts-broad",
+      "family": "alerts",
+      "split": "dev",
+      "language": "en",
+      "query": "Describe the Harbor notification rules and exceptions.",
+      "expected": [
+        "alerts:base",
+        "alerts:reason",
+        "alerts:exception",
+        "alerts:detail"
+      ],
+      "relevant_ids": [
+        "alerts-m0",
+        "alerts-m1",
+        "alerts-m2",
+        "alerts-e0",
+        "alerts-e1",
+        "alerts-e2"
+      ]
+    },
+    {
+      "id": "alerts-detail",
+      "family": "alerts",
+      "split": "dev",
+      "language": "en",
+      "query": "Which Harbor alerts bypass quiet hours?",
+      "expected": [
+        "alerts:exception"
+      ],
+      "relevant_ids": [
+        "alerts-m0",
+        "alerts-m1",
+        "alerts-m2",
+        "alerts-e0",
+        "alerts-e1",
+        "alerts-e2"
+      ]
+    },
+    {
+      "id": "alerts-unknown",
+      "family": "alerts",
+      "split": "dev",
+      "language": "en",
+      "query": "What is the Harbor on-call phone number?",
+      "expected": [],
+      "relevant_ids": []
+    },
+    {
+      "id": "notes-broad",
+      "family": "notes",
+      "split": "dev",
+      "language": "uz",
+      "query": "Navo dars konspektlari uchun qoidalar, sabablar va istisnolar qanday?",
+      "expected": [
+        "notes:base",
+        "notes:reason",
+        "notes:exception",
+        "notes:detail"
+      ],
+      "relevant_ids": [
+        "notes-m0",
+        "notes-m1",
+        "notes-m2",
+        "notes-e0",
+        "notes-e1",
+        "notes-e2"
+      ]
+    },
+    {
+      "id": "notes-detail",
+      "family": "notes",
+      "split": "dev",
+      "language": "uz",
+      "query": "Navo konspektlarida qachon inglizcha terminni qoldirish mumkin?",
+      "expected": [
+        "notes:exception"
+      ],
+      "relevant_ids": [
+        "notes-m0",
+        "notes-m1",
+        "notes-m2",
+        "notes-e0",
+        "notes-e1",
+        "notes-e2"
+      ]
+    },
+    {
+      "id": "notes-unknown",
+      "family": "notes",
+      "split": "dev",
+      "language": "uz",
+      "query": "Navo kursining narxi qancha?",
+      "expected": [],
+      "relevant_ids": []
+    },
+    {
+      "id": "vault-broad",
+      "family": "vault",
+      "split": "dev",
+      "language": "mixed",
+      "query": "Какие backup rules у Vault, включая причины и исключения?",
+      "expected": [
+        "vault:base",
+        "vault:reason",
+        "vault:exception",
+        "vault:detail"
+      ],
+      "relevant_ids": [
+        "vault-m0",
+        "vault-m1",
+        "vault-m2",
+        "vault-e0",
+        "vault-e1",
+        "vault-e2"
+      ]
+    },
+    {
+      "id": "vault-detail",
+      "family": "vault",
+      "split": "dev",
+      "language": "mixed",
+      "query": "Какие файлы Vault исключает из backup?",
+      "expected": [
+        "vault:exception"
+      ],
+      "relevant_ids": [
+        "vault-m0",
+        "vault-m1",
+        "vault-m2",
+        "vault-e0",
+        "vault-e1",
+        "vault-e2"
+      ]
+    },
+    {
+      "id": "vault-unknown",
+      "family": "vault",
+      "split": "dev",
+      "language": "mixed",
+      "query": "Какой SSH key используется для Vault?",
+      "expected": [],
+      "relevant_ids": []
+    },
+    {
+      "id": "invoice-broad",
+      "family": "invoice",
+      "split": "confirmation",
+      "language": "en",
+      "query": "Explain the Maple invoicing process, its reasons and exceptions.",
+      "expected": [
+        "invoice:base",
+        "invoice:reason",
+        "invoice:exception",
+        "invoice:detail"
+      ],
+      "relevant_ids": [
+        "invoice-m0",
+        "invoice-m1",
+        "invoice-m2",
+        "invoice-e0",
+        "invoice-e1",
+        "invoice-e2"
+      ]
+    },
+    {
+      "id": "invoice-detail",
+      "family": "invoice",
+      "split": "confirmation",
+      "language": "en",
+      "query": "Which Maple customers do not receive automatic invoice reminders?",
+      "expected": [
+        "invoice:exception"
+      ],
+      "relevant_ids": [
+        "invoice-m0",
+        "invoice-m1",
+        "invoice-m2",
+        "invoice-e0",
+        "invoice-e1",
+        "invoice-e2"
+      ]
+    },
+    {
+      "id": "invoice-unknown",
+      "family": "invoice",
+      "split": "confirmation",
+      "language": "en",
+      "query": "What is Maple's bank account number?",
+      "expected": [],
+      "relevant_ids": []
+    },
+    {
+      "id": "lab-broad",
+      "family": "lab",
+      "split": "confirmation",
+      "language": "ru",
+      "query": "Как лаборатория Кварц хранит образцы и какие есть исключения?",
+      "expected": [
+        "lab:base",
+        "lab:reason",
+        "lab:exception",
+        "lab:detail"
+      ],
+      "relevant_ids": [
+        "lab-m0",
+        "lab-m1",
+        "lab-m2",
+        "lab-e0",
+        "lab-e1",
+        "lab-e2"
+      ]
+    },
+    {
+      "id": "lab-detail",
+      "family": "lab",
+      "split": "confirmation",
+      "language": "ru",
+      "query": "Какие образцы Кварца нельзя замораживать?",
+      "expected": [
+        "lab:exception"
+      ],
+      "relevant_ids": [
+        "lab-m0",
+        "lab-m1",
+        "lab-m2",
+        "lab-e0",
+        "lab-e1",
+        "lab-e2"
+      ]
+    },
+    {
+      "id": "lab-unknown",
+      "family": "lab",
+      "split": "confirmation",
+      "language": "ru",
+      "query": "Кто производитель морозильника в Кварце?",
+      "expected": [],
+      "relevant_ids": []
+    },
+    {
+      "id": "classroom-broad",
+      "family": "classroom",
+      "split": "confirmation",
+      "language": "en",
+      "query": "What are the rules and exceptions for homework in the Otter class?",
+      "expected": [
+        "classroom:base",
+        "classroom:reason",
+        "classroom:exception",
+        "classroom:detail"
+      ],
+      "relevant_ids": [
+        "classroom-m0",
+        "classroom-m1",
+        "classroom-m2",
+        "classroom-e0",
+        "classroom-e1",
+        "classroom-e2"
+      ]
+    },
+    {
+      "id": "classroom-detail",
+      "family": "classroom",
+      "split": "confirmation",
+      "language": "en",
+      "query": "How do Otter students without home internet submit homework?",
+      "expected": [
+        "classroom:exception"
+      ],
+      "relevant_ids": [
+        "classroom-m0",
+        "classroom-m1",
+        "classroom-m2",
+        "classroom-e0",
+        "classroom-e1",
+        "classroom-e2"
+      ]
+    },
+    {
+      "id": "classroom-unknown",
+      "family": "classroom",
+      "split": "confirmation",
+      "language": "en",
+      "query": "What is the Otter teacher's home address?",
+      "expected": [],
+      "relevant_ids": []
+    },
+    {
+      "id": "photos-broad",
+      "family": "photos",
+      "split": "confirmation",
+      "language": "ru",
+      "query": "Как устроена обработка фотографий в Альбоме и что нельзя потерять?",
+      "expected": [
+        "photos:base",
+        "photos:reason",
+        "photos:exception",
+        "photos:detail"
+      ],
+      "relevant_ids": [
+        "photos-m0",
+        "photos-m1",
+        "photos-m2",
+        "photos-e0",
+        "photos-e1",
+        "photos-e2"
+      ]
+    },
+    {
+      "id": "photos-detail",
+      "family": "photos",
+      "split": "confirmation",
+      "language": "ru",
+      "query": "Что Альбом делает с исходниками после уменьшения фотографий?",
+      "expected": [
+        "photos:exception"
+      ],
+      "relevant_ids": [
+        "photos-m0",
+        "photos-m1",
+        "photos-m2",
+        "photos-e0",
+        "photos-e1",
+        "photos-e2"
+      ]
+    },
+    {
+      "id": "photos-unknown",
+      "family": "photos",
+      "split": "confirmation",
+      "language": "ru",
+      "query": "Сколько стоит подписка Альбома?",
+      "expected": [],
+      "relevant_ids": []
+    },
+    {
+      "id": "meeting-broad",
+      "family": "meeting",
+      "split": "confirmation",
+      "language": "mixed",
+      "query": "Какие meeting rules у команды Orbit и зачем они нужны?",
+      "expected": [
+        "meeting:base",
+        "meeting:reason",
+        "meeting:exception",
+        "meeting:detail"
+      ],
+      "relevant_ids": [
+        "meeting-m0",
+        "meeting-m1",
+        "meeting-m2",
+        "meeting-e0",
+        "meeting-e1",
+        "meeting-e2"
+      ]
+    },
+    {
+      "id": "meeting-detail",
+      "family": "meeting",
+      "split": "confirmation",
+      "language": "mixed",
+      "query": "Когда Orbit допускает созвон вместо async update?",
+      "expected": [
+        "meeting:exception"
+      ],
+      "relevant_ids": [
+        "meeting-m0",
+        "meeting-m1",
+        "meeting-m2",
+        "meeting-e0",
+        "meeting-e1",
+        "meeting-e2"
+      ]
+    },
+    {
+      "id": "meeting-unknown",
+      "family": "meeting",
+      "split": "confirmation",
+      "language": "mixed",
+      "query": "Какой пароль у видеоконференции Orbit?",
+      "expected": [],
+      "relevant_ids": []
+    },
+    {
+      "id": "garden-broad",
+      "family": "garden",
+      "split": "confirmation",
+      "language": "uz",
+      "query": "Bog' loyihasida sug'orish qoidalari va istisnolari qanday?",
+      "expected": [
+        "garden:base",
+        "garden:reason",
+        "garden:exception",
+        "garden:detail"
+      ],
+      "relevant_ids": [
+        "garden-m0",
+        "garden-m1",
+        "garden-m2",
+        "garden-e0",
+        "garden-e1",
+        "garden-e2"
+      ]
+    },
+    {
+      "id": "garden-detail",
+      "family": "garden",
+      "split": "confirmation",
+      "language": "uz",
+      "query": "Bog'dagi kaktuslarni qachon sug'orish kerak?",
+      "expected": [
+        "garden:exception"
+      ],
+      "relevant_ids": [
+        "garden-m0",
+        "garden-m1",
+        "garden-m2",
+        "garden-e0",
+        "garden-e1",
+        "garden-e2"
+      ]
+    },
+    {
+      "id": "garden-unknown",
+      "family": "garden",
+      "split": "confirmation",
+      "language": "uz",
+      "query": "Bog' uchun suvning oylik narxi qancha?",
+      "expected": [],
+      "relevant_ids": []
+    },
+    {
+      "id": "migration-broad",
+      "family": "migration",
+      "split": "confirmation",
+      "language": "en",
+      "query": "What is the Finch migration plan, including compatibility and rollback details?",
+      "expected": [
+        "migration:base",
+        "migration:reason",
+        "migration:exception",
+        "migration:detail"
+      ],
+      "relevant_ids": [
+        "migration-m0",
+        "migration-m1",
+        "migration-m2",
+        "migration-e0",
+        "migration-e1",
+        "migration-e2"
+      ]
+    },
+    {
+      "id": "migration-detail",
+      "family": "migration",
+      "split": "confirmation",
+      "language": "en",
+      "query": "Does Finch remove the old API immediately after the migration?",
+      "expected": [
+        "migration:exception"
+      ],
+      "relevant_ids": [
+        "migration-m0",
+        "migration-m1",
+        "migration-m2",
+        "migration-e0",
+        "migration-e1",
+        "migration-e2"
+      ]
+    },
+    {
+      "id": "migration-unknown",
+      "family": "migration",
+      "split": "confirmation",
+      "language": "en",
+      "query": "Who approved the Finch migration budget?",
+      "expected": [],
+      "relevant_ids": []
+    },
+    {
+      "id": "print-broad",
+      "family": "print",
+      "split": "confirmation",
+      "language": "ru",
+      "query": "Какие правила оформления у журнала Маяк, с причинами и исключениями?",
+      "expected": [
+        "print:base",
+        "print:reason",
+        "print:exception",
+        "print:detail"
+      ],
+      "relevant_ids": [
+        "print-m0",
+        "print-m1",
+        "print-m2",
+        "print-e0",
+        "print-e1",
+        "print-e2"
+      ]
+    },
+    {
+      "id": "print-detail",
+      "family": "print",
+      "split": "confirmation",
+      "language": "ru",
+      "query": "Можно ли в журнале Маяк уменьшать подписи к иллюстрациям?",
+      "expected": [
+        "print:exception"
+      ],
+      "relevant_ids": [
+        "print-m0",
+        "print-m1",
+        "print-m2",
+        "print-e0",
+        "print-e1",
+        "print-e2"
+      ]
+    },
+    {
+      "id": "print-unknown",
+      "family": "print",
+      "split": "confirmation",
+      "language": "ru",
+      "query": "Какой тираж следующего выпуска Маяка?",
+      "expected": [],
+      "relevant_ids": []
+    }
+  ],
+  "coverage": [
+    {
+      "id": "ledger-missing-0",
+      "family": "ledger",
+      "split": "dev",
+      "source": "Для Ledger мы выбрали PostgreSQL, потому что перевод денег должен быть атомарным.",
+      "memories": [
+        "Ledger хранит основные данные в PostgreSQL.",
+        "Основное хранилище Ledger — PostgreSQL.",
+        "В Ledger для основных данных выбрана база PostgreSQL."
+      ],
+      "expected": true
+    },
+    {
+      "id": "ledger-covered-0",
+      "family": "ledger",
+      "split": "dev",
+      "source": "Для Ledger мы выбрали PostgreSQL, потому что перевод денег должен быть атомарным.",
+      "memories": [
+        "Ledger хранит основные данные в PostgreSQL.",
+        "Основное хранилище Ledger — PostgreSQL.",
+        "В Ledger для основных данных выбрана база PostgreSQL.",
+        "Для Ledger мы выбрали PostgreSQL, потому что перевод денег должен быть атомарным."
+      ],
+      "expected": false
+    },
+    {
+      "id": "ledger-missing-1",
+      "family": "ledger",
+      "split": "dev",
+      "source": "Redis в Ledger оставляем только для временного кеша; баланс туда не записываем.",
+      "memories": [
+        "Ledger хранит основные данные в PostgreSQL.",
+        "Основное хранилище Ledger — PostgreSQL.",
+        "В Ledger для основных данных выбрана база PostgreSQL."
+      ],
+      "expected": true
+    },
+    {
+      "id": "ledger-covered-1",
+      "family": "ledger",
+      "split": "dev",
+      "source": "Redis в Ledger оставляем только для временного кеша; баланс туда не записываем.",
+      "memories": [
+        "Ledger хранит основные данные в PostgreSQL.",
+        "Основное хранилище Ledger — PostgreSQL.",
+        "В Ledger для основных данных выбрана база PostgreSQL.",
+        "Redis в Ledger оставляем только для временного кеша; баланс туда не записываем."
+      ],
+      "expected": false
+    },
+    {
+      "id": "ledger-missing-2",
+      "family": "ledger",
+      "split": "dev",
+      "source": "В Ledger кеш можно потерять: мы восстановим его из PostgreSQL.",
+      "memories": [
+        "Ledger хранит основные данные в PostgreSQL.",
+        "Основное хранилище Ledger — PostgreSQL.",
+        "В Ledger для основных данных выбрана база PostgreSQL."
+      ],
+      "expected": true
+    },
+    {
+      "id": "ledger-covered-2",
+      "family": "ledger",
+      "split": "dev",
+      "source": "В Ledger кеш можно потерять: мы восстановим его из PostgreSQL.",
+      "memories": [
+        "Ledger хранит основные данные в PostgreSQL.",
+        "Основное хранилище Ledger — PostgreSQL.",
+        "В Ledger для основных данных выбрана база PostgreSQL.",
+        "В Ledger кеш можно потерять: мы восстановим его из PostgreSQL."
+      ],
+      "expected": false
+    },
+    {
+      "id": "seminar-missing-0",
+      "family": "seminar",
+      "split": "dev",
+      "source": "На семинаре Лира каждый выступает, чтобы потренироваться защищать свою позицию.",
+      "memories": [
+        "На семинаре Лира каждый участник выступает.",
+        "Все участники Лиры должны подготовить выступление.",
+        "Семинар Лира предполагает выступление каждого участника."
+      ],
+      "expected": true
+    },
+    {
+      "id": "seminar-covered-0",
+      "family": "seminar",
+      "split": "dev",
+      "source": "На семинаре Лира каждый выступает, чтобы потренироваться защищать свою позицию.",
+      "memories": [
+        "На семинаре Лира каждый участник выступает.",
+        "Все участники Лиры должны подготовить выступление.",
+        "Семинар Лира предполагает выступление каждого участника.",
+        "На семинаре Лира каждый выступает, чтобы потренироваться защищать свою позицию."
+      ],
+      "expected": false
+    },
+    {
+      "id": "seminar-missing-1",
+      "family": "seminar",
+      "split": "dev",
+      "source": "На Лире участники с потерей голоса могут вместо выступления прислать письменный разбор.",
+      "memories": [
+        "На семинаре Лира каждый участник выступает.",
+        "Все участники Лиры должны подготовить выступление.",
+        "Семинар Лира предполагает выступление каждого участника."
+      ],
+      "expected": true
+    },
+    {
+      "id": "seminar-covered-1",
+      "family": "seminar",
+      "split": "dev",
+      "source": "На Лире участники с потерей голоса могут вместо выступления прислать письменный разбор.",
+      "memories": [
+        "На семинаре Лира каждый участник выступает.",
+        "Все участники Лиры должны подготовить выступление.",
+        "Семинар Лира предполагает выступление каждого участника.",
+        "На Лире участники с потерей голоса могут вместо выступления прислать письменный разбор."
+      ],
+      "expected": false
+    },
+    {
+      "id": "seminar-missing-2",
+      "family": "seminar",
+      "split": "dev",
+      "source": "На Лире вопросы собираем после выступления, чтобы не сбивать начинающего докладчика.",
+      "memories": [
+        "На семинаре Лира каждый участник выступает.",
+        "Все участники Лиры должны подготовить выступление.",
+        "Семинар Лира предполагает выступление каждого участника."
+      ],
+      "expected": true
+    },
+    {
+      "id": "seminar-covered-2",
+      "family": "seminar",
+      "split": "dev",
+      "source": "На Лире вопросы собираем после выступления, чтобы не сбивать начинающего докладчика.",
+      "memories": [
+        "На семинаре Лира каждый участник выступает.",
+        "Все участники Лиры должны подготовить выступление.",
+        "Семинар Лира предполагает выступление каждого участника.",
+        "На Лире вопросы собираем после выступления, чтобы не сбивать начинающего докладчика."
+      ],
+      "expected": false
+    },
+    {
+      "id": "trail-missing-0",
+      "family": "trail",
+      "split": "dev",
+      "source": "For Cedar we take the ridge trail because the valley bridge is closed.",
+      "memories": [
+        "The Cedar trip follows the ridge trail.",
+        "We chose the ridge route for the Cedar hike.",
+        "Cedar hikers normally take the ridge trail."
+      ],
+      "expected": true
+    },
+    {
+      "id": "trail-covered-0",
+      "family": "trail",
+      "split": "dev",
+      "source": "For Cedar we take the ridge trail because the valley bridge is closed.",
+      "memories": [
+        "The Cedar trip follows the ridge trail.",
+        "We chose the ridge route for the Cedar hike.",
+        "Cedar hikers normally take the ridge trail.",
+        "For Cedar we take the ridge trail because the valley bridge is closed."
+      ],
+      "expected": false
+    },
+    {
+      "id": "trail-missing-1",
+      "family": "trail",
+      "split": "dev",
+      "source": "For Cedar, if heavy rain is forecast we visit the local museum instead of hiking.",
+      "memories": [
+        "The Cedar trip follows the ridge trail.",
+        "We chose the ridge route for the Cedar hike.",
+        "Cedar hikers normally take the ridge trail."
+      ],
+      "expected": true
+    },
+    {
+      "id": "trail-covered-1",
+      "family": "trail",
+      "split": "dev",
+      "source": "For Cedar, if heavy rain is forecast we visit the local museum instead of hiking.",
+      "memories": [
+        "The Cedar trip follows the ridge trail.",
+        "We chose the ridge route for the Cedar hike.",
+        "Cedar hikers normally take the ridge trail.",
+        "For Cedar, if heavy rain is forecast we visit the local museum instead of hiking."
+      ],
+      "expected": false
+    },
+    {
+      "id": "trail-missing-2",
+      "family": "trail",
+      "split": "dev",
+      "source": "On Cedar everyone carries water; the spring marked on old maps has dried up.",
+      "memories": [
+        "The Cedar trip follows the ridge trail.",
+        "We chose the ridge route for the Cedar hike.",
+        "Cedar hikers normally take the ridge trail."
+      ],
+      "expected": true
+    },
+    {
+      "id": "trail-covered-2",
+      "family": "trail",
+      "split": "dev",
+      "source": "On Cedar everyone carries water; the spring marked on old maps has dried up.",
+      "memories": [
+        "The Cedar trip follows the ridge trail.",
+        "We chose the ridge route for the Cedar hike.",
+        "Cedar hikers normally take the ridge trail.",
+        "On Cedar everyone carries water; the spring marked on old maps has dried up."
+      ],
+      "expected": false
+    },
+    {
+      "id": "reader-missing-0",
+      "family": "reader",
+      "split": "dev",
+      "source": "Iris animates page changes to preserve the reader's spatial orientation.",
+      "memories": [
+        "Iris uses animated page transitions.",
+        "Page changes in Iris have an animation.",
+        "The Iris reader animates transitions between pages."
+      ],
+      "expected": true
+    },
+    {
+      "id": "reader-covered-0",
+      "family": "reader",
+      "split": "dev",
+      "source": "Iris animates page changes to preserve the reader's spatial orientation.",
+      "memories": [
+        "Iris uses animated page transitions.",
+        "Page changes in Iris have an animation.",
+        "The Iris reader animates transitions between pages.",
+        "Iris animates page changes to preserve the reader's spatial orientation."
+      ],
+      "expected": false
+    },
+    {
+      "id": "reader-missing-1",
+      "family": "reader",
+      "split": "dev",
+      "source": "In Iris, disable transitions when the operating system requests reduced motion.",
+      "memories": [
+        "Iris uses animated page transitions.",
+        "Page changes in Iris have an animation.",
+        "The Iris reader animates transitions between pages."
+      ],
+      "expected": true
+    },
+    {
+      "id": "reader-covered-1",
+      "family": "reader",
+      "split": "dev",
+      "source": "In Iris, disable transitions when the operating system requests reduced motion.",
+      "memories": [
+        "Iris uses animated page transitions.",
+        "Page changes in Iris have an animation.",
+        "The Iris reader animates transitions between pages.",
+        "In Iris, disable transitions when the operating system requests reduced motion."
+      ],
+      "expected": false
+    },
+    {
+      "id": "reader-missing-2",
+      "family": "reader",
+      "split": "dev",
+      "source": "Iris keeps keyboard focus on the next page heading after a page change.",
+      "memories": [
+        "Iris uses animated page transitions.",
+        "Page changes in Iris have an animation.",
+        "The Iris reader animates transitions between pages."
+      ],
+      "expected": true
+    },
+    {
+      "id": "reader-covered-2",
+      "family": "reader",
+      "split": "dev",
+      "source": "Iris keeps keyboard focus on the next page heading after a page change.",
+      "memories": [
+        "Iris uses animated page transitions.",
+        "Page changes in Iris have an animation.",
+        "The Iris reader animates transitions between pages.",
+        "Iris keeps keyboard focus on the next page heading after a page change."
+      ],
+      "expected": false
+    },
+    {
+      "id": "lunch-missing-0",
+      "family": "lunch",
+      "split": "dev",
+      "source": "Север заказывает вегетарианский обед, чтобы не собирать разные мясные заказы.",
+      "memories": [
+        "Группа Север заказывает вегетарианский обед.",
+        "Для Севера выбираем обед без мяса.",
+        "Обеды участников группы Север вегетарианские."
+      ],
+      "expected": true
+    },
+    {
+      "id": "lunch-covered-0",
+      "family": "lunch",
+      "split": "dev",
+      "source": "Север заказывает вегетарианский обед, чтобы не собирать разные мясные заказы.",
+      "memories": [
+        "Группа Север заказывает вегетарианский обед.",
+        "Для Севера выбираем обед без мяса.",
+        "Обеды участников группы Север вегетарианские.",
+        "Север заказывает вегетарианский обед, чтобы не собирать разные мясные заказы."
+      ],
+      "expected": false
+    },
+    {
+      "id": "lunch-missing-1",
+      "family": "lunch",
+      "split": "dev",
+      "source": "В обедах Севера не должно быть орехов даже в отдельной упаковке: у участника аллергия.",
+      "memories": [
+        "Группа Север заказывает вегетарианский обед.",
+        "Для Севера выбираем обед без мяса.",
+        "Обеды участников группы Север вегетарианские."
+      ],
+      "expected": true
+    },
+    {
+      "id": "lunch-covered-1",
+      "family": "lunch",
+      "split": "dev",
+      "source": "В обедах Севера не должно быть орехов даже в отдельной упаковке: у участника аллергия.",
+      "memories": [
+        "Группа Север заказывает вегетарианский обед.",
+        "Для Севера выбираем обед без мяса.",
+        "Обеды участников группы Север вегетарианские.",
+        "В обедах Севера не должно быть орехов даже в отдельной упаковке: у участника аллергия."
+      ],
+      "expected": false
+    },
+    {
+      "id": "lunch-missing-2",
+      "family": "lunch",
+      "split": "dev",
+      "source": "Для Севера молочные продукты подаём отдельно, а не смешиваем с основным блюдом.",
+      "memories": [
+        "Группа Север заказывает вегетарианский обед.",
+        "Для Севера выбираем обед без мяса.",
+        "Обеды участников группы Север вегетарианские."
+      ],
+      "expected": true
+    },
+    {
+      "id": "lunch-covered-2",
+      "family": "lunch",
+      "split": "dev",
+      "source": "Для Севера молочные продукты подаём отдельно, а не смешиваем с основным блюдом.",
+      "memories": [
+        "Группа Север заказывает вегетарианский обед.",
+        "Для Севера выбираем обед без мяса.",
+        "Обеды участников группы Север вегетарианские.",
+        "Для Севера молочные продукты подаём отдельно, а не смешиваем с основным блюдом."
+      ],
+      "expected": false
+    },
+    {
+      "id": "alerts-missing-0",
+      "family": "alerts",
+      "split": "dev",
+      "source": "Harbor mutes routine notifications at night so volunteers can sleep.",
+      "memories": [
+        "Harbor suppresses notifications during quiet hours.",
+        "Quiet hours in Harbor mute notifications.",
+        "Harbor notifications are normally silent in quiet hours."
+      ],
+      "expected": true
+    },
+    {
+      "id": "alerts-covered-0",
+      "family": "alerts",
+      "split": "dev",
+      "source": "Harbor mutes routine notifications at night so volunteers can sleep.",
+      "memories": [
+        "Harbor suppresses notifications during quiet hours.",
+        "Quiet hours in Harbor mute notifications.",
+        "Harbor notifications are normally silent in quiet hours.",
+        "Harbor mutes routine notifications at night so volunteers can sleep."
+      ],
+      "expected": false
+    },
+    {
+      "id": "alerts-missing-1",
+      "family": "alerts",
+      "split": "dev",
+      "source": "Harbor smoke alarms bypass quiet hours; routine device-battery alerts do not.",
+      "memories": [
+        "Harbor suppresses notifications during quiet hours.",
+        "Quiet hours in Harbor mute notifications.",
+        "Harbor notifications are normally silent in quiet hours."
+      ],
+      "expected": true
+    },
+    {
+      "id": "alerts-covered-1",
+      "family": "alerts",
+      "split": "dev",
+      "source": "Harbor smoke alarms bypass quiet hours; routine device-battery alerts do not.",
+      "memories": [
+        "Harbor suppresses notifications during quiet hours.",
+        "Quiet hours in Harbor mute notifications.",
+        "Harbor notifications are normally silent in quiet hours.",
+        "Harbor smoke alarms bypass quiet hours; routine device-battery alerts do not."
+      ],
+      "expected": false
+    },
+    {
+      "id": "alerts-missing-2",
+      "family": "alerts",
+      "split": "dev",
+      "source": "Harbor sends routine alerts held overnight as one morning digest.",
+      "memories": [
+        "Harbor suppresses notifications during quiet hours.",
+        "Quiet hours in Harbor mute notifications.",
+        "Harbor notifications are normally silent in quiet hours."
+      ],
+      "expected": true
+    },
+    {
+      "id": "alerts-covered-2",
+      "family": "alerts",
+      "split": "dev",
+      "source": "Harbor sends routine alerts held overnight as one morning digest.",
+      "memories": [
+        "Harbor suppresses notifications during quiet hours.",
+        "Quiet hours in Harbor mute notifications.",
+        "Harbor notifications are normally silent in quiet hours.",
+        "Harbor sends routine alerts held overnight as one morning digest."
+      ],
+      "expected": false
+    },
+    {
+      "id": "notes-missing-0",
+      "family": "notes",
+      "split": "dev",
+      "source": "Navo konspektlarini o'zbekcha yozamiz, chunki guruh shu tilda o'qiydi.",
+      "memories": [
+        "Navo konspektlari o'zbek tilida yoziladi.",
+        "Navo dars yozuvlari uchun o'zbek tili tanlangan.",
+        "Navo konspektlarining asosiy tili o'zbekcha."
+      ],
+      "expected": true
+    },
+    {
+      "id": "notes-covered-0",
+      "family": "notes",
+      "split": "dev",
+      "source": "Navo konspektlarini o'zbekcha yozamiz, chunki guruh shu tilda o'qiydi.",
+      "memories": [
+        "Navo konspektlari o'zbek tilida yoziladi.",
+        "Navo dars yozuvlari uchun o'zbek tili tanlangan.",
+        "Navo konspektlarining asosiy tili o'zbekcha.",
+        "Navo konspektlarini o'zbekcha yozamiz, chunki guruh shu tilda o'qiydi."
+      ],
+      "expected": false
+    },
+    {
+      "id": "notes-missing-1",
+      "family": "notes",
+      "split": "dev",
+      "source": "Navo konspektida aniq tarjimasi bo'lmagan texnik termin inglizcha qoladi, yonida izoh beriladi.",
+      "memories": [
+        "Navo konspektlari o'zbek tilida yoziladi.",
+        "Navo dars yozuvlari uchun o'zbek tili tanlangan.",
+        "Navo konspektlarining asosiy tili o'zbekcha."
+      ],
+      "expected": true
+    },
+    {
+      "id": "notes-covered-1",
+      "family": "notes",
+      "split": "dev",
+      "source": "Navo konspektida aniq tarjimasi bo'lmagan texnik termin inglizcha qoladi, yonida izoh beriladi.",
+      "memories": [
+        "Navo konspektlari o'zbek tilida yoziladi.",
+        "Navo dars yozuvlari uchun o'zbek tili tanlangan.",
+        "Navo konspektlarining asosiy tili o'zbekcha.",
+        "Navo konspektida aniq tarjimasi bo'lmagan texnik termin inglizcha qoladi, yonida izoh beriladi."
+      ],
+      "expected": false
+    },
+    {
+      "id": "notes-missing-2",
+      "family": "notes",
+      "split": "dev",
+      "source": "Navo konspektlarida kod misollaridagi nomlar tarjima qilinmaydi.",
+      "memories": [
+        "Navo konspektlari o'zbek tilida yoziladi.",
+        "Navo dars yozuvlari uchun o'zbek tili tanlangan.",
+        "Navo konspektlarining asosiy tili o'zbekcha."
+      ],
+      "expected": true
+    },
+    {
+      "id": "notes-covered-2",
+      "family": "notes",
+      "split": "dev",
+      "source": "Navo konspektlarida kod misollaridagi nomlar tarjima qilinmaydi.",
+      "memories": [
+        "Navo konspektlari o'zbek tilida yoziladi.",
+        "Navo dars yozuvlari uchun o'zbek tili tanlangan.",
+        "Navo konspektlarining asosiy tili o'zbekcha.",
+        "Navo konspektlarida kod misollaridagi nomlar tarjima qilinmaydi."
+      ],
+      "expected": false
+    },
+    {
+      "id": "vault-missing-0",
+      "family": "vault",
+      "split": "dev",
+      "source": "Vault делает nightly backup, чтобы копирование не мешало дневным операциям.",
+      "memories": [
+        "Vault делает резервную копию каждую ночь.",
+        "В Vault настроен nightly backup.",
+        "Резервное копирование Vault выполняется ночью."
+      ],
+      "expected": true
+    },
+    {
+      "id": "vault-covered-0",
+      "family": "vault",
+      "split": "dev",
+      "source": "Vault делает nightly backup, чтобы копирование не мешало дневным операциям.",
+      "memories": [
+        "Vault делает резервную копию каждую ночь.",
+        "В Vault настроен nightly backup.",
+        "Резервное копирование Vault выполняется ночью.",
+        "Vault делает nightly backup, чтобы копирование не мешало дневным операциям."
+      ],
+      "expected": false
+    },
+    {
+      "id": "vault-missing-1",
+      "family": "vault",
+      "split": "dev",
+      "source": "В Vault каталог scratch исключён из backup: там только воспроизводимые temporary files.",
+      "memories": [
+        "Vault делает резервную копию каждую ночь.",
+        "В Vault настроен nightly backup.",
+        "Резервное копирование Vault выполняется ночью."
+      ],
+      "expected": true
+    },
+    {
+      "id": "vault-covered-1",
+      "family": "vault",
+      "split": "dev",
+      "source": "В Vault каталог scratch исключён из backup: там только воспроизводимые temporary files.",
+      "memories": [
+        "Vault делает резервную копию каждую ночь.",
+        "В Vault настроен nightly backup.",
+        "Резервное копирование Vault выполняется ночью.",
+        "В Vault каталог scratch исключён из backup: там только воспроизводимые temporary files."
+      ],
+      "expected": false
+    },
+    {
+      "id": "vault-missing-2",
+      "family": "vault",
+      "split": "dev",
+      "source": "Vault сохраняет оригинальные загрузки, даже если их thumbnails можно пересоздать.",
+      "memories": [
+        "Vault делает резервную копию каждую ночь.",
+        "В Vault настроен nightly backup.",
+        "Резервное копирование Vault выполняется ночью."
+      ],
+      "expected": true
+    },
+    {
+      "id": "vault-covered-2",
+      "family": "vault",
+      "split": "dev",
+      "source": "Vault сохраняет оригинальные загрузки, даже если их thumbnails можно пересоздать.",
+      "memories": [
+        "Vault делает резервную копию каждую ночь.",
+        "В Vault настроен nightly backup.",
+        "Резервное копирование Vault выполняется ночью.",
+        "Vault сохраняет оригинальные загрузки, даже если их thumbnails можно пересоздать."
+      ],
+      "expected": false
+    },
+    {
+      "id": "invoice-missing-0",
+      "family": "invoice",
+      "split": "confirmation",
+      "source": "Maple sends automatic reminders so staff do not chase every unpaid invoice manually.",
+      "memories": [
+        "Maple sends automatic invoice reminders.",
+        "Invoice reminders are automated in Maple.",
+        "Maple normally reminds customers of unpaid invoices automatically."
+      ],
+      "expected": true
+    },
+    {
+      "id": "invoice-covered-0",
+      "family": "invoice",
+      "split": "confirmation",
+      "source": "Maple sends automatic reminders so staff do not chase every unpaid invoice manually.",
+      "memories": [
+        "Maple sends automatic invoice reminders.",
+        "Invoice reminders are automated in Maple.",
+        "Maple normally reminds customers of unpaid invoices automatically.",
+        "Maple sends automatic reminders so staff do not chase every unpaid invoice manually."
+      ],
+      "expected": false
+    },
+    {
+      "id": "invoice-missing-1",
+      "family": "invoice",
+      "split": "confirmation",
+      "source": "For Maple customers with an open billing dispute, automatic reminders are paused.",
+      "memories": [
+        "Maple sends automatic invoice reminders.",
+        "Invoice reminders are automated in Maple.",
+        "Maple normally reminds customers of unpaid invoices automatically."
+      ],
+      "expected": true
+    },
+    {
+      "id": "invoice-covered-1",
+      "family": "invoice",
+      "split": "confirmation",
+      "source": "For Maple customers with an open billing dispute, automatic reminders are paused.",
+      "memories": [
+        "Maple sends automatic invoice reminders.",
+        "Invoice reminders are automated in Maple.",
+        "Maple normally reminds customers of unpaid invoices automatically.",
+        "For Maple customers with an open billing dispute, automatic reminders are paused."
+      ],
+      "expected": false
+    },
+    {
+      "id": "invoice-missing-2",
+      "family": "invoice",
+      "split": "confirmation",
+      "source": "Maple reminders contain a link to the invoice, never a copy of stored payment details.",
+      "memories": [
+        "Maple sends automatic invoice reminders.",
+        "Invoice reminders are automated in Maple.",
+        "Maple normally reminds customers of unpaid invoices automatically."
+      ],
+      "expected": true
+    },
+    {
+      "id": "invoice-covered-2",
+      "family": "invoice",
+      "split": "confirmation",
+      "source": "Maple reminders contain a link to the invoice, never a copy of stored payment details.",
+      "memories": [
+        "Maple sends automatic invoice reminders.",
+        "Invoice reminders are automated in Maple.",
+        "Maple normally reminds customers of unpaid invoices automatically.",
+        "Maple reminders contain a link to the invoice, never a copy of stored payment details."
+      ],
+      "expected": false
+    },
+    {
+      "id": "lab-missing-0",
+      "family": "lab",
+      "split": "confirmation",
+      "source": "Кварц замораживает обычные образцы, чтобы замедлить их разложение.",
+      "memories": [
+        "В лаборатории Кварц образцы замораживают.",
+        "Кварц обычно хранит образцы в замороженном состоянии.",
+        "Для хранения образцов Кварц использует заморозку."
+      ],
+      "expected": true
+    },
+    {
+      "id": "lab-covered-0",
+      "family": "lab",
+      "split": "confirmation",
+      "source": "Кварц замораживает обычные образцы, чтобы замедлить их разложение.",
+      "memories": [
+        "В лаборатории Кварц образцы замораживают.",
+        "Кварц обычно хранит образцы в замороженном состоянии.",
+        "Для хранения образцов Кварц использует заморозку.",
+        "Кварц замораживает обычные образцы, чтобы замедлить их разложение."
+      ],
+      "expected": false
+    },
+    {
+      "id": "lab-missing-1",
+      "family": "lab",
+      "split": "confirmation",
+      "source": "Живые культуры Кварца не замораживаем: они остаются в инкубаторе.",
+      "memories": [
+        "В лаборатории Кварц образцы замораживают.",
+        "Кварц обычно хранит образцы в замороженном состоянии.",
+        "Для хранения образцов Кварц использует заморозку."
+      ],
+      "expected": true
+    },
+    {
+      "id": "lab-covered-1",
+      "family": "lab",
+      "split": "confirmation",
+      "source": "Живые культуры Кварца не замораживаем: они остаются в инкубаторе.",
+      "memories": [
+        "В лаборатории Кварц образцы замораживают.",
+        "Кварц обычно хранит образцы в замороженном состоянии.",
+        "Для хранения образцов Кварц использует заморозку.",
+        "Живые культуры Кварца не замораживаем: они остаются в инкубаторе."
+      ],
+      "expected": false
+    },
+    {
+      "id": "lab-missing-2",
+      "family": "lab",
+      "split": "confirmation",
+      "source": "Каждый образец Кварца маркируем до помещения в хранилище, а не после.",
+      "memories": [
+        "В лаборатории Кварц образцы замораживают.",
+        "Кварц обычно хранит образцы в замороженном состоянии.",
+        "Для хранения образцов Кварц использует заморозку."
+      ],
+      "expected": true
+    },
+    {
+      "id": "lab-covered-2",
+      "family": "lab",
+      "split": "confirmation",
+      "source": "Каждый образец Кварца маркируем до помещения в хранилище, а не после.",
+      "memories": [
+        "В лаборатории Кварц образцы замораживают.",
+        "Кварц обычно хранит образцы в замороженном состоянии.",
+        "Для хранения образцов Кварц использует заморозку.",
+        "Каждый образец Кварца маркируем до помещения в хранилище, а не после."
+      ],
+      "expected": false
+    },
+    {
+      "id": "classroom-missing-0",
+      "family": "classroom",
+      "split": "confirmation",
+      "source": "Otter uses online submission so students can see the teacher's written feedback.",
+      "memories": [
+        "The Otter class submits homework online.",
+        "Otter homework is normally handed in through the online portal.",
+        "Students in Otter use the portal for homework submission."
+      ],
+      "expected": true
+    },
+    {
+      "id": "classroom-covered-0",
+      "family": "classroom",
+      "split": "confirmation",
+      "source": "Otter uses online submission so students can see the teacher's written feedback.",
+      "memories": [
+        "The Otter class submits homework online.",
+        "Otter homework is normally handed in through the online portal.",
+        "Students in Otter use the portal for homework submission.",
+        "Otter uses online submission so students can see the teacher's written feedback."
+      ],
+      "expected": false
+    },
+    {
+      "id": "classroom-missing-1",
+      "family": "classroom",
+      "split": "confirmation",
+      "source": "Otter students without home internet may hand in a paper copy at the next class.",
+      "memories": [
+        "The Otter class submits homework online.",
+        "Otter homework is normally handed in through the online portal.",
+        "Students in Otter use the portal for homework submission."
+      ],
+      "expected": true
+    },
+    {
+      "id": "classroom-covered-1",
+      "family": "classroom",
+      "split": "confirmation",
+      "source": "Otter students without home internet may hand in a paper copy at the next class.",
+      "memories": [
+        "The Otter class submits homework online.",
+        "Otter homework is normally handed in through the online portal.",
+        "Students in Otter use the portal for homework submission.",
+        "Otter students without home internet may hand in a paper copy at the next class."
+      ],
+      "expected": false
+    },
+    {
+      "id": "classroom-missing-2",
+      "family": "classroom",
+      "split": "confirmation",
+      "source": "Otter group assignments list each contributor, even when only one student uploads the file.",
+      "memories": [
+        "The Otter class submits homework online.",
+        "Otter homework is normally handed in through the online portal.",
+        "Students in Otter use the portal for homework submission."
+      ],
+      "expected": true
+    },
+    {
+      "id": "classroom-covered-2",
+      "family": "classroom",
+      "split": "confirmation",
+      "source": "Otter group assignments list each contributor, even when only one student uploads the file.",
+      "memories": [
+        "The Otter class submits homework online.",
+        "Otter homework is normally handed in through the online portal.",
+        "Students in Otter use the portal for homework submission.",
+        "Otter group assignments list each contributor, even when only one student uploads the file."
+      ],
+      "expected": false
+    },
+    {
+      "id": "photos-missing-0",
+      "family": "photos",
+      "split": "confirmation",
+      "source": "Альбом создаёт уменьшенные копии, чтобы страницы открывались быстрее.",
+      "memories": [
+        "Альбом уменьшает фотографии для просмотра.",
+        "Для отображения Альбом создаёт уменьшенные фотографии.",
+        "В Альбоме фотографии показываются в уменьшенном размере."
+      ],
+      "expected": true
+    },
+    {
+      "id": "photos-covered-0",
+      "family": "photos",
+      "split": "confirmation",
+      "source": "Альбом создаёт уменьшенные копии, чтобы страницы открывались быстрее.",
+      "memories": [
+        "Альбом уменьшает фотографии для просмотра.",
+        "Для отображения Альбом создаёт уменьшенные фотографии.",
+        "В Альбоме фотографии показываются в уменьшенном размере.",
+        "Альбом создаёт уменьшенные копии, чтобы страницы открывались быстрее."
+      ],
+      "expected": false
+    },
+    {
+      "id": "photos-missing-1",
+      "family": "photos",
+      "split": "confirmation",
+      "source": "После уменьшения в Альбоме оригинал сохраняем без изменений; уменьшенная копия его не заменяет.",
+      "memories": [
+        "Альбом уменьшает фотографии для просмотра.",
+        "Для отображения Альбом создаёт уменьшенные фотографии.",
+        "В Альбоме фотографии показываются в уменьшенном размере."
+      ],
+      "expected": true
+    },
+    {
+      "id": "photos-covered-1",
+      "family": "photos",
+      "split": "confirmation",
+      "source": "После уменьшения в Альбоме оригинал сохраняем без изменений; уменьшенная копия его не заменяет.",
+      "memories": [
+        "Альбом уменьшает фотографии для просмотра.",
+        "Для отображения Альбом создаёт уменьшенные фотографии.",
+        "В Альбоме фотографии показываются в уменьшенном размере.",
+        "После уменьшения в Альбоме оригинал сохраняем без изменений; уменьшенная копия его не заменяет."
+      ],
+      "expected": false
+    },
+    {
+      "id": "photos-missing-2",
+      "family": "photos",
+      "split": "confirmation",
+      "source": "Альбом удаляет GPS только из публичной копии, а приватный оригинал сохраняет метаданные.",
+      "memories": [
+        "Альбом уменьшает фотографии для просмотра.",
+        "Для отображения Альбом создаёт уменьшенные фотографии.",
+        "В Альбоме фотографии показываются в уменьшенном размере."
+      ],
+      "expected": true
+    },
+    {
+      "id": "photos-covered-2",
+      "family": "photos",
+      "split": "confirmation",
+      "source": "Альбом удаляет GPS только из публичной копии, а приватный оригинал сохраняет метаданные.",
+      "memories": [
+        "Альбом уменьшает фотографии для просмотра.",
+        "Для отображения Альбом создаёт уменьшенные фотографии.",
+        "В Альбоме фотографии показываются в уменьшенном размере.",
+        "Альбом удаляет GPS только из публичной копии, а приватный оригинал сохраняет метаданные."
+      ],
+      "expected": false
+    },
+    {
+      "id": "meeting-missing-0",
+      "family": "meeting",
+      "split": "confirmation",
+      "source": "Orbit делает status updates асинхронно, потому что участники в разных часовых поясах.",
+      "memories": [
+        "Orbit обсуждает статус работы асинхронно.",
+        "В Orbit приняты async status updates.",
+        "Команда Orbit обычно сообщает прогресс без созвонов."
+      ],
+      "expected": true
+    },
+    {
+      "id": "meeting-covered-0",
+      "family": "meeting",
+      "split": "confirmation",
+      "source": "Orbit делает status updates асинхронно, потому что участники в разных часовых поясах.",
+      "memories": [
+        "Orbit обсуждает статус работы асинхронно.",
+        "В Orbit приняты async status updates.",
+        "Команда Orbit обычно сообщает прогресс без созвонов.",
+        "Orbit делает status updates асинхронно, потому что участники в разных часовых поясах."
+      ],
+      "expected": false
+    },
+    {
+      "id": "meeting-missing-1",
+      "family": "meeting",
+      "split": "confirmation",
+      "source": "При production incident Orbit сразу собирает созвон; обычный статус ждёт async update.",
+      "memories": [
+        "Orbit обсуждает статус работы асинхронно.",
+        "В Orbit приняты async status updates.",
+        "Команда Orbit обычно сообщает прогресс без созвонов."
+      ],
+      "expected": true
+    },
+    {
+      "id": "meeting-covered-1",
+      "family": "meeting",
+      "split": "confirmation",
+      "source": "При production incident Orbit сразу собирает созвон; обычный статус ждёт async update.",
+      "memories": [
+        "Orbit обсуждает статус работы асинхронно.",
+        "В Orbit приняты async status updates.",
+        "Команда Orbit обычно сообщает прогресс без созвонов.",
+        "При production incident Orbit сразу собирает созвон; обычный статус ждёт async update."
+      ],
+      "expected": false
+    },
+    {
+      "id": "meeting-missing-2",
+      "family": "meeting",
+      "split": "confirmation",
+      "source": "Решение после созвона Orbit записываем текстом, чтобы отсутствовавшие могли его прочитать.",
+      "memories": [
+        "Orbit обсуждает статус работы асинхронно.",
+        "В Orbit приняты async status updates.",
+        "Команда Orbit обычно сообщает прогресс без созвонов."
+      ],
+      "expected": true
+    },
+    {
+      "id": "meeting-covered-2",
+      "family": "meeting",
+      "split": "confirmation",
+      "source": "Решение после созвона Orbit записываем текстом, чтобы отсутствовавшие могли его прочитать.",
+      "memories": [
+        "Orbit обсуждает статус работы асинхронно.",
+        "В Orbit приняты async status updates.",
+        "Команда Orbit обычно сообщает прогресс без созвонов.",
+        "Решение после созвона Orbit записываем текстом, чтобы отсутствовавшие могли его прочитать."
+      ],
+      "expected": false
+    },
+    {
+      "id": "garden-missing-0",
+      "family": "garden",
+      "split": "confirmation",
+      "source": "Bog'da ko'p o'simliklarni har kuni sug'oramiz, chunki issiqxonada havo quruq.",
+      "memories": [
+        "Bog' loyihasidagi o'simliklar har kuni sug'oriladi.",
+        "Bog'da odatda kundalik sug'orish qo'llanadi.",
+        "Bog' o'simliklari uchun har kungi sug'orish rejalashtirilgan."
+      ],
+      "expected": true
+    },
+    {
+      "id": "garden-covered-0",
+      "family": "garden",
+      "split": "confirmation",
+      "source": "Bog'da ko'p o'simliklarni har kuni sug'oramiz, chunki issiqxonada havo quruq.",
+      "memories": [
+        "Bog' loyihasidagi o'simliklar har kuni sug'oriladi.",
+        "Bog'da odatda kundalik sug'orish qo'llanadi.",
+        "Bog' o'simliklari uchun har kungi sug'orish rejalashtirilgan.",
+        "Bog'da ko'p o'simliklarni har kuni sug'oramiz, chunki issiqxonada havo quruq."
+      ],
+      "expected": false
+    },
+    {
+      "id": "garden-missing-1",
+      "family": "garden",
+      "split": "confirmation",
+      "source": "Bog'dagi kaktuslar har kuni sug'orilmaydi; tuprog'i to'liq qurigandan keyingina suv beriladi.",
+      "memories": [
+        "Bog' loyihasidagi o'simliklar har kuni sug'oriladi.",
+        "Bog'da odatda kundalik sug'orish qo'llanadi.",
+        "Bog' o'simliklari uchun har kungi sug'orish rejalashtirilgan."
+      ],
+      "expected": true
+    },
+    {
+      "id": "garden-covered-1",
+      "family": "garden",
+      "split": "confirmation",
+      "source": "Bog'dagi kaktuslar har kuni sug'orilmaydi; tuprog'i to'liq qurigandan keyingina suv beriladi.",
+      "memories": [
+        "Bog' loyihasidagi o'simliklar har kuni sug'oriladi.",
+        "Bog'da odatda kundalik sug'orish qo'llanadi.",
+        "Bog' o'simliklari uchun har kungi sug'orish rejalashtirilgan.",
+        "Bog'dagi kaktuslar har kuni sug'orilmaydi; tuprog'i to'liq qurigandan keyingina suv beriladi."
+      ],
+      "expected": false
+    },
+    {
+      "id": "garden-missing-2",
+      "family": "garden",
+      "split": "confirmation",
+      "source": "Bog'da yomg'ir suvini ishlatamiz, lekin idish tagida turgan iflos suvni qayta quymaymiz.",
+      "memories": [
+        "Bog' loyihasidagi o'simliklar har kuni sug'oriladi.",
+        "Bog'da odatda kundalik sug'orish qo'llanadi.",
+        "Bog' o'simliklari uchun har kungi sug'orish rejalashtirilgan."
+      ],
+      "expected": true
+    },
+    {
+      "id": "garden-covered-2",
+      "family": "garden",
+      "split": "confirmation",
+      "source": "Bog'da yomg'ir suvini ishlatamiz, lekin idish tagida turgan iflos suvni qayta quymaymiz.",
+      "memories": [
+        "Bog' loyihasidagi o'simliklar har kuni sug'oriladi.",
+        "Bog'da odatda kundalik sug'orish qo'llanadi.",
+        "Bog' o'simliklari uchun har kungi sug'orish rejalashtirilgan.",
+        "Bog'da yomg'ir suvini ishlatamiz, lekin idish tagida turgan iflos suvni qayta quymaymiz."
+      ],
+      "expected": false
+    },
+    {
+      "id": "migration-missing-0",
+      "family": "migration",
+      "split": "confirmation",
+      "source": "Finch moves to the new API to support cursor-based pagination.",
+      "memories": [
+        "Finch is moving to the new API.",
+        "The Finch migration adopts the new API.",
+        "Finch clients are being migrated to the replacement API."
+      ],
+      "expected": true
+    },
+    {
+      "id": "migration-covered-0",
+      "family": "migration",
+      "split": "confirmation",
+      "source": "Finch moves to the new API to support cursor-based pagination.",
+      "memories": [
+        "Finch is moving to the new API.",
+        "The Finch migration adopts the new API.",
+        "Finch clients are being migrated to the replacement API.",
+        "Finch moves to the new API to support cursor-based pagination."
+      ],
+      "expected": false
+    },
+    {
+      "id": "migration-missing-1",
+      "family": "migration",
+      "split": "confirmation",
+      "source": "Finch keeps the old API available for existing mobile clients until they upgrade.",
+      "memories": [
+        "Finch is moving to the new API.",
+        "The Finch migration adopts the new API.",
+        "Finch clients are being migrated to the replacement API."
+      ],
+      "expected": true
+    },
+    {
+      "id": "migration-covered-1",
+      "family": "migration",
+      "split": "confirmation",
+      "source": "Finch keeps the old API available for existing mobile clients until they upgrade.",
+      "memories": [
+        "Finch is moving to the new API.",
+        "The Finch migration adopts the new API.",
+        "Finch clients are being migrated to the replacement API.",
+        "Finch keeps the old API available for existing mobile clients until they upgrade."
+      ],
+      "expected": false
+    },
+    {
+      "id": "migration-missing-2",
+      "family": "migration",
+      "split": "confirmation",
+      "source": "If Finch's new API fails, route traffic back to the old API without rewriting stored data.",
+      "memories": [
+        "Finch is moving to the new API.",
+        "The Finch migration adopts the new API.",
+        "Finch clients are being migrated to the replacement API."
+      ],
+      "expected": true
+    },
+    {
+      "id": "migration-covered-2",
+      "family": "migration",
+      "split": "confirmation",
+      "source": "If Finch's new API fails, route traffic back to the old API without rewriting stored data.",
+      "memories": [
+        "Finch is moving to the new API.",
+        "The Finch migration adopts the new API.",
+        "Finch clients are being migrated to the replacement API.",
+        "If Finch's new API fails, route traffic back to the old API without rewriting stored data."
+      ],
+      "expected": false
+    },
+    {
+      "id": "print-missing-0",
+      "family": "print",
+      "split": "confirmation",
+      "source": "В Маяке используем крупный шрифт, потому что журнал читают люди со слабым зрением.",
+      "memories": [
+        "Журнал Маяк использует крупный шрифт.",
+        "Текст Маяка набирается крупным шрифтом.",
+        "Для журнала Маяк выбран увеличенный размер текста."
+      ],
+      "expected": true
+    },
+    {
+      "id": "print-covered-0",
+      "family": "print",
+      "split": "confirmation",
+      "source": "В Маяке используем крупный шрифт, потому что журнал читают люди со слабым зрением.",
+      "memories": [
+        "Журнал Маяк использует крупный шрифт.",
+        "Текст Маяка набирается крупным шрифтом.",
+        "Для журнала Маяк выбран увеличенный размер текста.",
+        "В Маяке используем крупный шрифт, потому что журнал читают люди со слабым зрением."
+      ],
+      "expected": false
+    },
+    {
+      "id": "print-missing-1",
+      "family": "print",
+      "split": "confirmation",
+      "source": "Подписи к иллюстрациям Маяка не уменьшаем относительно основного текста.",
+      "memories": [
+        "Журнал Маяк использует крупный шрифт.",
+        "Текст Маяка набирается крупным шрифтом.",
+        "Для журнала Маяк выбран увеличенный размер текста."
+      ],
+      "expected": true
+    },
+    {
+      "id": "print-covered-1",
+      "family": "print",
+      "split": "confirmation",
+      "source": "Подписи к иллюстрациям Маяка не уменьшаем относительно основного текста.",
+      "memories": [
+        "Журнал Маяк использует крупный шрифт.",
+        "Текст Маяка набирается крупным шрифтом.",
+        "Для журнала Маяк выбран увеличенный размер текста.",
+        "Подписи к иллюстрациям Маяка не уменьшаем относительно основного текста."
+      ],
+      "expected": false
+    },
+    {
+      "id": "print-missing-2",
+      "family": "print",
+      "split": "confirmation",
+      "source": "В Маяке длинную таблицу переносим на следующую страницу вместо уменьшения шрифта.",
+      "memories": [
+        "Журнал Маяк использует крупный шрифт.",
+        "Текст Маяка набирается крупным шрифтом.",
+        "Для журнала Маяк выбран увеличенный размер текста."
+      ],
+      "expected": true
+    },
+    {
+      "id": "print-covered-2",
+      "family": "print",
+      "split": "confirmation",
+      "source": "В Маяке длинную таблицу переносим на следующую страницу вместо уменьшения шрифта.",
+      "memories": [
+        "Журнал Маяк использует крупный шрифт.",
+        "Текст Маяка набирается крупным шрифтом.",
+        "Для журнала Маяк выбран увеличенный размер текста.",
+        "В Маяке длинную таблицу переносим на следующую страницу вместо уменьшения шрифта."
+      ],
+      "expected": false
+    }
+  ]
+}

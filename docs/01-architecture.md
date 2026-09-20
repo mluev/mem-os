@@ -11,7 +11,7 @@ Mem OS preserves evidence and memory for a team. It has no task aggregate, workf
 3. Commit evidence or memory plus an `index_outbox` row in one short Postgres transaction.
 4. Return `stored`, `indexed`, and durable identifiers separately.
 5. Claim an immutable, per-entity outbox operation and deliver it idempotently to Qdrant after commit. Completion uses the claim token; an expired lease is reclaimed and retried.
-6. Extraction jobs lease an exact message window with `FOR UPDATE SKIP LOCKED`, reserve their maximum cost, call the provider outside every write transaction, validate exact citations, resolve routing, then commit operations and reconcile actual cost.
+6. Extraction jobs assemble an exact message window under a per-session transaction advisory lock, then lease its rows with `FOR UPDATE SKIP LOCKED`. They reserve their maximum cost, call the provider outside every write transaction, validate exact citations, resolve routing, then commit operations and reconcile actual cost. Serializing assembly prevents competing workers from splitting or interleaving one window; unrelated sessions can claim concurrently.
 
 Postgres is the source of truth. Lexical search cannot drift from it: `memories.search_tsv` is a generated `tsvector` column over the row's own text, so there is no projection to keep synchronized and no trigger to forget. Qdrant, profiles, and the dashboard are derived views, rebuildable from the database. Retrieval forms a bounded union of dense, lexical, and exact-identifier candidates before scoring.
 

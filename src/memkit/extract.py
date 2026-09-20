@@ -6,7 +6,7 @@ import hashlib
 import logging
 import uuid
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import timedelta
 from typing import Any
 
@@ -14,7 +14,8 @@ import psycopg
 from psycopg.types.json import Jsonb
 
 from . import entities, judge, provenance, store
-from .db import Row, iso, utcnow
+from .db import Row, advisory_lock, iso, utcnow
+from .semantic_runtime import SemanticBlocks
 
 logger = logging.getLogger(__name__)
 WINDOW_SIZE = 10
@@ -56,6 +57,7 @@ class ExtractionOutcome:
     # Facts that named somebody nobody could resolve. Kept, but private and
     # unattributed until a human says who was meant.
     unresolved_mentions: int = 0
+    semantic_support: dict[str, int] = field(default_factory=dict)
 
     @property
     def applied(self) -> int:
@@ -74,6 +76,8 @@ class ExtractionOutcome:
         self.claimed += other.claimed
         self.windows += other.windows
         self.unresolved_mentions += other.unresolved_mentions
+        for key, value in other.semantic_support.items():
+            self.semantic_support[key] = self.semantic_support.get(key, 0) + value
         self.declined = other.declined
         if other.judge_run_id is not None:
             self.judge_run_id = other.judge_run_id
@@ -99,6 +103,7 @@ class ExtractionOutcome:
             "claimed": self.claimed,
             "windows": self.windows,
             "unresolved_mentions": self.unresolved_mentions,
+            "semantic_support": self.semantic_support,
         }
 
 
@@ -127,19 +132,21 @@ def claim_window(
 ) -> list[Row]:
     """Atomically lease one exact message range so provider work is never duplicated.
 
-    The lease is what stops two workers paying for the same window. Row locks
-    with SKIP LOCKED give the same guarantee the whole-database write lock used
-    to, without blocking unrelated writes for the duration.
+    Serialize assembly per session: SKIP LOCKED alone protects individual rows,
+    but racing workers can split and interleave one ordered conversation window.
+    The transaction lock ends before provider work; unrelated sessions can claim
+    concurrently. Leases continue protecting messages after the lock is released.
     """
-    now = utcnow()
     token = f"{job_id}:{uuid.uuid4()}"
     with conn.transaction():
+        advisory_lock(conn, f"extraction-window:{session_id}")
+        now = utcnow()
         # Windows whose holder died are claimable again.
         conn.execute(
             """UPDATE messages SET claim_token=NULL,claim_expires_at=NULL
-                 WHERE NOT processed AND claim_expires_at IS NOT NULL
+                 WHERE session_id=%s AND NOT processed AND claim_expires_at IS NOT NULL
                    AND claim_expires_at <= %s""",
-            (now,),
+            (session_id, now),
         )
         rows = conn.execute(
             """UPDATE messages SET claim_token=%s, claim_expires_at=%s
@@ -310,6 +317,12 @@ def _validated_evidence(
     return evidence, roles
 
 
+@dataclass(frozen=True)
+class DedupTarget:
+    id: str
+    revision: int
+
+
 def plan_dedup(
     conn: psycopg.Connection,
     *,
@@ -318,7 +331,10 @@ def plan_dedup(
     client: Any,
     embedder: Any,
     threshold: float | None,
-) -> dict[int, str]:
+    subjects: dict[int, str | None] | None = None,
+    eligible: set[int] | None = None,
+    semantic: SemanticBlocks | None = None,
+) -> dict[int, DedupTarget]:
     """Map op index → existing memory id for ADD ops that duplicate the store.
 
     Runs BEFORE the write transaction on purpose: embedding and the Qdrant
@@ -336,9 +352,12 @@ def plan_dedup(
         return {}
     from . import vectors
 
-    planned: dict[int, str] = {}
+    planned: dict[int, DedupTarget] = {}
+    pairs: dict[int, dict[str, Any]] = {}
     adds = [
-        (index, op) for index, op in enumerate(ops) if op.op == "ADD" and (op.text or "").strip()
+        (index, op)
+        for index, op in enumerate(ops)
+        if op.op == "ADD" and (op.text or "").strip() and (eligible is None or index in eligible)
     ]
     if not adds:
         return {}
@@ -361,13 +380,26 @@ def plan_dedup(
             if float(hit.score) < threshold:
                 continue
             row = conn.execute(
-                """SELECT id,context FROM memories
-                    WHERE id=%s AND scope_id=%s AND status='active'""",
+                """SELECT * FROM memories
+                    WHERE id=%s AND scope_id=%s AND status='active'
+                    AND (valid_until IS NULL OR valid_until > now())
+                    AND source_role IN ('user','manual')""",
                 (str(hit.id), target_scope),
             ).fetchone()
-            if row is not None and dict(row["context"] or {}) == (op.context or {}):
-                planned[index] = str(row["id"])
+            if (
+                row is not None
+                and dict(row["context"] or {}) == (op.context or {})
+                and (str(row["subject_id"]) if row["subject_id"] else None)
+                == (subjects or {}).get(index)
+                and row["kind"] == (op.kind or "fact")
+                and iso(row["valid_until"]) == iso(op.valid_until)
+            ):
+                planned[index] = DedupTarget(str(row["id"]), int(row["revision"]))
+                pairs[index] = {"existing": row["text"], "incoming": op.text}
                 break
+    if semantic is not None:
+        allowed = semantic.verify_duplicates(pairs)
+        planned = {index: target for index, target in planned.items() if index in allowed}
     return planned
 
 
@@ -502,7 +534,7 @@ def apply_ops(
     source_message_ids: list[int],
     entity_map: dict[str, str] | None = None,
     extraction_version: str = judge.PROMPT_VERSION,
-    dedup_hits: dict[int, str] | None = None,
+    dedup_hits: dict[int, DedupTarget] | None = None,
 ) -> ExtractionOutcome:
     outcome = ExtractionOutcome(judge_run_id=judge_run_id)
     allowed = set(source_message_ids)
@@ -541,17 +573,29 @@ def apply_ops(
         source_role = provenance.source_role_for(roles)
 
         if op.op == "ADD":
-            existing_id = (dedup_hits or {}).get(index)
-            if existing_id is not None:
+            target = (dedup_hits or {}).get(index)
+            if target is not None:
                 row = conn.execute(
                     """SELECT id FROM memories
-                        WHERE id=%s AND scope_id=%s AND status='active'""",
-                    (existing_id, scope_id),
+                        WHERE id=%s AND scope_id=%s AND status='active' AND revision=%s
+                        AND context=%s AND subject_id IS NOT DISTINCT FROM %s::uuid
+                        AND kind=%s AND source_role IN ('user','manual')
+                        AND valid_until IS NOT DISTINCT FROM %s::timestamptz
+                        AND (valid_until IS NULL OR valid_until > now()) FOR UPDATE""",
+                    (
+                        target.id,
+                        scope_id,
+                        target.revision,
+                        Jsonb(op_context),
+                        subject_id,
+                        op.kind or "fact",
+                        op.valid_until,
+                    ),
                 ).fetchone()
                 # The plan was computed outside this transaction; a vanished
                 # target simply means the ADD proceeds normally below.
                 if row is not None:
-                    _link_evidence(conn, existing_id, evidence)
+                    _link_evidence(conn, target.id, evidence)
                     outcome.deduplicated += 1
                     continue
             memory_id = store.add_memory(
@@ -676,6 +720,7 @@ def run_extraction(
     client: Any = None,
     embedder: Any = None,
     dedup_cosine: float | None = None,
+    semantic: SemanticBlocks | None = None,
 ) -> ExtractionOutcome:
     """Extract one window of one session, on behalf of that session's user.
 
@@ -765,13 +810,68 @@ def run_extraction(
     # Embedding and the index round-trip happen before the write transaction,
     # for the same reason the provider call does: nothing slow may hold a write
     # transaction open.
+    # Resolve the same routing and citation constraints before any extra egress.
+    # Preserve operation indexes; invalid operations are still rejected by apply_ops.
+    prepared = list(result.ops)
+    eligible: set[int] = set()
+    subjects: dict[int, str | None] = {}
+    claims: list[dict[str, Any]] = []
+    allowed_messages = {int(row["id"]) for row in window}
+    by_message = {int(row["id"]): row for row in window}
+    for index, op in enumerate(result.ops):
+        if op.op not in {"ADD", "UPDATE"}:
+            continue
+        evidence = _validated_evidence(conn, op, allowed_message_ids=allowed_messages)
+        op_context = reconcile_context(op.context or {}, context)
+        if (
+            evidence is None
+            or op_context is None
+            or not provenance.may_write(op=op.op, roles=evidence[1])
+        ):
+            continue
+        try:
+            target_scope, subject, unresolved = _resolve_routing(
+                conn,
+                op,
+                entity_map=result.entity_map,
+                session_scope_id=session_scope_id,
+                own_scope_id=own_scope_id,
+                team_scope_id=team_scope_id,
+                writable_scope_ids=writable,
+            )
+        except (LookupError, PermissionError):
+            continue
+        prepared[index] = replace(op, scope_id=target_scope, context=op_context)
+        subjects[index] = subject
+        if unresolved is None:
+            eligible.add(index)
+        if semantic is not None and semantic.support != "off":
+            claims.append(
+                {
+                    "claim": op.text,
+                    "user_spans": [
+                        by_message[e["message_id"]]["content"][e["start_char"] : e["end_char"]]
+                        for e in evidence[0]
+                        if by_message[e["message_id"]]["role"] == "user"
+                    ],
+                    "context": {
+                        "recording_date": session_date,
+                        "entities": known_entities,
+                        "conversation": [{"role": r["role"], "text": r["content"]} for r in window],
+                    },
+                }
+            )
+    support_counts = semantic.inspect_support(claims) if semantic is not None else {}
     dedup_hits = plan_dedup(
         conn,
-        ops=result.ops,
+        ops=prepared,
         scope_id=session_scope_id,
         client=client,
         embedder=embedder,
         threshold=dedup_cosine,
+        subjects=subjects,
+        eligible=eligible,
+        semantic=semantic,
     )
     with conn.transaction():
         applied = apply_ops(
@@ -800,6 +900,7 @@ def run_extraction(
     applied.judge_run_id = result.judge_run_id
     applied.claimed = len(window)
     applied.windows = 1
+    applied.semantic_support = support_counts
     return applied
 
 

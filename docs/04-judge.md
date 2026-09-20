@@ -27,6 +27,13 @@ Recorded per operation in the job result, so a prompt regression is legible with
 
 `evidence_invalid` (no citation, a message outside the window, an ambiguous or non-verbatim quote, an out-of-range span), `assistant_only_source`, `context_mismatch` (op context that cannot be mapped onto the session's own keys), `unknown_candidate`, `unknown_entity`, `scope_not_allowed`, `target_scope_mismatch`, `target_context_mismatch`. A vanished UPDATE/DELETE target counts as `skipped` rather than rejected; a near-verbatim ADD absorbed into an existing memory counts as `deduplicated`, and its citations are linked to that memory rather than lost.
 
+Optional [semantic blocks](experiments/jev.md) run after exact evidence and routing
+checks, outside the write transaction. Duplicate verification can veto a proposed
+match; unavailable or uncertain judgments preserve a separate ADD. Targets must
+match scope, subject, context, kind and validity and retain their planned revision
+under a row lock. Support judgments remain advisory and appear as counts in the
+job result; they never reject or quarantine a fact.
+
 ## The rate card
 
 Prices are per million tokens, generated from `judge.MODELS`. An unknown model is

@@ -35,11 +35,11 @@ describe("API client", () => {
   it("stores a trimmed key for the session and emits lifecycle events", () => {
     rememberApiKey("  secret  ");
     expect(getApiKey()).toBe("secret");
-    expect(events).toEqual(["memkit:key-changed"]);
+    expect(events).toEqual(["memkit:identity-changed"]);
 
     forgetApiKey();
     expect(getApiKey()).toBe("");
-    expect(events).toEqual(["memkit:key-changed", "memkit:unauthorized"]);
+    expect(events).toEqual(["memkit:identity-changed", "memkit:unauthorized"]);
   });
 
   it("sends the Memkit header and JSON content type", async () => {
@@ -59,6 +59,10 @@ describe("API client", () => {
     const headers = init.headers as Headers;
     expect(headers.get("X-API-Key")).toBe("secret");
     expect(headers.get("Content-Type")).toBe("application/json");
+    // A cookie-authenticated mutation is refused without this, and the cookie
+    // is what the dashboard actually uses.
+    expect(headers.get("X-Requested-With")).toBe("memkit");
+    expect(init.credentials).toBe("same-origin");
     expect(init.signal).toBeInstanceOf(AbortSignal);
   });
 
@@ -77,6 +81,19 @@ describe("API client", () => {
     await expect(api("/v1/probe")).rejects.toEqual(new ApiError("invalid API key", 401));
     expect(getApiKey()).toBe("");
     expect(events.at(-1)).toBe("memkit:unauthorized");
+  });
+
+  it("does not send the CSRF header on a read", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    await api("/v1/probe");
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect((init.headers as Headers).get("X-Requested-With")).toBeNull();
   });
 
   it("encodes only meaningful query values", () => {

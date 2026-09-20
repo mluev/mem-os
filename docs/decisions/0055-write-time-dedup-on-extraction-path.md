@@ -3,7 +3,7 @@
     Status:        accepted
     Date:          2026-08-28
     Supersedes:    placement in 0030 (the threshold and its measurements stand)
-    Superseded by: —
+    Superseded by: 0072 (target eligibility, revision check, optional semantic verification)
     Evidence:      decisions/0030 cosine measurements; tests/test_semantic_candidates.py
     Code:          src/memkit/extract.py (plan_dedup, apply_ops), src/memkit/api.py
     Contract:      ../04-judge.md

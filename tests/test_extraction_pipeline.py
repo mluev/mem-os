@@ -15,7 +15,7 @@ import unittest
 from datetime import timedelta
 
 from memkit import entities, extract, judge, providers
-from memkit.db import ConnectionPool, utcnow
+from memkit.db import ConnectionPool, advisory_lock, connect, utcnow
 from memkit.retrieval import _token_count
 from tests.fixtures import add_messages, fake_provider, make_db, make_session, seed_team
 
@@ -360,6 +360,65 @@ class WindowClaimConcurrencyTest(PipelineCase):
         )
         window = extract.claim_window(self.conn, session_id="s-1", job_id="fresh")
         self.assertEqual(len(window), 10)
+
+    def test_racing_workers_preserve_contiguous_window_boundaries(self) -> None:
+        """SKIP LOCKED alone must not interleave portions of the ordered windows."""
+        add_messages(self.conn, n=25)
+        ordered = [
+            int(r["id"])
+            for r in self.conn.execute(
+                "SELECT id FROM messages WHERE session_id='s-1' ORDER BY id"
+            ).fetchall()
+        ]
+        expected = [ordered[start : start + 10] for start in range(0, len(ordered), 10)]
+        pool = ConnectionPool(os.environ["MEMKIT_DATABASE_URL"], max_size=self.WORKERS)
+        self.addCleanup(pool.close_all)
+        # Several independent races exercise scheduling variation without a provider.
+        for iteration in range(12):
+            self.conn.execute("UPDATE messages SET claim_token=NULL,claim_expires_at=NULL")
+            barrier = threading.Barrier(self.WORKERS)
+            windows: list[list[int]] = []
+            errors: list[BaseException] = []
+            guard = threading.Lock()
+
+            def claim(index: int, barrier, guard, windows, errors) -> None:
+                try:
+                    with pool.borrow() as worker:
+                        barrier.wait(timeout=10)
+                        rows = extract.claim_window(worker, session_id="s-1", job_id=f"job-{index}")
+                    with guard:
+                        windows.append([int(row["id"]) for row in rows])
+                except BaseException as exc:
+                    with guard:
+                        errors.append(exc)
+
+            threads = [
+                threading.Thread(target=claim, args=(i, barrier, guard, windows, errors))
+                for i in range(self.WORKERS)
+            ]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(timeout=20)
+            self.assertEqual(errors, [])
+            self.assertEqual(len(windows), self.WORKERS)
+            self.assertEqual(sorted(w for w in windows if w), expected, f"race {iteration}")
+
+    def test_one_session_claim_does_not_wait_for_another_sessions_expired_rows(self) -> None:
+        add_messages(self.conn, n=1)
+        make_session(self.conn, self.team, session_id="s-2")
+        add_messages(self.conn, n=2, session="s-2")
+        self.conn.execute(
+            "UPDATE messages SET claim_token='expired',claim_expires_at=%s WHERE session_id='s-1'",
+            (utcnow() - timedelta(hours=1),),
+        )
+        with connect(os.environ["MEMKIT_DATABASE_URL"]) as other, self.conn.transaction():
+            advisory_lock(self.conn, "extraction-window:s-1")
+            self.conn.execute("SELECT id FROM messages WHERE session_id='s-1' FOR UPDATE")
+            other.execute("SET lock_timeout='100ms'")
+            claimed = extract.claim_window(other, session_id="s-2", job_id="second-session")
+        self.assertEqual(len(claimed), 2)
+        self.assertEqual({row["session_id"] for row in claimed}, {"s-2"})
 
 
 if __name__ == "__main__":

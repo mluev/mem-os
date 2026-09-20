@@ -49,6 +49,8 @@ def fixtures_password() -> str:
 # here looks right, does nothing, and lets a test make a real billed API call.
 # Found the hard way: the first run of this suite called Gemini for real.
 _CREDENTIAL_ALIASES = {
+    "JEV": "",
+    "TYPESAFE_API_KEY": "",
     "ANTHROPIC_API_KEY": "",
     "GEMINI_API_KEY": "",
     "GOOGLE_API_KEY": "",
@@ -85,7 +87,7 @@ def assert_offline(settings: config.Settings) -> None:
     """
     leaked = [
         name
-        for name in ("anthropic_api_key", "gemini_api_key", "vertex_project")
+        for name in ("anthropic_api_key", "gemini_api_key", "vertex_project", "jev_api_key")
         if getattr(settings, name)
     ]
     if leaked or api.judge_configured(settings):
@@ -107,6 +109,8 @@ async def stub_lifespan(app):
     app.state.index_ready = True
     app.state.index_error = None
     app.state.maintenance = False
+    app.state.semantic = None
+    app.state.reranker = None
     app.state.login_limiter = auth.RateLimiter()
 
     class _InlineWorker:

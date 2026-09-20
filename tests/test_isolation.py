@@ -18,6 +18,7 @@ learns nothing that probing for random ids would not.
 
 from __future__ import annotations
 
+import hashlib
 import unittest
 
 from tests.httpharness import ApiTestCase
@@ -43,6 +44,59 @@ class IsolationTestCase(ApiTestCase):
 
 
 class PrivateMemoryByIdTest(IsolationTestCase):
+    def test_shared_fact_does_not_publish_its_private_source(self) -> None:
+        text = "Private discussion behind the shared decision"
+        mid = self.seed_message(content=text)
+        memory_id = self.seed_memory(text="Shared decision", scope=self.team.team_id)
+        self.db.execute(
+            """INSERT INTO memory_evidence
+               (memory_id,message_id,start_char,end_char,excerpt_sha256)
+               VALUES (%s,%s,0,%s,%s)""",
+            (memory_id, mid, len(text), hashlib.sha256(text.encode()).hexdigest()),
+        )
+        self.db.execute(
+            "INSERT INTO memory_sources(memory_id,message_id) VALUES (%s,%s)", (memory_id, mid)
+        )
+        own = self.client.get(f"/v1/memories/{memory_id}/sources", headers=self.auth)
+        other = self.client.get(f"/v1/memories/{memory_id}/sources", headers=self.as_bob)
+        self.assertTrue(own.json()["evidence"][0]["verified"])
+        self.assertEqual(other.status_code, 200, other.text)
+        self.assertEqual(other.json()["evidence"], [])
+        detail = self.client.get(f"/v1/memories/{memory_id}", headers=self.as_bob).json()
+        self.assertEqual(detail["memory"]["sessions"], [])
+
+    def test_sharing_current_wording_does_not_publish_private_revisions_or_links(self) -> None:
+        memory_id = self.seed_memory(text="PRIVATE ORIGINAL WORDING")
+        moved = self.client.patch(
+            f"/v1/memories/{memory_id}",
+            headers=self.auth,
+            json={
+                "expected_revision": 1,
+                "text": "Shared wording",
+                "scope": self.team.team_id,
+                "move_scope": True,
+            },
+        )
+        self.assertEqual(moved.status_code, 200, moved.text)
+        private_before = self.seed_memory(text="PRIVATE PREDECESSOR")
+        private_after = self.seed_memory(text="PRIVATE SUCCESSOR")
+        self.db.execute(
+            "UPDATE memories SET superseded_by=%s WHERE id=%s", (memory_id, private_before)
+        )
+        self.db.execute(
+            "UPDATE memories SET superseded_by=%s WHERE id=%s", (private_after, memory_id)
+        )
+        own = self.client.get(f"/v1/memories/{memory_id}/history", headers=self.auth)
+        other = self.client.get(f"/v1/memories/{memory_id}/history", headers=self.as_bob)
+        self.assertIn("PRIVATE", own.text)
+        self.assertEqual(other.status_code, 200, other.text)
+        self.assertNotIn("PRIVATE", other.text)
+        self.assertEqual(other.json()["predecessors"], [])
+        self.assertIsNone(other.json()["successor"])
+        queue = self.client.get("/v1/review?kind=memory", headers=self.as_bob)
+        self.assertEqual(queue.status_code, 200, queue.text)
+        self.assertNotIn("PRIVATE", queue.text)
+
     def test_every_route_that_takes_an_id_hides_a_teammates_private_memory(self) -> None:
         """404 on all of them, including the read-only ones.
 

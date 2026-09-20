@@ -5,12 +5,12 @@
     Supersedes:    —
     Superseded by: —
     Evidence:      tests/test_extract_v4.py, tests/test_prompts.py
-    Code:          src/memkit/prompts.py (V9), src/memkit/judge.py (extract, render_entities), src/memkit/entities.py (for_prompt)
+    Code:          src/memkit/prompts.py (V10; V9 was the first version and was not promoted — see ../measurements.md), src/memkit/judge.py (extract, render_entities), src/memkit/entities.py (for_prompt)
     Contract:      ../04-judge.md#routing
 
 ## Decision
 
-Prompt v9 is v8 plus an `ENTITIES` block: the entities the speaker can see, numbered from one, each labelled by kind and carrying the aliases people actually say. Order is fixed — the speaker, the team, then their projects and products, then teammates — and the list is capped, so the tail that gets dropped is the least likely to be needed.
+Prompt v9 introduced, and the promoted v10 keeps, an `ENTITIES` block: the entities the speaker can see, numbered from one, each labelled by kind and carrying the aliases people actually say. Order is fixed — the speaker, the team, then their projects and products, then teammates — and the list is capped, so the tail that gets dropped is the least likely to be needed.
 
 Operations return `scope` and `subject` as **integers into that block**. Names and ids are never accepted. A number outside the block is dropped as `unknown_entity` and counted as a rejection, exactly as a fabricated candidate id is. The map is recorded with the judge run, so a stored fact can be explained afterwards.
 

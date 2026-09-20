@@ -14,6 +14,7 @@ from ...types import UNSET, Response, Unset
 def _get_kwargs(
     memory_id: str,
     *,
+    expected_revision: int | None | Unset = UNSET,
     x_requested_with: None | str | Unset = UNSET,
     memkit_session: None | str | Unset = UNSET,
 ) -> dict[str, Any]:
@@ -25,11 +26,23 @@ def _get_kwargs(
     if memkit_session is not UNSET:
         cookies["memkit_session"] = memkit_session
 
+    params: dict[str, Any] = {}
+
+    json_expected_revision: int | None | Unset
+    if isinstance(expected_revision, Unset):
+        json_expected_revision = UNSET
+    else:
+        json_expected_revision = expected_revision
+    params["expected_revision"] = json_expected_revision
+
+    params = {k: v for k, v in params.items() if v is not UNSET and v is not None}
+
     _kwargs: dict[str, Any] = {
         "method": "delete",
         "url": "/v1/memories/{memory_id}".format(
             memory_id=quote(str(memory_id), safe=""),
         ),
+        "params": params,
         "cookies": cookies,
     }
 
@@ -71,6 +84,7 @@ def sync_detailed(
     memory_id: str,
     *,
     client: AuthenticatedClient,
+    expected_revision: int | None | Unset = UNSET,
     x_requested_with: None | str | Unset = UNSET,
     memkit_session: None | str | Unset = UNSET,
 ) -> Response[EntityOut | HTTPValidationError]:
@@ -78,8 +92,12 @@ def sync_detailed(
 
      Archive a memory. Reversible, because a mistaken delete is common.
 
+    The precondition is optional here and required on a patch: archiving is
+    reversible, so a lost race costs an undo rather than someone's wording.
+
     Args:
         memory_id (str):
+        expected_revision (int | None | Unset):
         x_requested_with (None | str | Unset):
         memkit_session (None | str | Unset):
 
@@ -93,6 +111,7 @@ def sync_detailed(
 
     kwargs = _get_kwargs(
         memory_id=memory_id,
+        expected_revision=expected_revision,
         x_requested_with=x_requested_with,
         memkit_session=memkit_session,
     )
@@ -108,6 +127,7 @@ def sync(
     memory_id: str,
     *,
     client: AuthenticatedClient,
+    expected_revision: int | None | Unset = UNSET,
     x_requested_with: None | str | Unset = UNSET,
     memkit_session: None | str | Unset = UNSET,
 ) -> EntityOut | HTTPValidationError | None:
@@ -115,8 +135,12 @@ def sync(
 
      Archive a memory. Reversible, because a mistaken delete is common.
 
+    The precondition is optional here and required on a patch: archiving is
+    reversible, so a lost race costs an undo rather than someone's wording.
+
     Args:
         memory_id (str):
+        expected_revision (int | None | Unset):
         x_requested_with (None | str | Unset):
         memkit_session (None | str | Unset):
 
@@ -131,6 +155,7 @@ def sync(
     return sync_detailed(
         memory_id=memory_id,
         client=client,
+        expected_revision=expected_revision,
         x_requested_with=x_requested_with,
         memkit_session=memkit_session,
     ).parsed
@@ -140,6 +165,7 @@ async def asyncio_detailed(
     memory_id: str,
     *,
     client: AuthenticatedClient,
+    expected_revision: int | None | Unset = UNSET,
     x_requested_with: None | str | Unset = UNSET,
     memkit_session: None | str | Unset = UNSET,
 ) -> Response[EntityOut | HTTPValidationError]:
@@ -147,8 +173,12 @@ async def asyncio_detailed(
 
      Archive a memory. Reversible, because a mistaken delete is common.
 
+    The precondition is optional here and required on a patch: archiving is
+    reversible, so a lost race costs an undo rather than someone's wording.
+
     Args:
         memory_id (str):
+        expected_revision (int | None | Unset):
         x_requested_with (None | str | Unset):
         memkit_session (None | str | Unset):
 
@@ -162,6 +192,7 @@ async def asyncio_detailed(
 
     kwargs = _get_kwargs(
         memory_id=memory_id,
+        expected_revision=expected_revision,
         x_requested_with=x_requested_with,
         memkit_session=memkit_session,
     )
@@ -175,6 +206,7 @@ async def asyncio(
     memory_id: str,
     *,
     client: AuthenticatedClient,
+    expected_revision: int | None | Unset = UNSET,
     x_requested_with: None | str | Unset = UNSET,
     memkit_session: None | str | Unset = UNSET,
 ) -> EntityOut | HTTPValidationError | None:
@@ -182,8 +214,12 @@ async def asyncio(
 
      Archive a memory. Reversible, because a mistaken delete is common.
 
+    The precondition is optional here and required on a patch: archiving is
+    reversible, so a lost race costs an undo rather than someone's wording.
+
     Args:
         memory_id (str):
+        expected_revision (int | None | Unset):
         x_requested_with (None | str | Unset):
         memkit_session (None | str | Unset):
 
@@ -199,6 +235,7 @@ async def asyncio(
         await asyncio_detailed(
             memory_id=memory_id,
             client=client,
+            expected_revision=expected_revision,
             x_requested_with=x_requested_with,
             memkit_session=memkit_session,
         )
