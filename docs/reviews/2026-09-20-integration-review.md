@@ -31,6 +31,12 @@ actual default branch is `master`; there is no `main` branch.
   image's UID back over the deployment user's initialized model volume. Managed
   model mounts now disable copy-up; a separate Docker check attempts writes from
   two fresh containers before the full remote installation test.
+- A subsequent live run passed installation, restart, upgrade and unhealthy-image
+  rollback, then found that restore lacked `pg_restore --dbname`. The repaired
+  command restores in a single transaction. A real Postgres regression proves
+  that post-backup data is removed, and failures identify the restore stage.
+- Retrying a partially provisioned installation repeats ownership initialization
+  and repairs the legacy cache mount without replacing saved credentials.
 
 ## Dependency repairs
 
@@ -53,4 +59,5 @@ The integrated Linux backend passed 816 tests and 55 subtests (81.04% coverage;
 two optional tests skipped). Frontend checks passed 79 unit tests and six browser
 tests; Qdrant and clean server/SDK/CLI distributions passed. The original work
 was merged as PR #5 before the remote deployment check finished. Its discovered
-cache-permission repair and final live verification continue in a follow-up PR.
+cache-permission repair was merged as PR #6. The restore repair and final live
+verification continue on `codex/verified-backup-restore`.

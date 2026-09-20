@@ -36,6 +36,8 @@ def main():
         password.chmod(0o600)
 
         def call(*words, succeeds=True):
+            depth = 3 if words[:2] == ("server", "backup") else 2 if words[0] == "server" else 1
+            print("Checking " + " ".join(words[:depth]), flush=True)
             result = subprocess.run(
                 [sys.executable, "-m", "memos_cli", *words, "--json"],
                 env=environment,
