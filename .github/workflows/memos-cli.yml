@@ -48,6 +48,8 @@ jobs:
       - run: uv python install 3.12
       - run: uv venv --python 3.12 /tmp/memos-client
       - run: uv pip install --python /tmp/memos-client/bin/python ./cli
+      - name: Build the server image with visible diagnostics
+        run: docker build --progress=plain -t memos-smoke:one .
       - name: Configure disposable SSH target
         run: |
           sudo apt-get update
@@ -61,3 +63,8 @@ jobs:
           ssh-keyscan -H 127.0.0.1 >> ~/.ssh/known_hosts
       - name: Test install, restart, upgrade, failure recovery, export and restore
         run: /tmp/memos-client/bin/python tools/smoke_memos_remote.py --host "$USER@127.0.0.1" --source "$GITHUB_WORKSPACE"
+      - name: Inspect disposable service failures
+        if: failure()
+        run: |
+          docker ps --all --format '{{.Names}} {{.Status}} {{.Image}}'
+          docker ps --all --filter ancestor=memos-smoke:one --format '{{.ID}}' | xargs -r -I '{}' docker logs --tail 100 '{}'
