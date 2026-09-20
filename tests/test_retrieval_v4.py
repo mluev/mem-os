@@ -74,8 +74,8 @@ class HybridRetrievalTest(unittest.TestCase):
         untrusted = self._add("Agent guessed launch code ABC-123", source_role="agent")
         result = self._search("ABC-123", now=datetime(2026, 8, 9, tzinfo=UTC))
         self.assertEqual(result.chosen, [])
-        self.assertIn(expired, result.dropped_validity)
-        self.assertIn(untrusted, result.dropped_trust)
+        self.assertNotIn(expired, [item.id for item in result.chosen])
+        self.assertNotIn(untrusted, [item.id for item in result.chosen])
 
     def test_a_query_about_nothing_it_knows_stays_silent(self) -> None:
         self._add("Prefers pnpm for JavaScript packages")

@@ -15,19 +15,25 @@ Mem OS preserves evidence and memory for a team. It has no task aggregate, workf
 
 Postgres is the source of truth. Lexical search cannot drift from it: `memories.search_tsv` is a generated `tsvector` column over the row's own text, so there is no projection to keep synchronized and no trigger to forget. Qdrant, profiles, and the dashboard are derived views, rebuildable from the database. Retrieval forms a bounded union of dense, lexical, and exact-identifier candidates before scoring.
 
-Advisory locks coordinate what a single-file database used to serialize by itself: one lock per scope shared by index delivery, reindex replay, and erasure, and one instance-wide lock around the alias swap. They replace `BEGIN IMMEDIATE`, which took the whole database, and the lock file beside it, which only worked because every process shared a filesystem. A late delivery rechecks the authoritative row before any external write, so a queued upsert cannot resurrect what a delete already removed.
+Every request and worker operation borrows its own database connection and returns it on exit. Index-affecting writes acquire a shared maintenance gate before scope or row locks. Reindex and erasure acquire the exclusive gate on their borrowed connection; they do not upgrade a shared lock. A late delivery checks its live claim and the authoritative row before any external write, so an old upsert cannot resurrect a deletion and an old delete cannot remove a restored memory.
 
 ## Durable work
 
-A polling worker claims queued jobs with renewable leases. Startup requeues expired jobs, releases their message claims and unreconciled budget reservations, and resumes work where it stopped. API request lifetimes do not own background work: a request queues a job and returns its id.
+A polling worker claims queued jobs with renewable leases. Recovery periodically requeues expired jobs, releases their message claims and unreconciled budget reservations, and resumes work where it stopped, even while Qdrant is unavailable. Renewal, domain writes, and completion verify the current unexpired lease; obsolete workers cannot commit results. API request lifetimes do not own background work: a request queues a job and returns its id.
 
 Long operations are jobs — extraction, export, erasure, reindex, consolidation, re-extraction planning. Each records events, honours cooperative cancellation, and carries a call limit that bounds provider spend and work in the same number, because each window is exactly one call.
 
 ## Reindex
 
-Reindex reads a `REPEATABLE READ` snapshot of the rows to index and the outbox high-water mark together, builds new `memories__g*` and `raw__g*` collections, validates that the exact id set arrived, replays the operations committed since the snapshot, and swaps the `__live` aliases under the instance-wide lock. A final replay runs under the same lock, so an operation delivered against the old alias during the swap lands on the generation that is now live. Failure or cancellation before activation leaves the old generation serving, and an activated predecessor is kept for seven days so a rollback is an alias change rather than a rebuild.
+Reindex pauses index-affecting writes with an instance-wide maintenance gate, takes a stable database snapshot, builds new `memories__g*` and `raw__g*` collections, and validates exact IDs and payloads before atomically switching both live aliases. Reads, job status, and cancellation remain available. Writes receive a retryable `503` during maintenance; background work is deferred.
 
-The lock is held around the swap and not around the build: a transaction spanning minutes of embedding would sit idle in transaction and be killed by `idle_in_transaction_session_timeout`. Two rebuilds may therefore build concurrently; each generation is a complete snapshot, so only their swap order matters.
+The gate is a session advisory lock, so embedding does not hold an idle database transaction open. A crash closes the connection and releases the gate. Failure or cancellation before activation leaves the old generation serving. Retired generations are kept for seven days and remain subject to erasure; they are not current snapshots after later writes. A database restore requires a fresh rebuild, not switching to an older generation.
+
+## Erasure and recovery
+
+Erasure records its acceptance in a durable administrative job and fsyncs a receipt outside the database before deleting authoritative rows. The job survives deletion of its user. Cleanup covers every managed vector generation and managed export; failures stay queued for retry, and completion means all cleanup succeeded. Once accepted, erasure cannot be cancelled. Other people's shared claims are preserved; shared authorship conflicts are refused explicitly.
+
+Compose persists backups, the erasure manifest, and exports in named volumes. Backups retain their existing retention policy. After an offline restore, the latest external manifest must be replayed before service reopens, and derived indexes and exports must be rebuilt or discarded. `memkit backup restore-drill` proves archive restoration and erasure replay in an isolated database without changing the configured database.
 
 ## Degraded dependencies
 
@@ -37,7 +43,7 @@ Qdrant unavailability does not stop authoritative writes. The service reports th
 
 Every request resolves to exactly one principal, and every query that touches memory takes its scope set from that object. Nothing reads an owner from configuration.
 
-Two columns carry the model, and the distinction between them is the whole of it. `scope_id` is the entity whose space holds a row — the authorization boundary. `subject_id` is the entity a fact is *about* — attribution, carrying no permission. A user's private memory is a scope whose entity is that user; a fact about a teammate lives in the team scope with that teammate as subject, so the team can see it and the person can delete it. `author_id` records who wrote it.
+Two columns carry the model, and the distinction between them is the whole of it. `scope_id` is the entity whose space holds a row — the authorization boundary. `subject_id` is the entity a fact is *about* — attribution, carrying no permission. A user's private memory is a scope whose entity is that user; a fact about a teammate lives in the team scope with that teammate as subject, so team membership controls access independently of whom the fact describes. `author_id` records who wrote it.
 
 **A scope the caller does not hold is refused, never filtered.** A scope named in a request that the principal does not belong to is `403`; a scope that does not exist is `404`. Filtering would make a forbidden scope indistinguishable from an empty one, which hides a permissions bug and an intrusion equally well. The one deliberate exception runs the other way: a memory fetched *by id* from a scope the caller cannot reach is `404`, never `403`, so the API cannot be used to discover that somebody else's fact exists.
 

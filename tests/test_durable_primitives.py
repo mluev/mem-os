@@ -219,7 +219,9 @@ class TestJobsAndBudgets(unittest.TestCase):
             jobs.consume_call(self.conn, job_id)
         jobs.request_cancel(self.conn, job_id)
         self.assertTrue(jobs.cancel_requested(self.conn, job_id))
-        jobs.finish(self.conn, job_id, status="cancelled", result={"safe": True})
+        jobs.finish(
+            self.conn, job_id, holder=claimed["holder"], status="cancelled", result={"safe": True}
+        )
         row = jobs.get(self.conn, job_id)
         self.assertEqual(row["status"], "cancelled")
         self.assertEqual(row["result"], {"safe": True})

@@ -30,9 +30,8 @@ import json
 import logging
 import os
 import re
-import threading
 from collections.abc import Iterator, Sequence
-from contextlib import contextmanager, suppress
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from hashlib import sha256
 from typing import Any
@@ -44,7 +43,7 @@ from psycopg_pool import ConnectionPool as _PsycopgPool
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 DDL_V1 = """
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
@@ -449,7 +448,23 @@ CREATE TABLE IF NOT EXISTS backup_artifacts (
 );
 """
 
-MIGRATIONS: dict[int, str] = {1: DDL_V1}
+DDL_V2 = """
+ALTER TABLE jobs ADD COLUMN available_at timestamptz NOT NULL DEFAULT now();
+CREATE TABLE memory_revision_evidence (
+    memory_id uuid NOT NULL,
+    revision integer NOT NULL,
+    message_id bigint NOT NULL,
+    start_char integer NOT NULL,
+    end_char integer NOT NULL,
+    PRIMARY KEY (memory_id, revision, message_id, start_char, end_char),
+    FOREIGN KEY (memory_id, revision)
+        REFERENCES memory_revisions(memory_id, revision) ON DELETE CASCADE,
+    FOREIGN KEY (memory_id, message_id, start_char, end_char)
+        REFERENCES memory_evidence(memory_id, message_id, start_char, end_char) ON DELETE CASCADE
+);
+"""
+
+MIGRATIONS: dict[int, str] = {1: DDL_V1, 2: DDL_V2}
 MIGRATION_CHECKSUMS = {
     version: sha256(ddl.encode()).hexdigest() for version, ddl in MIGRATIONS.items()
 }
@@ -556,13 +571,10 @@ def advisory_lock(conn: psycopg.Connection, name: str) -> None:
 
 
 class ConnectionPool:
-    """Pooled connections, handed out per caller.
+    """Borrow one connection per request or worker operation, then return it.
 
-    Postgres connections are expensive to open (process fork plus handshake),
-    unlike the SQLite file handles this replaces, so they are pooled rather than
-    made per thread. A unit of work is still a `transaction()` block on one
-    connection, which is why callers take a connection and keep it for the
-    duration of their work.
+    A borrow owns a resource, not a transaction. Callers retain short explicit
+    transactions, and provider calls must run outside those transactions.
     """
 
     def __init__(self, dsn: str, *, max_size: int = 10) -> None:
@@ -576,29 +588,11 @@ class ConnectionPool:
             open=True,
             name="memkit",
         )
-        self._local = threading.local()
-        self._lock = threading.Lock()
-        self._checked_out: list[psycopg.Connection] = []
 
     @staticmethod
     def _configure(conn: psycopg.Connection) -> None:
         conn.execute("SET lock_timeout = '5s'")
         conn.execute("SET idle_in_transaction_session_timeout = '60s'")
-
-    def __call__(self) -> psycopg.Connection:
-        """A connection for this thread, kept until the pool is closed.
-
-        Mirrors the previous per-thread behaviour so that code holding a
-        connection across several statements keeps seeing its own work.
-        """
-        conn: psycopg.Connection | None = getattr(self._local, "conn", None)
-        if conn is not None and not conn.closed:
-            return conn
-        conn = self._pool.getconn()
-        self._local.conn = conn
-        with self._lock:
-            self._checked_out.append(conn)
-        return conn
 
     @contextmanager
     def borrow(self) -> Iterator[psycopg.Connection]:
@@ -606,27 +600,9 @@ class ConnectionPool:
         with self._pool.connection() as conn:
             yield conn
 
-    def release(self) -> None:
-        """Return this thread's connection to the pool."""
-        conn: psycopg.Connection | None = getattr(self._local, "conn", None)
-        if conn is None:
-            return
-        self._local.conn = None
-        with self._lock, suppress(ValueError):
-            self._checked_out.remove(conn)
-        with suppress(Exception):
-            self._pool.putconn(conn)
-
     def close_all(self) -> None:
         """Shutdown only."""
-        with self._lock:
-            for conn in list(self._checked_out):
-                with suppress(Exception):
-                    self._pool.putconn(conn)
-            self._checked_out.clear()
-        self._local = threading.local()
-        with suppress(Exception):
-            self._pool.close()
+        self._pool.close()
 
 
 def _require_icu(conn: psycopg.Connection) -> None:

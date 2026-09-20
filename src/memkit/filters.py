@@ -9,6 +9,19 @@ class InvalidFilter(ValueError):
     pass
 
 
+def _equal(left: Any, right: Any) -> bool:
+    """JSON equality: booleans and numbers are different value types."""
+    if isinstance(left, bool) or isinstance(right, bool):
+        return isinstance(left, bool) and isinstance(right, bool) and left == right
+    if isinstance(left, dict) and isinstance(right, dict):
+        return left.keys() == right.keys() and all(_equal(left[key], right[key]) for key in left)
+    if isinstance(left, list) and isinstance(right, list):
+        return len(left) == len(right) and all(
+            _equal(a, b) for a, b in zip(left, right, strict=True)
+        )
+    return left == right
+
+
 def validate(expression: dict[str, Any] | None) -> None:
     if not expression:
         return
@@ -60,11 +73,11 @@ def matches(document: dict[str, Any], expression: dict[str, Any] | None) -> bool
     if op == "absent":
         return value is None
     if op == "eq":
-        return value == expected
+        return _equal(value, expected)
     if op == "in":
         if not isinstance(expected, list):
             raise InvalidFilter("in value must be a list")
         if isinstance(value, list):
-            return any(item in expected for item in value)
-        return value in expected
+            return any(_equal(item, candidate) for item in value for candidate in expected)
+        return any(_equal(value, candidate) for candidate in expected)
     raise InvalidFilter(f"unsupported filter operator: {op}")

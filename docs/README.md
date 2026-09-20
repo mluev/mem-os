@@ -10,6 +10,7 @@ Normative reading order:
 6. [Delivery status](06-roadmap.md)
 7. [Hermes adapter](07-hermes-adapter.md)
 8. [Testing](08-testing.md)
+9. [Upgrade and recovery](09-operations.md)
 
 Every measured number lives in [measurements.md](measurements.md), with its date and the command that produced it, and nowhere else; every "why not the alternative" lives in [decisions/](decisions/README.md).
 

@@ -16,7 +16,14 @@ class ExportDownloadTest(ApiTestCase):
         artifact.write_text('{"memories":[]}')
         identifier = jobs.create(self.db, kind=kind, user_id=user_id or self.team.alice_id)
         if complete:
-            jobs.finish(self.db, identifier, status="complete", result={"path": str(artifact)})
+            claimed = jobs.claim(self.db, identifier)
+            jobs.finish(
+                self.db,
+                identifier,
+                holder=claimed["holder"],
+                status="complete",
+                result={"path": str(artifact)},
+            )
         return identifier
 
     def test_owner_downloads_completed_export(self):

@@ -70,6 +70,8 @@ def _start_cluster(tmp: Path) -> tuple[str, subprocess.Popen | None]:
     """A throwaway cluster, or a skip if this machine has no Postgres."""
     binaries = _pg_bin()
     if binaries is None:
+        if os.environ.get("CI"):
+            pytest.fail("CI requires a real PostgreSQL; database tests must not silently skip")
         pytest.skip(
             "no Postgres available: set MEMKIT_TEST_DATABASE_URL or install PostgreSQL",
             allow_module_level=True,
@@ -79,7 +81,7 @@ def _start_cluster(tmp: Path) -> tuple[str, subprocess.Popen | None]:
     # The socket lives outside the data directory: a Unix socket path is capped
     # at 103 bytes and pytest's temp paths are long enough to exceed it.
     socket_dir = Path(tempfile.mkdtemp(prefix="mkpg."))
-    port = "54329"
+    port = os.environ.get("MEMKIT_TEST_PG_PORT", "54329")
     # An explicit UTF-8 locale, not the shell's. A cluster initialised under C
     # cannot fold Cyrillic case, which is the one thing the full-text tests are
     # there to prove.
@@ -150,6 +152,8 @@ def database_url() -> str:
 
     external = os.environ.get("MEMKIT_TEST_DATABASE_URL")
     tmp = Path(tempfile.mkdtemp(prefix="memkit-tests-"))
+    os.environ["MEMKIT_EXPORT_DIR"] = str(tmp / "exports")
+    os.environ["MEMKIT_BACKUP_DIR"] = str(tmp / "backups")
     stop_path: Path | None = None
     if external:
         url = external

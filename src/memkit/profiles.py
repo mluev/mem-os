@@ -49,6 +49,7 @@ def _rows(
     scope_ids: Sequence[str],
     kinds: Sequence[str] | None = None,
     subject_id: str | None = None,
+    unattributed: bool = False,
     exclude_kinds: Sequence[str] | None = None,
     since: Any = None,
     include_untrusted: bool,
@@ -75,6 +76,7 @@ def _rows(
                   AND (%(kinds)s::text[] IS NULL OR m.kind = ANY(%(kinds)s))
                   AND (%(exclude)s::text[] IS NULL OR NOT (m.kind = ANY(%(exclude)s)))
                   AND (%(subject)s::uuid IS NULL OR m.subject_id = %(subject)s)
+                  AND (NOT %(unattributed)s OR m.subject_id IS NULL)
                   AND (%(since)s::timestamptz IS NULL OR m.updated_at >= %(since)s)
                   AND (%(trust)s::text[] IS NULL OR m.source_role = ANY(%(trust)s))
                 ORDER BY m.importance DESC, m.updated_at DESC, m.id
@@ -84,6 +86,7 @@ def _rows(
                 "kinds": list(kinds) if kinds else None,
                 "exclude": list(exclude_kinds) if exclude_kinds else None,
                 "subject": subject_id,
+                "unattributed": unattributed,
                 "since": since,
                 "trust": trust,
                 "limit": limit,
@@ -151,15 +154,12 @@ def render(
                 _rows(
                     conn,
                     scope_ids=[team_scope_id],
-                    subject_id=None,
+                    unattributed=True,
                     include_untrusted=include_untrusted,
                 )
                 if team_scope_id
                 else []
             )
-            # Team facts *about a person* belong on that person's page, not in
-            # everyone's session preamble.
-            rows = [row for row in rows if row["subject_id"] is None]
         elif block == "project":
             rows = (
                 _rows(

@@ -418,7 +418,12 @@ def cmd_erase(args: argparse.Namespace) -> int:
     caller = principal_module.load(conn, str(owner["id"]))
     try:
         result = privacy.erase_user(
-            conn, client, user_id=caller.user_id, private_scope_id=caller.own_entity_id
+            conn,
+            client,
+            user_id=caller.user_id,
+            private_scope_id=caller.own_entity_id,
+            export_dir=get_settings().export_dir,
+            backup_dir=get_settings().backup_dir,
         )
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
@@ -442,6 +447,20 @@ def cmd_backup(args: argparse.Namespace) -> int:
         return 0
     if args.action == "prune":
         _json(operations.prune_backups(settings))
+        return 0
+    if args.action == "replay-erasures":
+        _json(operations.replay_erasures(settings))
+        return 0
+    if args.action == "restore-drill":
+        _json(operations.restore_drill(settings, Path(args.path).expanduser()))
+        return 0
+    if args.action == "init-erasure-manifest":
+        receipts = json.loads(Path(args.receipts).read_text()) if args.receipts else None
+        _json(
+            operations.initialize_erasure_manifest(
+                settings, confirm=args.confirm, receipts=receipts
+            )
+        )
         return 0
     try:
         operations.restore_backup(settings, artifact_id=args.artifact_id or "", confirm="")
@@ -741,6 +760,14 @@ def main() -> int:
     backup_verify.add_argument("path")
     backup_verify.set_defaults(func=cmd_backup)
     backup_commands.add_parser("prune").set_defaults(func=cmd_backup)
+    backup_commands.add_parser("replay-erasures").set_defaults(func=cmd_backup)
+    backup_drill = backup_commands.add_parser("restore-drill")
+    backup_drill.add_argument("path")
+    backup_drill.set_defaults(func=cmd_backup)
+    backup_baseline = backup_commands.add_parser("init-erasure-manifest")
+    backup_baseline.add_argument("--confirm", required=True, choices=["BASELINE"])
+    backup_baseline.add_argument("--receipts", help="JSON list of previously accepted erasures")
+    backup_baseline.set_defaults(func=cmd_backup)
     backup_restore = backup_commands.add_parser("restore")
     backup_restore.add_argument("artifact_id", nargs="?")
     backup_restore.set_defaults(func=cmd_backup)

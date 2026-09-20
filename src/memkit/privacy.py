@@ -21,16 +21,18 @@ from __future__ import annotations
 import json
 import os
 import uuid
+from collections.abc import Callable
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
 import psycopg
+from psycopg.types.json import Jsonb
 from qdrant_client import QdrantClient
 
-from . import outbox, vectors
-from .db import advisory_lock, iso, transaction, utcnow
+from . import jobs, maintenance, store, vectors
+from .db import iso, transaction, utcnow
 
 EXPORT_FORMAT = "memkit-user-export-v2"
 
@@ -38,6 +40,33 @@ EXPORT_FORMAT = "memkit-user-export-v2"
 # offline attack on the export is an attack on the account.
 USER_PUBLIC_COLUMNS = "id,handle,display_name,email,role,created_at,disabled_at"
 API_KEY_PUBLIC_COLUMNS = "id,user_id,name,key_prefix,created_at,last_used_at,revoked_at"
+
+
+class ErasureCleanupPending(RuntimeError):
+    """Authoritative deletion committed; derived cleanup must be retried."""
+
+
+def export_user(
+    conn: psycopg.Connection,
+    *,
+    user_id: str,
+    export_dir: Path,
+    private_scope_id: str,
+    authored_scopes: list[str] | None = None,
+) -> dict[str, Any]:
+    with maintenance.shared(conn):
+        previous = conn.isolation_level
+        conn.isolation_level = psycopg.IsolationLevel.REPEATABLE_READ
+        try:
+            return _export_user(
+                conn,
+                user_id=user_id,
+                export_dir=export_dir,
+                private_scope_id=private_scope_id,
+                authored_scopes=authored_scopes,
+            )
+        finally:
+            conn.isolation_level = previous
 
 
 def _rows(conn: psycopg.Connection, query: str, params: tuple[Any, ...]) -> list[dict[str, Any]]:
@@ -61,7 +90,7 @@ def _jsonable(value: Any) -> Any:
     raise TypeError(f"cannot serialise {type(value).__name__} into an export")
 
 
-def export_user(
+def _export_user(
     conn: psycopg.Connection,
     *,
     user_id: str,
@@ -154,6 +183,11 @@ def export_user(
             "SELECT * FROM memory_evidence WHERE memory_id = ANY(%s::uuid[]) ORDER BY memory_id",
             (memory_ids,),
         )
+        revision_evidence = _rows(
+            conn,
+            "SELECT * FROM memory_revision_evidence WHERE memory_id = ANY(%s::uuid[]) ORDER BY memory_id,revision,message_id,start_char",
+            (memory_ids,),
+        )
         attention = _rows(
             conn,
             "SELECT * FROM needs_attention WHERE user_id=%s ORDER BY created_at",
@@ -195,6 +229,7 @@ def export_user(
         "memory_revisions": revisions,
         "memory_sources": sources,
         "memory_evidence": evidence,
+        "memory_revision_evidence": revision_evidence,
         "needs_attention": attention,
         "retrieval_runs": runs,
         "retrieval_run_feedback": run_feedback,
@@ -213,6 +248,7 @@ def export_user(
         "memory_revisions": len(revisions),
         "memory_sources": len(sources),
         "memory_evidence": len(evidence),
+        "memory_revision_evidence": len(revision_evidence),
         "needs_attention": len(attention),
         "retrieval_runs": len(runs),
         "retrieval_run_feedback": len(run_feedback),
@@ -257,78 +293,19 @@ def _authored_elsewhere(
     )
 
 
-def erase_user(
+def _erase_database(
     conn: psycopg.Connection,
-    client: QdrantClient,
     *,
     user_id: str,
     private_scope_id: str,
+    job_id: str,
+    export_paths: list[str],
+    guard: Callable[[], None] | None = None,
 ) -> dict[str, int]:
-    """Erase one user: private memory, raw evidence, credentials, telemetry.
-
-    Refuses when the user authored memories in any scope other than their own.
-    `memories.author_id` references `users` with no cascade, so the final DELETE
-    would fail on the constraint anyway -- but the point is not the constraint.
-    A fact someone wrote into the team scope is the team's record, and the
-    honest options are to reassign it to another author or to delete it
-    deliberately, both of which are somebody's decision to make. Silently
-    cascading it away because the author asked to be forgotten destroys other
-    people's knowledge, so the refusal names the count and the scopes and stops.
-
-    What is removed:
-
-    * every memory in the private scope, with its revisions, source links,
-      evidence spans, per-memory feedback and attention items (all by cascade);
-    * every message and session of the user -- raw evidence is retained against
-      prompt rewrites, but not against erasure;
-    * their api keys, auth sessions, retrieval runs and run labels, judge runs,
-      needs-attention items, jobs and budget reservations;
-    * their own entity, and finally the `users` row.
-
-    What is adjusted rather than removed, because the surviving row belongs to
-    someone else:
-
-    * `memories.subject_id` pointing at the erased entity is nulled -- a
-      teammate's note stays, its reference to the person does not;
-    * `memories.reviewed_by`, `needs_attention.resolved_by` and
-      `entities.created_by` are nulled for the same reason;
-    * `memory_sources` / `memory_evidence` rows citing an erased message are
-      dropped even when the citing memory survives, since the excerpt they point
-      into no longer exists. The count is returned as `orphaned_citations`.
-
-    The Qdrant side is deleted by filter, not by enumerating ids: listing the
-    points first would race with concurrent delivery, and the ids are exactly
-    what is being removed.
-
-    The scope locks are what stop an indexer re-inserting a point between the
-    two deletions, and they must be the *same* names `outbox.scope_barrier`
-    takes: a lock of our own would have been uncontended and would have proved
-    nothing. They are taken in sorted order so two erasures cannot deadlock.
-    """
-    blocking = _authored_elsewhere(conn, user_id=user_id, private_scope_id=private_scope_id)
-    if blocking:
-        total = sum(int(row["memories"]) for row in blocking)
-        where = ", ".join(f"{row['slug']} ({row['memories']})" for row in blocking)
-        raise ValueError(
-            f"refusing erasure: this user authored {total} memories in shared scopes "
-            f"[{where}]. Those are the team's record, not this user's private data. "
-            "Reassign them to another author or delete them first, then erase the user."
-        )
-
-    # Every scope this erasure will remove points from: the private one, plus
-    # any scope holding this user's raw turns.
-    locked_scopes = sorted(
-        {private_scope_id}
-        | {
-            str(row["scope_id"])
-            for row in conn.execute(
-                "SELECT DISTINCT scope_id FROM sessions WHERE user_id=%s", (user_id,)
-            )
-        }
-    )
+    """Delete authoritative rows and save the cleanup checkpoint atomically."""
     with transaction(conn):
-        for scope in locked_scopes:
-            advisory_lock(conn, outbox.index_lock_name(scope))
+        if guard is not None:
+            guard()
         memory_ids = [
             str(row["id"])
             for row in conn.execute(
@@ -340,11 +317,15 @@ def erase_user(
             for row in conn.execute("SELECT id FROM messages WHERE user_id=%s", (user_id,))
         ]
 
-        vectors.delete_by_filter(
-            client, vectors.MEMORIES, must=[vectors.keyword("scope_id", private_scope_id)]
-        )
-        vectors.delete_by_filter(client, vectors.RAW, must=[vectors.keyword("user_id", user_id)])
-
+        # Shared records survive. Their current references must still become
+        # a new revision and index event; old revisions retain team history.
+        surviving = conn.execute(
+            """SELECT id FROM memories WHERE scope_id<>%s AND (
+                   subject_id=%s OR
+                   superseded_by IN (SELECT id FROM memories WHERE scope_id=%s) OR
+                   judge_run_id IN (SELECT id FROM judge_runs WHERE user_id=%s))""",
+            (private_scope_id, private_scope_id, private_scope_id, user_id),
+        ).fetchall()
         # Self-reference: a surviving memory may point at one being deleted.
         conn.execute(
             """UPDATE memories SET superseded_by=NULL
@@ -358,6 +339,21 @@ def erase_user(
         )
         conn.execute("UPDATE memories SET reviewed_by=NULL WHERE reviewed_by=%s", (user_id,))
         conn.execute("UPDATE memories SET subject_id=NULL WHERE subject_id=%s", (private_scope_id,))
+        for saved in surviving:
+            current = conn.execute("SELECT * FROM memories WHERE id=%s", (saved["id"],)).fetchone()
+            store.update_memory(
+                conn,
+                memory_id=str(current["id"]),
+                scopes=[str(current["scope_id"])],
+                expected_revision=int(current["revision"]),
+                text=current["text"],
+                kind=current["kind"],
+                context=current["context"],
+                tags=current["tags"],
+                importance=current["importance"],
+                confidence=current["confidence"],
+                valid_until=current["valid_until"],
+            )
         conn.execute("UPDATE needs_attention SET resolved_by=NULL WHERE resolved_by=%s", (user_id,))
         conn.execute("UPDATE entities SET created_by=NULL WHERE created_by=%s", (user_id,))
 
@@ -376,7 +372,8 @@ def erase_user(
                 WHERE user_id=%s OR job_id IN (SELECT id FROM jobs WHERE user_id=%s)""",
             (user_id, user_id),
         )
-        conn.execute("DELETE FROM jobs WHERE user_id=%s", (user_id,))
+        conn.execute("UPDATE jobs SET user_id=NULL WHERE id=%s AND user_id=%s", (job_id, user_id))
+        conn.execute("DELETE FROM jobs WHERE user_id=%s AND id<>%s", (user_id, job_id))
         conn.execute("DELETE FROM judge_runs WHERE user_id=%s", (user_id,))
         conn.execute("DELETE FROM needs_attention WHERE user_id=%s", (user_id,))
         conn.execute("DELETE FROM retrieval_runs WHERE user_id=%s", (user_id,))
@@ -394,9 +391,359 @@ def erase_user(
         )
         conn.execute("DELETE FROM entities WHERE user_id=%s", (user_id,))
         conn.execute("DELETE FROM users WHERE id=%s", (user_id,))
+        checkpoint = {
+            "accepted": True,
+            "database_erased": True,
+            "user_id": user_id,
+            "private_scope_id": private_scope_id,
+            "export_paths": export_paths,
+            "counts": {
+                "memories": len(memory_ids),
+                "messages": len(message_ids),
+                "orphaned_citations": orphaned,
+            },
+        }
+        conn.execute(
+            "UPDATE jobs SET input=jsonb_set(input,'{erasure}',%s),updated_at=now() WHERE id=%s",
+            (Jsonb(checkpoint), job_id),
+        )
 
     return {
         "memories": len(memory_ids),
         "messages": len(message_ids),
         "orphaned_citations": orphaned,
     }
+
+
+def _sync_directory(path: Path) -> None:
+    descriptor = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def initialize_erasure_manifest(backup_dir: Path, receipts: list[dict[str, str]]) -> Path:
+    """Explicitly establish an audited baseline, publishing its marker last."""
+    root = backup_dir.expanduser().resolve() / "erasures"
+    root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    _sync_directory(root.parent)
+    for receipt in receipts:
+        user_id = str(uuid.UUID(receipt["user_id"]))
+        scope_id = str(uuid.UUID(receipt["private_scope_id"]))
+        path = root / f"{user_id}.json"
+        if path.exists():
+            saved = json.loads(path.read_text(encoding="utf-8"))
+            if saved.get("user_id") != user_id or saved.get("private_scope_id") != scope_id:
+                raise ValueError("baseline conflicts with an existing erasure receipt")
+            continue
+        _write_durable_json(
+            path,
+            {
+                "format": "memkit-erasure-v1",
+                "user_id": user_id,
+                "private_scope_id": scope_id,
+                "accepted_at": receipt.get("accepted_at") or iso(utcnow()),
+            },
+        )
+    # Validate preexisting receipts too; a broken file is not an empty baseline.
+    for path in root.glob("*.json"):
+        if path.name == "manifest.json":
+            continue
+        saved = json.loads(path.read_text(encoding="utf-8"))
+        if saved.get("format") != "memkit-erasure-v1":
+            raise ValueError(f"invalid existing erasure receipt: {path.name}")
+        uuid.UUID(saved["user_id"])
+        uuid.UUID(saved["private_scope_id"])
+    _write_durable_json(root / "manifest.json", {"format": "memkit-erasure-manifest-v1"})
+    return root
+
+
+def ensure_erasure_manifest(backup_dir: Path, *, existing_backups: bool = False) -> Path:
+    """Initialize fresh installs only; missing historical receipts fail closed."""
+    base = backup_dir.expanduser().resolve()
+    root = base / "erasures"
+    if (root / "manifest.json").exists():
+        erasure_manifest(base)
+        return root
+    if existing_backups or any(base.glob("*.dump")) or any(root.glob("*.json")):
+        raise RuntimeError(
+            "erasure manifest missing for existing backups; audit prior erasures and run "
+            "`memkit backup init-erasure-manifest --confirm BASELINE` with known receipts"
+        )
+    return initialize_erasure_manifest(base, [])
+
+
+def _write_durable_json(path: Path, payload: dict[str, Any]) -> None:
+    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, ensure_ascii=False, default=_jsonable)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        temporary.replace(path)
+        _sync_directory(path.parent)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _write_erasure_manifest(
+    backup_dir: Path, *, user_id: str, private_scope_id: str, existing_backups: bool = False
+) -> None:
+    root = ensure_erasure_manifest(backup_dir, existing_backups=existing_backups)
+    target = root / f"{uuid.UUID(user_id)}.json"
+    if target.exists():
+        record = json.loads(target.read_text(encoding="utf-8"))
+        if record.get("user_id") != user_id or record.get("private_scope_id") != private_scope_id:
+            raise RuntimeError("erasure manifest target mismatch")
+        return
+    _write_durable_json(
+        target,
+        {
+            "format": "memkit-erasure-v1",
+            "user_id": user_id,
+            "private_scope_id": private_scope_id,
+            "accepted_at": iso(utcnow()),
+        },
+    )
+
+
+def erasure_manifest(backup_dir: Path) -> list[dict[str, str]]:
+    """Read the latest receipts; never manufacture an empty ledger on restore."""
+    root = backup_dir.expanduser().resolve() / "erasures"
+    marker = root / "manifest.json"
+    if (
+        not marker.is_file()
+        or json.loads(marker.read_text()).get("format") != "memkit-erasure-manifest-v1"
+    ):
+        raise RuntimeError(
+            "latest erasure manifest is missing; restored service must remain offline"
+        )
+    records = []
+    for path in sorted(root.glob("*.json")):
+        if path.name == "manifest.json":
+            continue
+        item = json.loads(path.read_text(encoding="utf-8"))
+        if item.get("format") != "memkit-erasure-v1":
+            raise RuntimeError(f"invalid erasure receipt: {path.name}")
+        for key in ("user_id", "private_scope_id"):
+            uuid.UUID(item[key])
+        records.append(item)
+    return records
+
+
+def _managed_exports(export_dir: Path, user_id: str) -> list[str]:
+    found = []
+    root = export_dir.expanduser().resolve()
+    for path in root.glob("memkit-export-*.json"):
+        if path.is_symlink() or not path.is_file():
+            continue
+        # Existing filenames predate user identifiers. Reading the owner field
+        # keeps old exports erasable without deleting another person's file.
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if payload.get("format") == EXPORT_FORMAT and payload.get("user_id") == user_id:
+            found.append(str(path))
+    return found
+
+
+def erase_user(
+    conn: psycopg.Connection,
+    client: QdrantClient,
+    *,
+    user_id: str,
+    private_scope_id: str,
+    export_dir: Path | None = None,
+    backup_dir: Path | None = None,
+    job_id: str | None = None,
+    guard: Callable[[], None] | None = None,
+) -> dict[str, int]:
+    """Commit private erasure, then retryably remove derived copies.
+
+    Retained backups are not edited. A durable receipt outside PostgreSQL must
+    be reapplied after restoring an older dump, before serving it. Shared facts
+    authored by this user still block erasure; no other person's record is lost.
+    """
+    if export_dir is None or backup_dir is None:
+        from .config import get_settings
+
+        settings = get_settings()
+        export_dir = export_dir or settings.export_dir
+        backup_dir = backup_dir or settings.backup_dir
+    if job_id is None:
+        # Direct/operator calls use the same durable, fenced job protocol as
+        # the worker. Creation and claim commit together so no worker can take
+        # the operation in between them.
+        with transaction(conn):
+            direct_id = jobs.create(
+                conn,
+                kind="erase",
+                input_data={"user_id": user_id, "private_scope_id": private_scope_id},
+            )
+            holder = str(jobs.claim(conn, direct_id)["holder"])
+        try:
+            with jobs.heartbeat(conn, direct_id, holder=holder) as lost:
+
+                def direct_guard() -> None:
+                    if lost.is_set():
+                        raise jobs.LeaseLost(f"erasure lease lost: {direct_id}")
+                    jobs.require_current(conn, direct_id, holder)
+                    if guard is not None:
+                        guard()
+
+                result = erase_user(
+                    conn,
+                    client,
+                    user_id=user_id,
+                    private_scope_id=private_scope_id,
+                    export_dir=export_dir,
+                    backup_dir=backup_dir,
+                    job_id=direct_id,
+                    guard=direct_guard,
+                )
+                jobs.finish(conn, direct_id, holder=holder, status="complete", result=result)
+                return result
+        except (maintenance.MaintenanceBusy, ErasureCleanupPending) as exc:
+            jobs.defer(conn, direct_id, holder=holder, error=str(exc))
+            raise
+        except jobs.LeaseLost:
+            raise
+        except Exception as exc:
+            jobs.finish(
+                conn,
+                direct_id,
+                holder=holder,
+                status="failed",
+                error_code="erase_failed",
+                error=str(exc),
+            )
+            raise
+    with maintenance.exclusive(conn):
+        checkpoint: dict[str, Any] = {}
+        if job_id is not None:
+            job = jobs.get(conn, job_id)
+            if job["kind"] != "erase":
+                raise ValueError("erasure requires an erase job")
+            checkpoint = (job["input"] or {}).get("erasure") or {}
+            if checkpoint and (
+                checkpoint["user_id"] != user_id
+                or checkpoint["private_scope_id"] != private_scope_id
+            ):
+                raise ValueError("erasure checkpoint target mismatch")
+        if not checkpoint.get("database_erased"):
+            blocking = _authored_elsewhere(conn, user_id=user_id, private_scope_id=private_scope_id)
+            if blocking:
+                where = ", ".join(f"{row['slug']} ({row['memories']})" for row in blocking)
+                raise ValueError(
+                    f"refusing erasure: shared authored memories [{where}]; reassign or delete them first"
+                )
+            try:
+                paths = _managed_exports(export_dir, user_id)
+                existing_backups = conn.execute(
+                    "SELECT EXISTS(SELECT 1 FROM backup_artifacts) AS present"
+                ).fetchone()["present"]
+                # A changed mount path is not a fresh install. Validate the
+                # baseline before accepting an irreversible erasure receipt.
+                ensure_erasure_manifest(backup_dir, existing_backups=existing_backups)
+            except (OSError, psycopg.OperationalError, psycopg.InterfaceError) as exc:
+                if checkpoint.get("accepted"):
+                    raise ErasureCleanupPending(
+                        f"erasure {job_id} accepted; preparation retry pending: {exc}"
+                    ) from exc
+                raise
+            # Acceptance survives a crash before the receipt or database phase.
+            # Once accepted, retry resumes this operation rather than treating a
+            # cancellation as if an already-persisted restore receipt vanished.
+            with transaction(conn):
+                if guard is not None:
+                    guard()
+                conn.execute(
+                    "UPDATE jobs SET input=jsonb_set(input,'{erasure}',%s),updated_at=now() WHERE id=%s",
+                    (
+                        Jsonb(
+                            {
+                                "accepted": True,
+                                "database_erased": False,
+                                "user_id": user_id,
+                                "private_scope_id": private_scope_id,
+                                "export_paths": paths,
+                            }
+                        ),
+                        job_id,
+                    ),
+                )
+            try:
+                _write_erasure_manifest(
+                    backup_dir,
+                    user_id=user_id,
+                    private_scope_id=private_scope_id,
+                    existing_backups=existing_backups,
+                )
+            except OSError as exc:
+                raise ErasureCleanupPending(
+                    f"erasure {job_id} accepted; receipt persistence pending: {exc}"
+                ) from exc
+            try:
+                _erase_database(
+                    conn,
+                    user_id=user_id,
+                    private_scope_id=private_scope_id,
+                    job_id=job_id,
+                    export_paths=paths,
+                    guard=guard,
+                )
+            except (OSError, psycopg.OperationalError, psycopg.InterfaceError) as exc:
+                raise ErasureCleanupPending(
+                    f"erasure {job_id} accepted; database retry pending: {exc}"
+                ) from exc
+            checkpoint = jobs.get(conn, job_id)["input"]["erasure"]
+        try:
+            with transaction(conn):
+                if guard is not None:
+                    guard()
+                vectors.erase_user_indices(
+                    client, user_id=user_id, private_scope_id=private_scope_id
+                )
+                root = export_dir.expanduser().resolve()
+                for raw_path in checkpoint["export_paths"]:
+                    path = Path(raw_path)
+                    if path.is_symlink() or not path.resolve().is_relative_to(root):
+                        raise RuntimeError("erasure export path escaped the managed directory")
+                    path.unlink(missing_ok=True)
+                if root.is_dir():
+                    _sync_directory(root)
+        except jobs.LeaseLost:
+            raise
+        except Exception as exc:
+            raise ErasureCleanupPending(
+                f"erasure {job_id} committed; cleanup pending: {exc}"
+            ) from exc
+        return dict(checkpoint["counts"])
+
+
+def replay_erasure_manifest(conn: psycopg.Connection, backup_dir: Path) -> dict[str, int]:
+    """Sanitize an offline restored database before rebuilding any index.
+
+    External index/export cleanup is performed by the saved erase jobs after
+    startup. Operators must discard old Qdrant storage and restore no exports.
+    """
+    receipts = erasure_manifest(backup_dir)
+    reapplied = 0
+    with maintenance.exclusive(conn):
+        for receipt in receipts:
+            user_id, scope_id = receipt["user_id"], receipt["private_scope_id"]
+            if not conn.execute("SELECT 1 FROM users WHERE id=%s", (user_id,)).fetchone():
+                continue
+            if _authored_elsewhere(conn, user_id=user_id, private_scope_id=scope_id):
+                raise RuntimeError(
+                    "restored shared authorship blocks erasure; keep the service offline"
+                )
+            job_id = jobs.create(
+                conn, kind="erase", input_data={"user_id": user_id, "private_scope_id": scope_id}
+            )
+            _erase_database(
+                conn, user_id=user_id, private_scope_id=scope_id, job_id=job_id, export_paths=[]
+            )
+            reapplied += 1
+    return {"receipts": len(receipts), "reapplied": reapplied}

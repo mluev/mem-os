@@ -21,6 +21,7 @@ from typing import Any
 import psycopg
 from psycopg.types.json import Jsonb
 
+from .. import maintenance
 from ..store import content_hash
 
 SOURCE_SCHEMA_VERSION = 6
@@ -84,6 +85,7 @@ def import_sqlite(
 
     try:
         with conn.transaction():
+            maintenance.require_write(conn)
             counts["sessions"] = _copy_sessions(src, conn, user_id=user_id, scope_id=scope_id)
             counts["messages"] = _copy_messages(src, conn, user_id=user_id)
             counts["judge_runs"] = _copy_judge_runs(src, conn, user_id=user_id)

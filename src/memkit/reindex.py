@@ -4,14 +4,12 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
-from contextlib import nullcontext
 from typing import Any
 
 import psycopg
 from qdrant_client import QdrantClient
 
-from . import outbox, store, vectors
-from .db import advisory_lock
+from . import maintenance, store, vectors
 from .embed import Embedder
 from .limits import MIN_INDEX_CHARS
 
@@ -49,56 +47,8 @@ def _write_rows(
         )
 
 
-def _replay(
-    conn: psycopg.Connection,
-    client: QdrantClient,
-    embedder: Embedder,
-    generations: dict[str, str],
-    *,
-    after_id: int,
-) -> tuple[int, dict[str, set[str]]]:
-    """Apply the outbox operations recorded since the snapshot.
-
-    Each write takes the same per-scope barrier the index worker takes, so a
-    concurrent delivery for a point cannot interleave with the replay of that
-    same point once the aliases are live and both are writing to one collection.
-    """
-    rows = conn.execute(
-        "SELECT * FROM index_outbox WHERE id>%s ORDER BY id", (after_id,)
-    ).fetchall()
-    changes: dict[str, set[str]] = {logical: set() for logical in generations}
-    highwater = after_id
-    for row in rows:
-        highwater = max(highwater, int(row["id"]))
-        logical = str(row["collection"])
-        if logical not in generations:
-            continue
-        target = generations[logical]
-        entity_id: str | int = (
-            int(row["entity_id"]) if logical == vectors.RAW else str(row["entity_id"])
-        )
-        payload = dict(row["payload"] or {})
-        scope_id = str(payload.get("scope_id") or "")
-        barrier = outbox.scope_barrier(conn, scope_id) if scope_id else nullcontext()
-        with barrier:
-            if row["operation"] == "delete":
-                vectors.delete_points(client, target, [entity_id])
-            else:
-                vector = embedder.encode_one(payload["text"])
-                vectors.upsert(client, target, [(entity_id, vector, payload)])
-        changes[logical].add(str(entity_id))
-    return highwater, changes
-
-
 def _snapshot(conn: psycopg.Connection) -> tuple[int, list[Any], list[Any]]:
-    """The outbox highwater and every row to index, from one consistent read.
-
-    REPEATABLE READ, so all three statements see the same instant: under READ
-    COMMITTED a memory committed between the highwater query and the memories
-    query would be both absent from the build and below the replay point, and
-    the id-set validation at the end would fail on a row that is genuinely
-    there.
-    """
+    """One stable read; the outbox ID is compatibility metadata, not a replay cursor."""
     previous = conn.isolation_level
     conn.isolation_level = psycopg.IsolationLevel.REPEATABLE_READ
     try:
@@ -118,25 +68,16 @@ def _snapshot(conn: psycopg.Connection) -> tuple[int, list[Any], list[Any]]:
     return int(highwater["id"]) if highwater else 0, memory_rows, raw_rows
 
 
-def rebuild(
+def _rebuild_locked(
     conn: psycopg.Connection,
     client: QdrantClient,
     embedder: Embedder,
     *,
     cancelled: Callable[[], bool] | None = None,
+    guard: Callable[[], None] | None = None,
     activate: bool = True,
 ) -> dict[str, Any]:
-    """Rebuild both collections from Postgres and activate validated aliases.
-
-    A rebuild covers every scope at once, so the per-owner barriers this used to
-    take -- one advisory lock per owner, held for the whole run -- collapse into
-    one instance-wide `memkit:index` lock. That lock is taken around the alias
-    swap rather than the build: a transaction spanning the embedding and Qdrant
-    work would sit idle in transaction for minutes and be killed by
-    `idle_in_transaction_session_timeout`. Two rebuilds may therefore build
-    concurrently, and each generation is a complete snapshot, so the swap they
-    serialise on is the only step where their order matters.
-    """
+    """Build while the caller holds the exclusive memory gate."""
     snapshot, memory_rows, raw_rows = _snapshot(conn)
     generations = {
         vectors.MEMORIES: _generation(vectors.MEMORIES),
@@ -151,8 +92,8 @@ def rebuild(
     # exactly one point per retrievable fact.
     indexable = [row for row in memory_rows if store.memory_active(row)]
     expected = {
-        vectors.MEMORIES: {str(row["id"]) for row in indexable},
-        vectors.RAW: {str(row["id"]) for row in raw_rows},
+        vectors.MEMORIES: {str(row["id"]): store.mem_payload(row) for row in indexable},
+        vectors.RAW: {str(row["id"]): store.raw_payload(row) for row in raw_rows},
     }
     _write_rows(
         client,
@@ -169,39 +110,48 @@ def rebuild(
         [(int(row["id"]), store.raw_payload(row)) for row in raw_rows],
     )
 
+    # Expiration is clock-driven even while writes are frozen.
+    expired = {str(row["id"]) for row in indexable if not store.memory_active(row)}
+    if expired:
+        vectors.delete_points(client, generations[vectors.MEMORIES], sorted(expired))
+        for memory_id in expired:
+            expected[vectors.MEMORIES].pop(memory_id)
     for logical, generation in generations.items():
-        actual = vectors.exact_ids(client, generation)
-        if actual != expected[logical]:
-            raise ReindexError(
-                f"{logical} generation validation failed: "
-                f"expected {len(expected[logical])} ids, got {len(actual)}"
-            )
-
-    highwater, _ = _replay(conn, client, embedder, generations, after_id=snapshot)
+        if vectors.exact_payloads(client, generation) != expected[logical]:
+            raise ReindexError(f"{logical} generation payload validation failed")
     if cancelled and cancelled():
         raise ReindexCancelled("reindex cancelled before activation")
-    if not activate:
-        return {
-            "generation": generations,
-            "snapshot_outbox_id": snapshot,
-            "replayed_through": highwater,
-            "memories": len(vectors.exact_ids(client, generations[vectors.MEMORIES])),
-            "raw": len(vectors.exact_ids(client, generations[vectors.RAW])),
-            "activated": False,
-        }
-    with conn.transaction():
-        # One writer swaps aliases at a time, and the replay that closes the
-        # final race runs under the same lock: operations completed against the
-        # old alias between the last replay and the swap are applied to the
-        # generation that is now live.
-        advisory_lock(conn, "memkit:index")
-        vectors.swap_aliases(client, generations)
-        highwater, _ = _replay(conn, client, embedder, generations, after_id=highwater)
+    if activate:
+        with conn.transaction():
+            if guard is not None:
+                guard()
+            vectors.swap_aliases(client, generations)
     return {
         "generation": generations,
         "snapshot_outbox_id": snapshot,
-        "replayed_through": highwater,
+        "replayed_through": snapshot,
         "memories": len(vectors.exact_ids(client, generations[vectors.MEMORIES])),
         "raw": len(vectors.exact_ids(client, generations[vectors.RAW])),
-        "activated": True,
+        "activated": activate,
     }
+
+
+def rebuild(
+    conn: psycopg.Connection,
+    client: QdrantClient,
+    embedder: Embedder,
+    *,
+    cancelled: Callable[[], bool] | None = None,
+    guard: Callable[[], None] | None = None,
+    activate: bool = True,
+) -> dict[str, Any]:
+    """Freeze memory writes, build a consistent generation, then switch once.
+
+    Existing aliases keep serving readers throughout. The gate is also used by
+    CLI imports, deliveries and erasure, so a process-local maintenance flag is
+    unnecessary. Sequence IDs are not commit watermarks and are never replayed.
+    """
+    with maintenance.exclusive(conn):
+        return _rebuild_locked(
+            conn, client, embedder, cancelled=cancelled, guard=guard, activate=activate
+        )

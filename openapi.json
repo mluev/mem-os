@@ -1,6 +1,39 @@
 {
   "components": {
     "schemas": {
+      "AdminHealthOut": {
+        "additionalProperties": true,
+        "properties": {
+          "database": {
+            "$ref": "#/components/schemas/DatabaseHealth"
+          },
+          "embedder": {
+            "$ref": "#/components/schemas/EmbedderHealth"
+          },
+          "jobs": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Jobs",
+            "type": "object"
+          },
+          "outbox": {
+            "$ref": "#/components/schemas/OutboxHealth"
+          },
+          "qdrant": {
+            "$ref": "#/components/schemas/VectorHealth"
+          }
+        },
+        "required": [
+          "database",
+          "qdrant",
+          "embedder",
+          "outbox",
+          "jobs"
+        ],
+        "title": "AdminHealthOut",
+        "type": "object"
+      },
       "AliasIn": {
         "additionalProperties": false,
         "properties": {
@@ -46,6 +79,83 @@
         "title": "ApiKeyIn",
         "type": "object"
       },
+      "ApiKeyView": {
+        "additionalProperties": true,
+        "properties": {
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "key_prefix": {
+            "title": "Key Prefix",
+            "type": "string"
+          },
+          "last_used_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Used At"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "revoked_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revoked At"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "key_prefix",
+          "created_at",
+          "last_used_at",
+          "revoked_at"
+        ],
+        "title": "ApiKeyView",
+        "type": "object"
+      },
+      "ApiKeysOut": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ApiKeyView"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "ApiKeysOut",
+        "type": "object"
+      },
       "AttentionResolveIn": {
         "additionalProperties": false,
         "properties": {
@@ -75,6 +185,82 @@
           "action"
         ],
         "title": "AttentionResolveIn",
+        "type": "object"
+      },
+      "BackupView": {
+        "additionalProperties": true,
+        "properties": {
+          "bytes": {
+            "title": "Bytes",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "protected": {
+            "title": "Protected",
+            "type": "boolean"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          },
+          "verified_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verified At"
+          }
+        },
+        "required": [
+          "id",
+          "path",
+          "kind",
+          "sha256",
+          "bytes",
+          "protected",
+          "created_at",
+          "verified_at"
+        ],
+        "title": "BackupView",
+        "type": "object"
+      },
+      "BackupsOut": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/BackupView"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "BackupsOut",
         "type": "object"
       },
       "BatchOut": {
@@ -115,6 +301,108 @@
           }
         },
         "title": "ConsolidateIn",
+        "type": "object"
+      },
+      "DatabaseHealth": {
+        "additionalProperties": true,
+        "properties": {
+          "schema_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Schema Version"
+          }
+        },
+        "required": [
+          "schema_version"
+        ],
+        "title": "DatabaseHealth",
+        "type": "object"
+      },
+      "EmbedderHealth": {
+        "additionalProperties": true,
+        "properties": {
+          "device": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device"
+          },
+          "ready": {
+            "title": "Ready",
+            "type": "boolean"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ready",
+          "device",
+          "revision"
+        ],
+        "title": "EmbedderHealth",
+        "type": "object"
+      },
+      "EntitiesOut": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/EntityView"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "EntitiesOut",
+        "type": "object"
+      },
+      "EntityCreatedOut": {
+        "additionalProperties": true,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "user",
+              "team",
+              "project",
+              "product",
+              "company",
+              "person",
+              "custom"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "slug",
+          "kind"
+        ],
+        "title": "EntityCreatedOut",
         "type": "object"
       },
       "EntityIn": {
@@ -181,6 +469,40 @@
           "name"
         ],
         "title": "EntityIn",
+        "type": "object"
+      },
+      "EntityMemberView": {
+        "additionalProperties": true,
+        "properties": {
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "handle": {
+            "title": "Handle",
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "owner",
+              "member",
+              "viewer"
+            ],
+            "title": "Role",
+            "type": "string"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "handle",
+          "display_name",
+          "role"
+        ],
+        "title": "EntityMemberView",
         "type": "object"
       },
       "EntityOut": {
@@ -266,6 +588,264 @@
         "title": "EntityPatch",
         "type": "object"
       },
+      "EntityProfileOut": {
+        "additionalProperties": true,
+        "properties": {
+          "about": {
+            "items": {
+              "$ref": "#/components/schemas/MemorySummary"
+            },
+            "title": "About",
+            "type": "array"
+          },
+          "budget_tokens": {
+            "title": "Budget Tokens",
+            "type": "integer"
+          },
+          "entity": {
+            "$ref": "#/components/schemas/EntityView"
+          },
+          "in_scope": {
+            "items": {
+              "$ref": "#/components/schemas/MemorySummary"
+            },
+            "title": "In Scope",
+            "type": "array"
+          }
+        },
+        "required": [
+          "entity",
+          "about",
+          "in_scope",
+          "budget_tokens"
+        ],
+        "title": "EntityProfileOut",
+        "type": "object"
+      },
+      "EntityStatsOut": {
+        "additionalProperties": true,
+        "properties": {
+          "bucket": {
+            "const": "day",
+            "title": "Bucket",
+            "type": "string"
+          },
+          "from": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From"
+          },
+          "series": {
+            "items": {
+              "$ref": "#/components/schemas/SeriesPoint"
+            },
+            "title": "Series",
+            "type": "array"
+          },
+          "to": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "To"
+          },
+          "totals": {
+            "$ref": "#/components/schemas/EntityTotals"
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "bucket",
+          "series",
+          "totals"
+        ],
+        "title": "EntityStatsOut",
+        "type": "object"
+      },
+      "EntityTotals": {
+        "additionalProperties": true,
+        "properties": {
+          "entities": {
+            "items": {
+              "$ref": "#/components/schemas/EntityUsage"
+            },
+            "title": "Entities",
+            "type": "array"
+          }
+        },
+        "required": [
+          "entities"
+        ],
+        "title": "EntityTotals",
+        "type": "object"
+      },
+      "EntityUsage": {
+        "additionalProperties": true,
+        "properties": {
+          "about": {
+            "title": "About",
+            "type": "integer"
+          },
+          "in_scope": {
+            "title": "In Scope",
+            "type": "integer"
+          },
+          "kind": {
+            "enum": [
+              "user",
+              "team",
+              "project",
+              "product",
+              "company",
+              "person",
+              "custom"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "last_activity": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Activity"
+          },
+          "members": {
+            "title": "Members",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug",
+          "name",
+          "kind",
+          "in_scope",
+          "about",
+          "members",
+          "last_activity"
+        ],
+        "title": "EntityUsage",
+        "type": "object"
+      },
+      "EntityView": {
+        "additionalProperties": true,
+        "properties": {
+          "aliases": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Aliases",
+            "type": "array"
+          },
+          "archived_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archived At"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "user",
+              "team",
+              "project",
+              "product",
+              "company",
+              "person",
+              "custom"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "members": {
+            "items": {
+              "$ref": "#/components/schemas/EntityMemberView"
+            },
+            "title": "Members",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          },
+          "visibility": {
+            "enum": [
+              "members",
+              "team"
+            ],
+            "title": "Visibility",
+            "type": "string"
+          },
+          "writable": {
+            "title": "Writable",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "name",
+          "slug",
+          "description",
+          "visibility",
+          "aliases",
+          "writable",
+          "created_at",
+          "archived_at"
+        ],
+        "title": "EntityView",
+        "type": "object"
+      },
       "EraseIn": {
         "additionalProperties": false,
         "properties": {
@@ -298,6 +878,73 @@
           "events"
         ],
         "title": "EvidenceBatchIn",
+        "type": "object"
+      },
+      "EvidenceSpan": {
+        "additionalProperties": true,
+        "properties": {
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "end_char": {
+            "title": "End Char",
+            "type": "integer"
+          },
+          "evidence_status": {
+            "enum": [
+              "current",
+              "historical",
+              "legacy_unversioned"
+            ],
+            "title": "Evidence Status",
+            "type": "string"
+          },
+          "excerpt": {
+            "title": "Excerpt",
+            "type": "string"
+          },
+          "message_id": {
+            "title": "Message Id",
+            "type": "integer"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "start_char": {
+            "title": "Start Char",
+            "type": "integer"
+          },
+          "supported_revisions": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Supported Revisions",
+            "type": "array"
+          },
+          "verified": {
+            "title": "Verified",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "message_id",
+          "start_char",
+          "end_char",
+          "excerpt",
+          "verified",
+          "role",
+          "created_at"
+        ],
+        "title": "EvidenceSpan",
         "type": "object"
       },
       "FeedbackIn": {
@@ -392,6 +1039,32 @@
         "title": "HealthOut",
         "type": "object"
       },
+      "IndexCounts": {
+        "additionalProperties": true,
+        "properties": {
+          "database_active": {
+            "title": "Database Active",
+            "type": "integer"
+          },
+          "qdrant_active": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Qdrant Active"
+          }
+        },
+        "required": [
+          "database_active",
+          "qdrant_active"
+        ],
+        "title": "IndexCounts",
+        "type": "object"
+      },
       "ItemsOut": {
         "additionalProperties": false,
         "properties": {
@@ -413,6 +1086,58 @@
       "JobOut": {
         "additionalProperties": true,
         "properties": {
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "events": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Events",
+            "type": "array"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
           "id": {
             "title": "Id",
             "type": "string"
@@ -421,15 +1146,34 @@
             "title": "Kind",
             "type": "string"
           },
+          "result": {
+            "title": "Result"
+          },
           "status": {
             "title": "Status",
             "type": "string"
+          },
+          "user": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User"
           }
         },
         "required": [
           "id",
           "kind",
-          "status"
+          "status",
+          "result",
+          "error",
+          "error_code",
+          "created_at",
+          "finished_at"
         ],
         "title": "JobOut",
         "type": "object"
@@ -471,28 +1215,365 @@
         "title": "JobQueuedOut",
         "type": "object"
       },
-      "JudgeRunOut": {
+      "JobView": {
         "additionalProperties": true,
         "properties": {
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "events": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Events",
+            "type": "array"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
           "id": {
             "title": "Id",
-            "type": "integer"
+            "type": "string"
           },
           "kind": {
             "title": "Kind",
             "type": "string"
           },
-          "model": {
-            "title": "Model",
+          "result": {
+            "title": "Result"
+          },
+          "status": {
+            "title": "Status",
             "type": "string"
+          },
+          "user": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User"
           }
         },
         "required": [
           "id",
           "kind",
-          "model"
+          "status",
+          "result",
+          "error",
+          "error_code",
+          "created_at",
+          "finished_at"
+        ],
+        "title": "JobView",
+        "type": "object"
+      },
+      "JobsOut": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/JobView"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "JobsOut",
+        "type": "object"
+      },
+      "JudgeRunOut": {
+        "additionalProperties": true,
+        "properties": {
+          "cost_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Usd"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "input_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Tokens"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "latency_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency Ms"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "output": {
+            "title": "Output"
+          },
+          "output_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Tokens"
+          },
+          "prompt_version": {
+            "title": "Prompt Version",
+            "type": "string"
+          },
+          "user": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "model",
+          "prompt_version",
+          "error",
+          "input_tokens",
+          "output_tokens",
+          "cost_usd",
+          "latency_ms",
+          "created_at",
+          "input",
+          "output"
         ],
         "title": "JudgeRunOut",
+        "type": "object"
+      },
+      "JudgeRunView": {
+        "additionalProperties": true,
+        "properties": {
+          "cost_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Usd"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "input_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Tokens"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "latency_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency Ms"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "output_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Tokens"
+          },
+          "prompt_version": {
+            "title": "Prompt Version",
+            "type": "string"
+          },
+          "user": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "model",
+          "prompt_version",
+          "error",
+          "input_tokens",
+          "output_tokens",
+          "cost_usd",
+          "latency_ms",
+          "created_at"
+        ],
+        "title": "JudgeRunView",
+        "type": "object"
+      },
+      "JudgeRunsOut": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/JudgeRunView"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "JudgeRunsOut",
         "type": "object"
       },
       "KeyCreatedOut": {
@@ -613,22 +1694,18 @@
         "additionalProperties": false,
         "properties": {
           "memory": {
-            "additionalProperties": true,
-            "title": "Memory",
-            "type": "object"
+            "$ref": "#/components/schemas/MemorySummary"
           },
           "predecessors": {
             "items": {
-              "additionalProperties": true,
-              "type": "object"
+              "$ref": "#/components/schemas/MemorySummary"
             },
             "title": "Predecessors",
             "type": "array"
           },
           "revisions": {
             "items": {
-              "additionalProperties": true,
-              "type": "object"
+              "$ref": "#/components/schemas/MemoryRevision"
             },
             "title": "Revisions",
             "type": "array"
@@ -636,14 +1713,12 @@
           "successor": {
             "anyOf": [
               {
-                "additionalProperties": true,
-                "type": "object"
+                "$ref": "#/components/schemas/MemorySummary"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Successor"
+            ]
           }
         },
         "required": [
@@ -774,15 +1849,45 @@
         "additionalProperties": false,
         "properties": {
           "memory": {
-            "additionalProperties": true,
-            "title": "Memory",
-            "type": "object"
+            "$ref": "#/components/schemas/MemoryRecord"
           }
         },
         "required": [
           "memory"
         ],
         "title": "MemoryOut",
+        "type": "object"
+      },
+      "MemoryPageOut": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/MemoryRecord"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "MemoryPageOut",
         "type": "object"
       },
       "MemoryPatch": {
@@ -939,6 +2044,314 @@
         "title": "MemoryPatch",
         "type": "object"
       },
+      "MemoryRecord": {
+        "additionalProperties": true,
+        "properties": {
+          "author": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Author"
+          },
+          "confidence": {
+            "title": "Confidence",
+            "type": "number"
+          },
+          "context": {
+            "additionalProperties": true,
+            "title": "Context",
+            "type": "object"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "extraction_version": {
+            "title": "Extraction Version",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "importance": {
+            "title": "Importance",
+            "type": "number"
+          },
+          "judge_run_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Judge Run Id"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "last_retrieved_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Retrieved At"
+          },
+          "retrieval_count": {
+            "title": "Retrieval Count",
+            "type": "integer"
+          },
+          "review_status": {
+            "enum": [
+              "pending",
+              "confirmed",
+              "declined"
+            ],
+            "title": "Review Status",
+            "type": "string"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "scope": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scope"
+          },
+          "scope_slug": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scope Slug"
+          },
+          "sessions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Sessions",
+            "type": "array"
+          },
+          "source_role": {
+            "enum": [
+              "user",
+              "assistant",
+              "agent",
+              "tool",
+              "manual"
+            ],
+            "title": "Source Role",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "active",
+              "archived",
+              "expired",
+              "superseded"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "subject": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject"
+          },
+          "subject_slug": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject Slug"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "valid_until": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valid Until"
+          },
+          "writable": {
+            "title": "Writable",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "text",
+          "kind",
+          "importance",
+          "confidence",
+          "review_status",
+          "source_role",
+          "status",
+          "scope",
+          "scope_slug",
+          "subject",
+          "subject_slug",
+          "tags",
+          "created_at",
+          "updated_at",
+          "revision",
+          "author",
+          "context",
+          "valid_until"
+        ],
+        "title": "MemoryRecord",
+        "type": "object"
+      },
+      "MemoryRevision": {
+        "additionalProperties": true,
+        "properties": {
+          "confidence": {
+            "title": "Confidence",
+            "type": "number"
+          },
+          "context": {
+            "additionalProperties": true,
+            "title": "Context",
+            "type": "object"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "extraction_version": {
+            "title": "Extraction Version",
+            "type": "string"
+          },
+          "importance": {
+            "title": "Importance",
+            "type": "number"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "review_status": {
+            "enum": [
+              "pending",
+              "confirmed",
+              "declined"
+            ],
+            "title": "Review Status",
+            "type": "string"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "source_role": {
+            "title": "Source Role",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "revision",
+          "text",
+          "kind",
+          "status",
+          "review_status",
+          "importance",
+          "confidence",
+          "context",
+          "tags",
+          "source_role",
+          "extraction_version",
+          "created_at"
+        ],
+        "title": "MemoryRevision",
+        "type": "object"
+      },
       "MemorySearchOut": {
         "additionalProperties": false,
         "properties": {
@@ -976,8 +2389,7 @@
           },
           "memories": {
             "items": {
-              "additionalProperties": true,
-              "type": "object"
+              "$ref": "#/components/schemas/SearchMemory"
             },
             "title": "Memories",
             "type": "array"
@@ -1036,16 +2448,20 @@
         "properties": {
           "evidence": {
             "items": {
-              "additionalProperties": true,
-              "type": "object"
+              "$ref": "#/components/schemas/EvidenceSpan"
             },
             "title": "Evidence",
             "type": "array"
           },
+          "historical_evidence": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceSpan"
+            },
+            "title": "Historical Evidence",
+            "type": "array"
+          },
           "memory": {
-            "additionalProperties": true,
-            "title": "Memory",
-            "type": "object"
+            "$ref": "#/components/schemas/MemorySummary"
           },
           "source_role": {
             "title": "Source Role",
@@ -1058,6 +2474,243 @@
           "evidence"
         ],
         "title": "MemorySourcesOut",
+        "type": "object"
+      },
+      "MemoryStatsOut": {
+        "additionalProperties": true,
+        "properties": {
+          "bucket": {
+            "const": "day",
+            "title": "Bucket",
+            "type": "string"
+          },
+          "from": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From"
+          },
+          "series": {
+            "items": {
+              "$ref": "#/components/schemas/SeriesPoint"
+            },
+            "title": "Series",
+            "type": "array"
+          },
+          "to": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "To"
+          },
+          "totals": {
+            "$ref": "#/components/schemas/MemoryTotals"
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "bucket",
+          "series",
+          "totals"
+        ],
+        "title": "MemoryStatsOut",
+        "type": "object"
+      },
+      "MemorySummary": {
+        "additionalProperties": true,
+        "properties": {
+          "confidence": {
+            "title": "Confidence",
+            "type": "number"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "importance": {
+            "title": "Importance",
+            "type": "number"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "review_status": {
+            "enum": [
+              "pending",
+              "confirmed",
+              "declined"
+            ],
+            "title": "Review Status",
+            "type": "string"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "scope": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scope"
+          },
+          "scope_slug": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scope Slug"
+          },
+          "source_role": {
+            "enum": [
+              "user",
+              "assistant",
+              "agent",
+              "tool",
+              "manual"
+            ],
+            "title": "Source Role",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "active",
+              "archived",
+              "expired",
+              "superseded"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "subject": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject"
+          },
+          "subject_slug": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject Slug"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "required": [
+          "id",
+          "text",
+          "kind",
+          "importance",
+          "confidence",
+          "review_status",
+          "source_role",
+          "status",
+          "scope",
+          "scope_slug",
+          "subject",
+          "subject_slug",
+          "tags",
+          "created_at",
+          "updated_at",
+          "revision"
+        ],
+        "title": "MemorySummary",
+        "type": "object"
+      },
+      "MemoryTotals": {
+        "additionalProperties": true,
+        "properties": {
+          "about_someone": {
+            "title": "About Someone",
+            "type": "integer"
+          },
+          "active": {
+            "title": "Active",
+            "type": "integer"
+          },
+          "archived": {
+            "title": "Archived",
+            "type": "integer"
+          },
+          "pending": {
+            "title": "Pending",
+            "type": "integer"
+          },
+          "superseded": {
+            "title": "Superseded",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "active",
+          "pending",
+          "archived",
+          "superseded",
+          "about_someone"
+        ],
+        "title": "MemoryTotals",
         "type": "object"
       },
       "MessageIn": {
@@ -1212,43 +2865,238 @@
         "title": "MessageOut",
         "type": "object"
       },
-      "MetricsOut": {
+      "MessageView": {
         "additionalProperties": true,
-        "properties": {},
-        "title": "MetricsOut",
+        "properties": {
+          "content": {
+            "title": "Content",
+            "type": "string"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "processed": {
+            "title": "Processed",
+            "type": "boolean"
+          },
+          "redacted": {
+            "title": "Redacted",
+            "type": "boolean"
+          },
+          "role": {
+            "enum": [
+              "user",
+              "assistant",
+              "tool"
+            ],
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "role",
+          "content",
+          "created_at",
+          "processed",
+          "redacted"
+        ],
+        "title": "MessageView",
         "type": "object"
       },
-      "OffsetPageOut": {
-        "additionalProperties": false,
+      "MetricsOut": {
+        "additionalProperties": true,
         "properties": {
-          "items": {
+          "abstention_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Abstention Rate"
+          },
+          "backup_freshness_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Backup Freshness Seconds"
+          },
+          "correct_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Correct Rate"
+          },
+          "feedback_labels": {
+            "title": "Feedback Labels",
+            "type": "integer"
+          },
+          "feedback_runs": {
+            "title": "Feedback Runs",
+            "type": "integer"
+          },
+          "index_parity": {
+            "$ref": "#/components/schemas/IndexCounts"
+          },
+          "month_limit_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Month Limit Usd"
+          },
+          "month_reserved_usd": {
+            "title": "Month Reserved Usd",
+            "type": "number"
+          },
+          "month_spend_usd": {
+            "title": "Month Spend Usd",
+            "type": "number"
+          },
+          "oldest_unprocessed_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oldest Unprocessed Message"
+          },
+          "outbox_oldest_age_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outbox Oldest Age Seconds"
+          },
+          "outbox_pending": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outbox Pending"
+          },
+          "outbox_retries": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outbox Retries"
+          },
+          "pending_review": {
+            "title": "Pending Review",
+            "type": "integer"
+          },
+          "provider_errors": {
+            "title": "Provider Errors",
+            "type": "integer"
+          },
+          "retrieval_runs": {
+            "title": "Retrieval Runs",
+            "type": "integer"
+          },
+          "search_latency_ms": {
+            "$ref": "#/components/schemas/SearchLatency"
+          },
+          "spend_by_user": {
             "items": {
               "additionalProperties": true,
               "type": "object"
             },
-            "title": "Items",
+            "title": "Spend By User",
             "type": "array"
           },
-          "limit": {
-            "title": "Limit",
-            "type": "integer"
-          },
-          "offset": {
-            "title": "Offset",
-            "type": "integer"
-          },
-          "total": {
-            "title": "Total",
+          "useful_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Useful Rate"
+          }
+        },
+        "required": [
+          "outbox_pending",
+          "oldest_unprocessed_message",
+          "provider_errors",
+          "month_spend_usd",
+          "month_reserved_usd",
+          "month_limit_usd",
+          "pending_review",
+          "search_latency_ms",
+          "retrieval_runs",
+          "abstention_rate",
+          "feedback_labels",
+          "feedback_runs",
+          "useful_rate",
+          "correct_rate",
+          "spend_by_user",
+          "outbox_oldest_age_seconds",
+          "outbox_retries",
+          "index_parity",
+          "backup_freshness_seconds"
+        ],
+        "title": "MetricsOut",
+        "type": "object"
+      },
+      "OutboxHealth": {
+        "additionalProperties": true,
+        "properties": {
+          "pending": {
+            "title": "Pending",
             "type": "integer"
           }
         },
         "required": [
-          "items",
-          "total",
-          "limit",
-          "offset"
+          "pending"
         ],
-        "title": "OffsetPageOut",
+        "title": "OutboxHealth",
         "type": "object"
       },
       "PasswordChangeIn": {
@@ -1272,6 +3120,236 @@
           "new_password"
         ],
         "title": "PasswordChangeIn",
+        "type": "object"
+      },
+      "PeopleStatsOut": {
+        "additionalProperties": true,
+        "properties": {
+          "bucket": {
+            "const": "day",
+            "title": "Bucket",
+            "type": "string"
+          },
+          "from": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From"
+          },
+          "series": {
+            "items": {
+              "$ref": "#/components/schemas/SeriesPoint"
+            },
+            "title": "Series",
+            "type": "array"
+          },
+          "to": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "To"
+          },
+          "totals": {
+            "$ref": "#/components/schemas/PeopleTotals"
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "bucket",
+          "series",
+          "totals"
+        ],
+        "title": "PeopleStatsOut",
+        "type": "object"
+      },
+      "PeopleTotals": {
+        "additionalProperties": true,
+        "properties": {
+          "people": {
+            "items": {
+              "$ref": "#/components/schemas/PersonUsage"
+            },
+            "title": "People",
+            "type": "array"
+          }
+        },
+        "required": [
+          "people"
+        ],
+        "title": "PeopleTotals",
+        "type": "object"
+      },
+      "PersonUsage": {
+        "additionalProperties": true,
+        "properties": {
+          "disabled": {
+            "title": "Disabled",
+            "type": "boolean"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "handle": {
+            "title": "Handle",
+            "type": "string"
+          },
+          "key_last_used_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Key Last Used At"
+          },
+          "memories": {
+            "title": "Memories",
+            "type": "integer"
+          },
+          "memories_all_time": {
+            "title": "Memories All Time",
+            "type": "integer"
+          },
+          "month_spend_usd": {
+            "title": "Month Spend Usd",
+            "type": "number"
+          },
+          "role": {
+            "enum": [
+              "admin",
+              "member"
+            ],
+            "title": "Role",
+            "type": "string"
+          },
+          "searches": {
+            "title": "Searches",
+            "type": "integer"
+          },
+          "sessions": {
+            "title": "Sessions",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "handle",
+          "display_name",
+          "role",
+          "disabled",
+          "memories",
+          "memories_all_time",
+          "sessions",
+          "searches",
+          "month_spend_usd",
+          "key_last_used_at"
+        ],
+        "title": "PersonUsage",
+        "type": "object"
+      },
+      "PipelineStatsOut": {
+        "additionalProperties": true,
+        "properties": {
+          "bucket": {
+            "const": "day",
+            "title": "Bucket",
+            "type": "string"
+          },
+          "from": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From"
+          },
+          "series": {
+            "items": {
+              "$ref": "#/components/schemas/SeriesPoint"
+            },
+            "title": "Series",
+            "type": "array"
+          },
+          "to": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "To"
+          },
+          "totals": {
+            "$ref": "#/components/schemas/PipelineTotals"
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "bucket",
+          "series",
+          "totals"
+        ],
+        "title": "PipelineStatsOut",
+        "type": "object"
+      },
+      "PipelineTotals": {
+        "additionalProperties": true,
+        "properties": {
+          "acceptance_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Acceptance Rate"
+          },
+          "month_calls": {
+            "title": "Month Calls",
+            "type": "integer"
+          },
+          "month_errors": {
+            "title": "Month Errors",
+            "type": "integer"
+          },
+          "month_reserved_usd": {
+            "title": "Month Reserved Usd",
+            "type": "number"
+          },
+          "month_spend_usd": {
+            "title": "Month Spend Usd",
+            "type": "number"
+          }
+        },
+        "required": [
+          "month_spend_usd",
+          "month_reserved_usd",
+          "month_calls",
+          "month_errors",
+          "acceptance_rate"
+        ],
+        "title": "PipelineTotals",
         "type": "object"
       },
       "PolicyIn": {
@@ -1324,6 +3402,73 @@
           "config"
         ],
         "title": "PolicyIn",
+        "type": "object"
+      },
+      "PrincipalView": {
+        "additionalProperties": true,
+        "properties": {
+          "auth_kind": {
+            "enum": [
+              "api_key",
+              "session"
+            ],
+            "title": "Auth Kind",
+            "type": "string"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "handle": {
+            "title": "Handle",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "own_entity_id": {
+            "title": "Own Entity Id",
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "admin",
+              "member"
+            ],
+            "title": "Role",
+            "type": "string"
+          },
+          "scopes": {
+            "items": {
+              "$ref": "#/components/schemas/ScopeView"
+            },
+            "title": "Scopes",
+            "type": "array"
+          },
+          "team_entity_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Team Entity Id"
+          }
+        },
+        "required": [
+          "id",
+          "handle",
+          "display_name",
+          "role",
+          "auth_kind",
+          "own_entity_id",
+          "team_entity_id",
+          "scopes"
+        ],
+        "title": "PrincipalView",
         "type": "object"
       },
       "ProfileIn": {
@@ -1379,14 +3524,95 @@
         "title": "ProfileIn",
         "type": "object"
       },
+      "ProfileMemory": {
+        "additionalProperties": true,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "review_status": {
+            "enum": [
+              "pending",
+              "confirmed",
+              "declined"
+            ],
+            "title": "Review Status",
+            "type": "string"
+          },
+          "scope": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scope"
+          },
+          "source_role": {
+            "enum": [
+              "user",
+              "assistant",
+              "agent",
+              "tool",
+              "manual"
+            ],
+            "title": "Source Role",
+            "type": "string"
+          },
+          "subject": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "required": [
+          "id",
+          "text",
+          "kind",
+          "source_role",
+          "review_status",
+          "scope",
+          "subject",
+          "updated_at"
+        ],
+        "title": "ProfileMemory",
+        "type": "object"
+      },
       "ProfileOut": {
         "additionalProperties": false,
         "properties": {
           "blocks": {
             "additionalProperties": {
               "items": {
-                "additionalProperties": true,
-                "type": "object"
+                "$ref": "#/components/schemas/ProfileMemory"
               },
               "type": "array"
             },
@@ -1496,6 +3722,150 @@
         "title": "ResolveIn",
         "type": "object"
       },
+      "RetrievalFeedback": {
+        "additionalProperties": true,
+        "properties": {
+          "correct": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Correct"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "useful": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Useful"
+          }
+        },
+        "required": [
+          "useful",
+          "correct",
+          "created_at"
+        ],
+        "title": "RetrievalFeedback",
+        "type": "object"
+      },
+      "RetrievalResult": {
+        "additionalProperties": true,
+        "properties": {
+          "feedback": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RetrievalFeedback"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "memory_id": {
+            "title": "Memory Id",
+            "type": "string"
+          },
+          "rank": {
+            "title": "Rank",
+            "type": "integer"
+          },
+          "source_role": {
+            "title": "Source Role",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "memory_id",
+          "rank",
+          "feedback"
+        ],
+        "title": "RetrievalResult",
+        "type": "object"
+      },
+      "RetrievalRun": {
+        "additionalProperties": true,
+        "properties": {
+          "abstained": {
+            "title": "Abstained",
+            "type": "boolean"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "policy_id": {
+            "title": "Policy Id",
+            "type": "string"
+          },
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/RetrievalResult"
+            },
+            "title": "Results",
+            "type": "array"
+          },
+          "timings": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "title": "Timings",
+            "type": "object"
+          },
+          "used_tokens": {
+            "title": "Used Tokens",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "policy_id",
+          "created_at",
+          "used_tokens",
+          "abstained",
+          "timings",
+          "results"
+        ],
+        "title": "RetrievalRun",
+        "type": "object"
+      },
       "RetrievalRunFeedbackIn": {
         "additionalProperties": false,
         "properties": {
@@ -1534,6 +3904,124 @@
         "title": "RetrievalRunFeedbackIn",
         "type": "object"
       },
+      "RetrievalRunsOut": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RetrievalRun"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "RetrievalRunsOut",
+        "type": "object"
+      },
+      "RetrievalStatsOut": {
+        "additionalProperties": true,
+        "properties": {
+          "bucket": {
+            "const": "day",
+            "title": "Bucket",
+            "type": "string"
+          },
+          "from": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From"
+          },
+          "series": {
+            "items": {
+              "$ref": "#/components/schemas/SeriesPoint"
+            },
+            "title": "Series",
+            "type": "array"
+          },
+          "to": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "To"
+          },
+          "totals": {
+            "$ref": "#/components/schemas/RetrievalTotals"
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "bucket",
+          "series",
+          "totals"
+        ],
+        "title": "RetrievalStatsOut",
+        "type": "object"
+      },
+      "RetrievalTotals": {
+        "additionalProperties": true,
+        "properties": {
+          "abstention_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Abstention Rate"
+          },
+          "p50_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P50 Ms"
+          },
+          "p95_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P95 Ms"
+          },
+          "searches": {
+            "title": "Searches",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "searches",
+          "p50_ms",
+          "p95_ms",
+          "abstention_rate"
+        ],
+        "title": "RetrievalTotals",
+        "type": "object"
+      },
       "ReviewIn": {
         "additionalProperties": false,
         "properties": {
@@ -1563,6 +4051,341 @@
           "decision"
         ],
         "title": "ReviewIn",
+        "type": "object"
+      },
+      "ReviewItem": {
+        "additionalProperties": true,
+        "properties": {
+          "actions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Actions",
+            "type": "array"
+          },
+          "author": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Author"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "memory",
+              "unresolved_mention",
+              "conflict",
+              "failed_job",
+              "budget"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "memory": {
+            "$ref": "#/components/schemas/MemorySummary"
+          },
+          "memory_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Memory Id"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "title": "Payload",
+            "type": "object"
+          },
+          "previous_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Text"
+          },
+          "subject": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "title",
+          "created_at",
+          "actions"
+        ],
+        "title": "ReviewItem",
+        "type": "object"
+      },
+      "ReviewQueueOut": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ReviewItem"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "ReviewQueueOut",
+        "type": "object"
+      },
+      "ReviewStatsOut": {
+        "additionalProperties": true,
+        "properties": {
+          "bucket": {
+            "const": "day",
+            "title": "Bucket",
+            "type": "string"
+          },
+          "from": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From"
+          },
+          "series": {
+            "items": {
+              "$ref": "#/components/schemas/SeriesPoint"
+            },
+            "title": "Series",
+            "type": "array"
+          },
+          "to": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "To"
+          },
+          "totals": {
+            "$ref": "#/components/schemas/ReviewTotals"
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "bucket",
+          "series",
+          "totals"
+        ],
+        "title": "ReviewStatsOut",
+        "type": "object"
+      },
+      "ReviewTotals": {
+        "additionalProperties": true,
+        "properties": {
+          "attention_by_kind": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Attention By Kind",
+            "type": "object"
+          },
+          "oldest_pending": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oldest Pending"
+          },
+          "pending": {
+            "title": "Pending",
+            "type": "integer"
+          },
+          "pending_by_source": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Pending By Source",
+            "type": "object"
+          }
+        },
+        "required": [
+          "pending",
+          "oldest_pending",
+          "pending_by_source",
+          "attention_by_kind"
+        ],
+        "title": "ReviewTotals",
+        "type": "object"
+      },
+      "ScopeView": {
+        "additionalProperties": true,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "user",
+              "team",
+              "project",
+              "product",
+              "company",
+              "person",
+              "custom"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          },
+          "writable": {
+            "title": "Writable",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "slug",
+          "kind",
+          "name",
+          "writable"
+        ],
+        "title": "ScopeView",
+        "type": "object"
+      },
+      "SearchEvidence": {
+        "additionalProperties": true,
+        "properties": {
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "evidence_status": {
+            "enum": [
+              "current",
+              "legacy_unversioned"
+            ],
+            "title": "Evidence Status",
+            "type": "string"
+          },
+          "excerpt": {
+            "title": "Excerpt",
+            "type": "string"
+          },
+          "message_id": {
+            "title": "Message Id",
+            "type": "integer"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message_id",
+          "excerpt",
+          "role",
+          "created_at",
+          "revision",
+          "evidence_status"
+        ],
+        "title": "SearchEvidence",
         "type": "object"
       },
       "SearchIn": {
@@ -1672,13 +4495,329 @@
         "title": "SearchIn",
         "type": "object"
       },
+      "SearchLatency": {
+        "additionalProperties": true,
+        "properties": {
+          "p50": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P50"
+          },
+          "p95": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P95"
+          },
+          "p99": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P99"
+          }
+        },
+        "required": [
+          "p50",
+          "p95",
+          "p99"
+        ],
+        "title": "SearchLatency",
+        "type": "object"
+      },
+      "SearchMemory": {
+        "additionalProperties": true,
+        "properties": {
+          "context": {
+            "additionalProperties": true,
+            "title": "Context",
+            "type": "object"
+          },
+          "entity": {
+            "title": "Entity",
+            "type": "number"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "importance": {
+            "title": "Importance",
+            "type": "number"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "lexical": {
+            "title": "Lexical",
+            "type": "number"
+          },
+          "recency": {
+            "title": "Recency",
+            "type": "number"
+          },
+          "review_status": {
+            "enum": [
+              "pending",
+              "confirmed",
+              "declined"
+            ],
+            "title": "Review Status",
+            "type": "string"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "scope": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scope"
+          },
+          "scope_slug": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scope Slug"
+          },
+          "score": {
+            "title": "Score",
+            "type": "number"
+          },
+          "similarity": {
+            "title": "Similarity",
+            "type": "number"
+          },
+          "source_role": {
+            "enum": [
+              "user",
+              "assistant",
+              "agent",
+              "tool",
+              "manual"
+            ],
+            "title": "Source Role",
+            "type": "string"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/SearchEvidence"
+            },
+            "title": "Sources",
+            "type": "array"
+          },
+          "subject": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject"
+          },
+          "subject_slug": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject Slug"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "text",
+          "kind",
+          "context",
+          "tags",
+          "source_role",
+          "revision",
+          "review_status",
+          "scope",
+          "scope_slug",
+          "subject",
+          "subject_slug",
+          "score",
+          "similarity",
+          "lexical",
+          "entity",
+          "importance",
+          "recency",
+          "updated_at"
+        ],
+        "title": "SearchMemory",
+        "type": "object"
+      },
+      "SeriesPoint": {
+        "additionalProperties": true,
+        "properties": {
+          "date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Date"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "date",
+          "key",
+          "value"
+        ],
+        "title": "SeriesPoint",
+        "type": "object"
+      },
+      "SessionDetail": {
+        "additionalProperties": true,
+        "properties": {
+          "agent_id": {
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "scope_id": {
+            "title": "Scope Id",
+            "type": "string"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "user_id",
+          "scope_id",
+          "agent_id",
+          "started_at",
+          "ended_at"
+        ],
+        "title": "SessionDetail",
+        "type": "object"
+      },
+      "SessionMemoriesOut": {
+        "additionalProperties": true,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/MemorySummary"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "jobs": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Jobs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items",
+          "jobs"
+        ],
+        "title": "SessionMemoriesOut",
+        "type": "object"
+      },
       "SessionMessagesOut": {
         "additionalProperties": false,
         "properties": {
           "items": {
             "items": {
-              "additionalProperties": true,
-              "type": "object"
+              "$ref": "#/components/schemas/MessageView"
             },
             "title": "Items",
             "type": "array"
@@ -1692,9 +4831,7 @@
             "type": "integer"
           },
           "session": {
-            "additionalProperties": true,
-            "title": "Session",
-            "type": "object"
+            "$ref": "#/components/schemas/SessionDetail"
           },
           "total": {
             "title": "Total",
@@ -1720,15 +4857,126 @@
             "type": "string"
           },
           "user": {
-            "additionalProperties": true,
-            "title": "User",
-            "type": "object"
+            "$ref": "#/components/schemas/PrincipalView"
           }
         },
         "required": [
           "user"
         ],
         "title": "SessionOut",
+        "type": "object"
+      },
+      "SessionView": {
+        "additionalProperties": true,
+        "properties": {
+          "agent_id": {
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "context": {
+            "additionalProperties": true,
+            "title": "Context",
+            "type": "object"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "extracted": {
+            "title": "Extracted",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "messages": {
+            "title": "Messages",
+            "type": "integer"
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          },
+          "scope_slug": {
+            "title": "Scope Slug",
+            "type": "string"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "user": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User"
+          }
+        },
+        "required": [
+          "id",
+          "user",
+          "scope",
+          "scope_slug",
+          "agent_id",
+          "started_at",
+          "ended_at",
+          "context",
+          "messages",
+          "extracted"
+        ],
+        "title": "SessionView",
+        "type": "object"
+      },
+      "SessionsOut": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SessionView"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "SessionsOut",
         "type": "object"
       },
       "UserIn": {
@@ -1829,6 +5077,116 @@
         "title": "UserPatch",
         "type": "object"
       },
+      "UserView": {
+        "additionalProperties": true,
+        "properties": {
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "disabled_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disabled At"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "handle": {
+            "title": "Handle",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "key_last_used_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Key Last Used At"
+          },
+          "own_entity_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Own Entity Id"
+          },
+          "role": {
+            "enum": [
+              "admin",
+              "member"
+            ],
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "handle",
+          "display_name",
+          "email",
+          "role",
+          "created_at",
+          "disabled_at",
+          "own_entity_id",
+          "key_last_used_at"
+        ],
+        "title": "UserView",
+        "type": "object"
+      },
+      "UsersOut": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/UserView"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "UsersOut",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "ctx": {
@@ -1867,6 +5225,56 @@
           "type"
         ],
         "title": "ValidationError",
+        "type": "object"
+      },
+      "VectorHealth": {
+        "additionalProperties": true,
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "memories": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Memories"
+          },
+          "raw": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Raw"
+          }
+        },
+        "required": [
+          "available",
+          "memories",
+          "raw",
+          "error"
+        ],
+        "title": "VectorHealth",
         "type": "object"
       }
     },
@@ -1962,7 +5370,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ItemsOut"
+                  "$ref": "#/components/schemas/BackupsOut"
                 }
               }
             },
@@ -2107,7 +5515,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/FlexibleOut"
+                  "$ref": "#/components/schemas/AdminHealthOut"
                 }
               }
             },
@@ -2186,7 +5594,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ItemsOut"
+                  "$ref": "#/components/schemas/JudgeRunsOut"
                 }
               }
             },
@@ -2573,7 +5981,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/OffsetPageOut"
+                  "$ref": "#/components/schemas/SessionsOut"
                 }
               }
             },
@@ -2650,7 +6058,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ItemsOut"
+                  "$ref": "#/components/schemas/SessionMemoriesOut"
                 }
               }
             },
@@ -2828,7 +6236,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/FlexibleOut"
+                  "$ref": "#/components/schemas/EntityStatsOut"
                 }
               }
             },
@@ -2917,7 +6325,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/FlexibleOut"
+                  "$ref": "#/components/schemas/MemoryStatsOut"
                 }
               }
             },
@@ -2997,7 +6405,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/FlexibleOut"
+                  "$ref": "#/components/schemas/PipelineStatsOut"
                 }
               }
             },
@@ -3076,7 +6484,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/FlexibleOut"
+                  "$ref": "#/components/schemas/RetrievalStatsOut"
                 }
               }
             },
@@ -3156,7 +6564,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/FlexibleOut"
+                  "$ref": "#/components/schemas/ReviewStatsOut"
                 }
               }
             },
@@ -3236,7 +6644,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/FlexibleOut"
+                  "$ref": "#/components/schemas/PeopleStatsOut"
                 }
               }
             },
@@ -3303,7 +6711,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ItemsOut"
+                  "$ref": "#/components/schemas/ApiKeysOut"
                 }
               }
             },
@@ -3694,7 +7102,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/FlexibleOut"
+                  "$ref": "#/components/schemas/PrincipalView"
                 }
               }
             },
@@ -3855,7 +7263,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ItemsOut"
+                  "$ref": "#/components/schemas/EntitiesOut"
                 }
               }
             },
@@ -3930,7 +7338,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/FlexibleOut"
+                  "$ref": "#/components/schemas/EntityCreatedOut"
                 }
               }
             },
@@ -4084,7 +7492,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/FlexibleOut"
+                  "$ref": "#/components/schemas/EntityView"
                 }
               }
             },
@@ -4168,7 +7576,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/FlexibleOut"
+                  "$ref": "#/components/schemas/EntityView"
                 }
               }
             },
@@ -4683,7 +8091,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/FlexibleOut"
+                  "$ref": "#/components/schemas/EntityProfileOut"
                 }
               }
             },
@@ -5016,7 +8424,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ItemsOut"
+                  "$ref": "#/components/schemas/JobsOut"
                 }
               }
             },
@@ -5531,7 +8939,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/OffsetPageOut"
+                  "$ref": "#/components/schemas/MemoryPageOut"
                 }
               }
             },
@@ -6677,7 +10085,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ItemsOut"
+                  "$ref": "#/components/schemas/RetrievalRunsOut"
                 }
               }
             },
@@ -6870,7 +10278,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ItemsOut"
+                  "$ref": "#/components/schemas/ReviewQueueOut"
                 }
               }
             },
@@ -7014,7 +10422,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ItemsOut"
+                  "$ref": "#/components/schemas/UsersOut"
                 }
               }
             },

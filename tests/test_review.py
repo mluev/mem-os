@@ -298,8 +298,15 @@ class ReviewQueueTest(ApiTestCase):
     def test_a_recent_failed_job_appears(self) -> None:
         conn = self.db
         job_id = jobs.create(conn, kind="extraction", user_id=self.team.alice_id)
-        jobs.claim(conn, job_id)
-        jobs.finish(conn, job_id, status="failed", error="provider timed out", error_code="timeout")
+        claimed = jobs.claim(conn, job_id)
+        jobs.finish(
+            conn,
+            job_id,
+            holder=claimed["holder"],
+            status="failed",
+            error="provider timed out",
+            error_code="timeout",
+        )
         item = next(item for item in self._queue() if item["kind"] == "failed_job")
         self.assertEqual(item["id"], job_id)
         self.assertEqual(item["error_code"], "timeout")

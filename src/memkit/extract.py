@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import uuid
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import timedelta
 from typing import Any
@@ -13,8 +13,9 @@ from typing import Any
 import psycopg
 from psycopg.types.json import Jsonb
 
-from . import entities, judge, provenance, store
+from . import entities, judge, maintenance, provenance, store
 from .db import Row, advisory_lock, iso, utcnow
+from .principal import ScopeForbidden
 from .semantic_runtime import SemanticBlocks
 
 logger = logging.getLogger(__name__)
@@ -332,6 +333,7 @@ def plan_dedup(
     embedder: Any,
     threshold: float | None,
     subjects: dict[int, str | None] | None = None,
+    source_roles: dict[int, str] | None = None,
     eligible: set[int] | None = None,
     semantic: SemanticBlocks | None = None,
 ) -> dict[int, DedupTarget]:
@@ -383,8 +385,8 @@ def plan_dedup(
                 """SELECT * FROM memories
                     WHERE id=%s AND scope_id=%s AND status='active'
                     AND (valid_until IS NULL OR valid_until > now())
-                    AND source_role IN ('user','manual')""",
-                (str(hit.id), target_scope),
+                    AND source_role=%s""",
+                (str(hit.id), target_scope, (source_roles or {}).get(index, "user")),
             ).fetchone()
             if (
                 row is not None
@@ -466,6 +468,13 @@ def _link_evidence(
                 for item in evidence
             ],
         )
+        cursor.executemany(
+            """INSERT INTO memory_revision_evidence
+               (memory_id,revision,message_id,start_char,end_char)
+               SELECT id,revision,%s,%s,%s FROM memories WHERE id=%s
+               ON CONFLICT DO NOTHING""",
+            [(e["message_id"], e["start_char"], e["end_char"], memory_id) for e in evidence],
+        )
 
 
 def _resolve_routing(
@@ -536,6 +545,9 @@ def apply_ops(
     extraction_version: str = judge.PROMPT_VERSION,
     dedup_hits: dict[int, DedupTarget] | None = None,
 ) -> ExtractionOutcome:
+    maintenance.require_write(conn)
+    store.require_scope_write(conn, user_id=user_id, scope_id=session_scope_id)
+    writable_scope_ids = sorted(set(writable_scope_ids) & entities.writable_by(conn, user_id))
     outcome = ExtractionOutcome(judge_run_id=judge_run_id)
     allowed = set(source_message_ids)
     entity_map = entity_map or {}
@@ -563,10 +575,11 @@ def apply_ops(
                 team_scope_id=team_scope_id,
                 writable_scope_ids=writable_scope_ids,
             )
+            store.require_scope_write(conn, user_id=user_id, scope_id=scope_id)
         except LookupError:
             outcome.reject(op, "unknown_entity")
             continue
-        except PermissionError:
+        except (PermissionError, ScopeForbidden):
             outcome.reject(op, "scope_not_allowed")
             continue
         op.scope_id = scope_id
@@ -579,7 +592,7 @@ def apply_ops(
                     """SELECT id FROM memories
                         WHERE id=%s AND scope_id=%s AND status='active' AND revision=%s
                         AND context=%s AND subject_id IS NOT DISTINCT FROM %s::uuid
-                        AND kind=%s AND source_role IN ('user','manual')
+                        AND kind=%s AND source_role=%s
                         AND valid_until IS NOT DISTINCT FROM %s::timestamptz
                         AND (valid_until IS NULL OR valid_until > now()) FOR UPDATE""",
                     (
@@ -589,6 +602,7 @@ def apply_ops(
                         Jsonb(op_context),
                         subject_id,
                         op.kind or "fact",
+                        source_role,
                         op.valid_until,
                     ),
                 ).fetchone()
@@ -721,6 +735,7 @@ def run_extraction(
     embedder: Any = None,
     dedup_cosine: float | None = None,
     semantic: SemanticBlocks | None = None,
+    guard: Callable[[], None] | None = None,
 ) -> ExtractionOutcome:
     """Extract one window of one session, on behalf of that session's user.
 
@@ -736,6 +751,11 @@ def run_extraction(
         return ExtractionOutcome(error="session_identity_mismatch")
     user_id = str(session["user_id"])
     session_scope_id = str(session["scope_id"])
+    try:
+        with conn.transaction():
+            store.require_scope_write(conn, user_id=user_id, scope_id=session_scope_id)
+    except ScopeForbidden:
+        return ExtractionOutcome(error="scope_not_allowed")
     own = entities.own_entity(conn, user_id)
     if own is None:
         return ExtractionOutcome(error="user_has_no_scope")
@@ -760,7 +780,16 @@ def run_extraction(
         release_window(conn, window)
         return ExtractionOutcome(claimed=len(window), declined=True, windows=1)
     if not any(row["role"] == "user" for row in window):
-        _mark_processed(conn, window)
+        try:
+            with conn.transaction():
+                _require_window(conn, window, guard=guard)
+                store.require_scope_write(conn, user_id=user_id, scope_id=session_scope_id)
+                _mark_processed(conn, window)
+        except ScopeForbidden:
+            release_window(conn, window)
+            return ExtractionOutcome(error="scope_not_allowed", claimed=len(window), windows=1)
+        except ExtractionLeaseLost:
+            return ExtractionOutcome(error="extraction_lease_lost", claimed=len(window), windows=1)
         return ExtractionOutcome(skipped=len(window), claimed=len(window), windows=1)
     context = dict(session["context"] or {})
     candidates = find_candidates(
@@ -815,6 +844,7 @@ def run_extraction(
     prepared = list(result.ops)
     eligible: set[int] = set()
     subjects: dict[int, str | None] = {}
+    source_roles: dict[int, str] = {}
     claims: list[dict[str, Any]] = []
     allowed_messages = {int(row["id"]) for row in window}
     by_message = {int(row["id"]): row for row in window}
@@ -843,6 +873,7 @@ def run_extraction(
             continue
         prepared[index] = replace(op, scope_id=target_scope, context=op_context)
         subjects[index] = subject
+        source_roles[index] = provenance.source_role_for(evidence[1])
         if unresolved is None:
             eligible.add(index)
         if semantic is not None and semantic.support != "off":
@@ -870,26 +901,36 @@ def run_extraction(
         embedder=embedder,
         threshold=dedup_cosine,
         subjects=subjects,
+        source_roles=source_roles,
         eligible=eligible,
         semantic=semantic,
     )
-    with conn.transaction():
-        applied = apply_ops(
-            conn,
-            ops=result.ops,
-            user_id=user_id,
-            session_scope_id=session_scope_id,
-            own_scope_id=own_scope_id,
-            team_scope_id=team_scope_id,
-            writable_scope_ids=writable,
-            agent_id=agent_id,
-            context=context,
-            judge_run_id=result.judge_run_id,
-            source_message_ids=[int(row["id"]) for row in window],
-            entity_map=result.entity_map,
-            dedup_hits=dedup_hits,
-        )
-        _mark_processed(conn, window)
+    try:
+        with conn.transaction():
+            _require_window(conn, window, guard=guard)
+            applied = apply_ops(
+                conn,
+                ops=result.ops,
+                user_id=user_id,
+                session_scope_id=session_scope_id,
+                own_scope_id=own_scope_id,
+                team_scope_id=team_scope_id,
+                writable_scope_ids=writable,
+                agent_id=agent_id,
+                context=context,
+                judge_run_id=result.judge_run_id,
+                source_message_ids=[int(row["id"]) for row in window],
+                entity_map=result.entity_map,
+                dedup_hits=dedup_hits,
+            )
+            _mark_processed(conn, window)
+    except ExtractionLeaseLost:
+        outcome.error = "extraction_lease_lost"
+        return outcome
+    except ScopeForbidden:
+        release_window(conn, window)
+        outcome.error = "scope_not_allowed"
+        return outcome
     for dropped in result.unknown_candidates:
         applied.rejected += 1
         applied.rejections.append({**dropped, "reason": "unknown_candidate"})
@@ -904,6 +945,33 @@ def run_extraction(
     return applied
 
 
+class ExtractionLeaseLost(RuntimeError):
+    """The provider's input window is no longer ours to commit."""
+
+
+def _require_window(
+    conn: psycopg.Connection, window: list[Row], *, guard: Callable[[], None] | None = None
+) -> None:
+    maintenance.require_write(conn)
+    if guard is not None:
+        guard()
+    rows = conn.execute(
+        """SELECT id,claim_token,claim_expires_at,processed FROM messages
+           WHERE id=ANY(%s) ORDER BY id FOR UPDATE""",
+        ([int(row["id"]) for row in window],),
+    ).fetchall()
+    claims = {int(row["id"]): row["claim_token"] for row in window}
+    now = utcnow()
+    if len(rows) != len(window) or any(
+        row["processed"]
+        or row["claim_token"] != claims[int(row["id"])]
+        or row["claim_expires_at"] is None
+        or row["claim_expires_at"] <= now
+        for row in rows
+    ):
+        raise ExtractionLeaseLost("extraction_lease_lost")
+
+
 def _mark_processed(conn: psycopg.Connection, window: list[Row]) -> None:
     """Retire a leased window, matching on the claim token we still hold.
 
@@ -912,13 +980,15 @@ def _mark_processed(conn: psycopg.Connection, window: list[Row]) -> None:
     than marking somebody else's work done.
     """
     pairs = [(int(row["id"]), row["claim_token"]) for row in window]
-    conn.execute(
+    changed = conn.execute(
         """UPDATE messages SET processed=true,claim_token=NULL,claim_expires_at=NULL
              WHERE (id, claim_token) IN (
                  SELECT unnest(%s::bigint[]), unnest(%s::text[])
              )""",
         ([pair[0] for pair in pairs], [pair[1] for pair in pairs]),
-    )
+    ).rowcount
+    if changed != len(window):
+        raise ExtractionLeaseLost("extraction_lease_lost")
 
 
 def run_session_extraction(

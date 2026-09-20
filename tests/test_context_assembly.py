@@ -169,6 +169,69 @@ class TestContextAssembly(ApiTestCase):
         )
         assert cost == body["used_tokens"] <= 35
 
+    def test_every_context_mode_obeys_small_budgets_and_limits(self):
+        text = "Ledger stores balances in PostgreSQL; Redis is only a temporary cache."
+        message_id = self.seed_message(content=text)
+        memory_id = self.seed_memory(text="Ledger stores balances in PostgreSQL.")
+        self.db.execute(
+            """INSERT INTO memory_evidence
+               (memory_id,message_id,start_char,end_char,excerpt_sha256)
+               VALUES (%s,%s,0,%s,%s)""",
+            (memory_id, message_id, len(text), hashlib.sha256(text.encode()).hexdigest()),
+        )
+        self.raw_hits([message_id])
+
+        def accepted(request):
+            payload = json.loads(request.content)
+            return httpx.Response(
+                200,
+                json=response(
+                    {key: {"type": "noul", "noul": 0.99} for key in payload["questions"]}
+                ),
+            )
+
+        for mode in ("off", "select", "provider_failure"):
+            if mode == "off":
+                api.app.state.semantic = None
+            else:
+                self.configure(accepted if mode == "select" else lambda _: httpx.Response(529))
+            for raw in (False, True):
+                for sources in (False, True):
+                    for budget in (1, 20, 80):
+                        for limit in (1, 3):
+                            with self.subTest(
+                                mode=mode, raw=raw, sources=sources, budget=budget, limit=limit
+                            ):
+                                result = self.client.post(
+                                    "/v1/memories/search",
+                                    headers=self.auth,
+                                    json={
+                                        "query": "Ledger PostgreSQL",
+                                        "include_raw": raw,
+                                        "include_sources": sources,
+                                        "budget_tokens": budget,
+                                        "limit": limit,
+                                    },
+                                )
+                                self.assertEqual(result.status_code, 200, result.text)
+                                body = result.json()
+                                items = body["memories"] + body["raw"]
+                                cost = sum(
+                                    retrieval._token_count(item["text"]) + 6 for item in items
+                                )
+                                cost += sum(
+                                    retrieval._token_count(source["excerpt"]) + 6
+                                    for memory in body["memories"]
+                                    for source in memory.get("sources", [])
+                                )
+                                self.assertLessEqual(len(items), limit)
+                                self.assertEqual(body["used_tokens"], cost)
+                                self.assertLessEqual(cost, budget)
+                                if not sources:
+                                    self.assertTrue(
+                                        all("sources" not in item for item in body["memories"])
+                                    )
+
     def test_no_raw_request_does_not_activate_context_provider(self):
         self.seed_memory(text="Ledger stores balances in PostgreSQL.")
         calls = []

@@ -13,6 +13,8 @@ services:
       MEMKIT_DATABASE_URL: postgresql://memkit:${POSTGRES_PASSWORD}@postgres:5432/memkit
       MEMKIT_QDRANT_URL: http://qdrant:6333
       MEMKIT_HOST: 0.0.0.0
+      MEMKIT_BACKUP_DIR: /backups
+      MEMKIT_EXPORT_DIR: /exports
       # TLS terminates at the proxy, so the app must be told it is behind one:
       # the session cookie is Secure and would otherwise never be set.
       MEMKIT_ALLOW_REMOTE: "true"
@@ -26,6 +28,7 @@ services:
     volumes:
       - models:/models
       - backups:/backups
+      - exports:/exports
     ports:
       - "8077:8077"
 
@@ -57,3 +60,4 @@ volumes:
   qdrant:
   models:
   backups:
+  exports:

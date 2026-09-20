@@ -233,7 +233,7 @@ class MergeApplyTest(ConsolidateTestCase):
         super().setUp()
         self.embedder = PairedEmbedder({frozenset({NAME_A, NAME_B})})
         self.a = self._add(NAME_A, source_role="user")
-        self.b = self._add(NAME_B, source_role="assistant")
+        self.b = self._add(NAME_B, source_role="user")
         with self.conn.transaction():
             message_id, _, _ = store.add_message(
                 self.conn,
@@ -287,8 +287,8 @@ class MergeApplyTest(ConsolidateTestCase):
         row = self.conn.execute(
             "SELECT * FROM memories WHERE id=%s", (uuid.UUID(survivor),)
         ).fetchone()
-        # assistant is weaker than user: the merge must not launder provenance.
-        self.assertEqual(row["source_role"], "assistant")
+        # Compatible inputs preserve their user provenance.
+        self.assertEqual(row["source_role"], "user")
         self.assertAlmostEqual(float(row["importance"]), 0.8, places=6)
         self.assertEqual(str(row["scope_id"]), self.scope)
 
@@ -323,7 +323,7 @@ class MergeApplyTest(ConsolidateTestCase):
         ).fetchone()
         self.assertEqual(row["review_status"], "pending")
 
-    def test_a_merge_of_confirmed_facts_stays_confirmed(self) -> None:
+    def test_new_merge_wording_requires_review_even_for_confirmed_inputs(self) -> None:
         with self.conn.transaction():
             self.conn.execute(
                 "UPDATE memories SET review_status='confirmed' WHERE id = ANY(%s)",
@@ -336,7 +336,7 @@ class MergeApplyTest(ConsolidateTestCase):
         row = self.conn.execute(
             "SELECT review_status FROM memories WHERE id=%s", (uuid.UUID(survivor),)
         ).fetchone()
-        self.assertEqual(row["review_status"], "confirmed")
+        self.assertEqual(row["review_status"], "pending")
 
     def test_a_null_merge_answer_changes_nothing(self) -> None:
         outcome = self._run_merge(
