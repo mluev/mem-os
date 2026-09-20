@@ -59,5 +59,10 @@ The integrated Linux backend passed 816 tests and 55 subtests (81.04% coverage;
 two optional tests skipped). Frontend checks passed 79 unit tests and six browser
 tests; Qdrant and clean server/SDK/CLI distributions passed. The original work
 was merged as PR #5 before the remote deployment check finished. Its discovered
-cache-permission repair was merged as PR #6. The restore repair and final live
-verification continue on `codex/verified-backup-restore`.
+cache-permission repair was merged as PR #6. The final restore repair on
+`codex/verified-backup-restore` passes 818 local backend tests and 55 subtests
+(81.04% coverage), and 158 CLI tests on each supported Python version. The
+[complete Docker/SSH run](https://github.com/mluev/mem-os/actions/runs/35509340199)
+passes installation, restart, upgrade, unhealthy-image rollback, backup restore
+and export. The restore test proves that post-backup memory disappears while the
+original memory remains readable.
