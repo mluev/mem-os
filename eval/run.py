@@ -142,6 +142,7 @@ def score(conn, client, embedder, scope_ids, cases: list[Case], *, target: str, 
             tokens.append(used)
         else:
             results = store.search_raw(
+                conn,
                 client,
                 embedder,
                 query=case.query,

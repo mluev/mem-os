@@ -4,3 +4,4 @@ sdk/python/memkit_client/** linguist-generated=true
 sdk/typescript/*/schema.d.ts linguist-generated=true
 web/src/api/schema.d.ts linguist-generated=true
 cli/src/memos_cli/openapi.json linguist-generated=true
+docs/experiments/runs/**/artifact.json linguist-generated=true

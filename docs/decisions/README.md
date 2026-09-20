@@ -87,5 +87,4 @@ No entry restates a measured value; it links an anchor. `Status` and
 | [0070](0070-numbered-entities-and-integer-routing.md) | Routing through a numbered ENTITIES block, behind the integer remap | accepted |
 | [0071](0071-per-user-hooks-and-gated-recall.md) | Hooks carry a person's key, file into a scope, and may recall on request | accepted |
 | [0072](0072-semantic-blocks-and-experiment-archives.md) | Independent semantic blocks and durable experiment archives | accepted |
-
-- [0073 — Contribution and budgeted source context](0073-contribution-and-budgeted-source-context.md)
+| [0073](0073-contribution-and-budgeted-source-context.md) | Contribution and budgeted source context | accepted |
