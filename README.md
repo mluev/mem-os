@@ -2,6 +2,12 @@
 
 Team memory infrastructure for agents. Several people and their agents share one instance: each person has a private scope, the team has a shared one, and a fact about a teammate is attributed to that teammate rather than buried in whoever happened to mention it. It stores source evidence, durable facts, and session profiles. It deliberately does not manage tasks, status, schedules, or workflows.
 
+For agents and everyday use, install the **[lightweight `memos` CLI](cli/README.md)**:
+`uv tool install ./cli`, then `memos setup --url https://your-memory-server`.
+It provides every API operation and automatic Claude/Hermes integration without
+installing Docker, databases, or models on the user's machine. The service setup
+and operator commands below run on the hosted server.
+
 Postgres is authoritative. A generated `tsvector` column and bounded Qdrant candidates are fused by a versioned retrieval policy that is allowed to return nothing. Secrets are removed before persistence and before any model call. Every request resolves to one principal, and a scope that principal does not hold is refused rather than quietly filtered away.
 
 ## How it works

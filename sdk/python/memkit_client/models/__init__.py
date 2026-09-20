@@ -65,6 +65,7 @@ from .profile_in_blocks_item import ProfileInBlocksItem
 from .profile_out import ProfileOut
 from .profile_out_blocks import ProfileOutBlocks
 from .profile_out_blocks_additional_property_item import ProfileOutBlocksAdditionalPropertyItem
+from .profile_out_scope_type_0 import ProfileOutScopeType0
 from .ready_out import ReadyOut
 from .replay_in import ReplayIn
 from .resolve_in import ResolveIn
@@ -151,6 +152,7 @@ __all__ = (
     "ProfileOut",
     "ProfileOutBlocks",
     "ProfileOutBlocksAdditionalPropertyItem",
+    "ProfileOutScopeType0",
     "ReadyOut",
     "ReplayIn",
     "ResolveIn",

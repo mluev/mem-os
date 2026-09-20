@@ -1,0 +1,4 @@
+name: memkit
+version: 0.2.0
+description: "Hosted Mem OS through the lightweight memos CLI"
+hooks: [on_session_end, on_session_switch, on_memory_write]

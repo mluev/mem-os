@@ -106,6 +106,30 @@ def _looks_like_uuid(value: str) -> bool:
     return True
 
 
+def scope_for_workspace(
+    conn: psycopg.Connection, principal: Principal, workspace: str | None
+) -> str:
+    """The scope a conversation in this workspace belongs to.
+
+    A repository name is not a scope, but a team usually registers it as an
+    alias of the project it builds, so resolving it is what makes an agent's
+    live capture and a later bulk import of the same transcripts agree. They
+    used to disagree: only the importer did this, so the same conversation
+    filed differently depending on which path carried it.
+
+    An alias that resolves to a scope the speaker cannot write to falls back to
+    their own space rather than refusing. The alternative is losing the turn
+    over a naming coincidence.
+    """
+    if not workspace:
+        return principal.own_entity_id
+    match = entities.resolve_alias(conn, workspace)
+    if match is None:
+        return principal.own_entity_id
+    scope_id = str(match["id"])
+    return scope_id if principal.may_write(scope_id) else principal.own_entity_id
+
+
 def resolve_scope(
     conn: psycopg.Connection,
     principal: Principal,

@@ -454,9 +454,16 @@ class IntegrationsTest(CliCase):
         # The printed snippet is the whole interface; a missing hook is silence.
         snippet = json.loads(out[out.index("{") : out.rindex("}") + 1])
         self.assertEqual(
-            set(snippet["hooks"]), {"SessionStart", "PreCompact", "Stop", "SessionEnd"}
+            set(snippet["hooks"]),
+            {"SessionStart", "UserPromptSubmit", "PreCompact", "Stop", "SessionEnd"},
         )
+        # `fork` has to be named: a SessionStart matcher is an exact string or a
+        # `|`-separated list of sources, so a forked session would otherwise
+        # start with no memory at all.
+        self.assertIn("fork", snippet["hooks"]["SessionStart"][0]["matcher"])
         self.assertIn("api-keys create", out)
+        # Nobody discovers a per-repository config file by accident.
+        self.assertIn(".memkit.toml", out)
 
     def test_a_second_install_needs_force(self) -> None:
         home = self.tmp / "claude"

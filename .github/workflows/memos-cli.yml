@@ -1,0 +1,63 @@
+name: memos-cli
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+  workflow_dispatch:
+    inputs:
+      remote_smoke:
+        description: Exercise Docker deployment and restore on the disposable CI runner over SSH
+        type: boolean
+        default: true
+
+jobs:
+  client:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ['3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv python install ${{ matrix.python }}
+      - run: uv venv --python ${{ matrix.python }} /tmp/memos-client
+      - run: uv pip install --python /tmp/memos-client/bin/python ./cli pytest ruff
+      - run: /tmp/memos-client/bin/python tools/sync_cli_assets.py --check
+      - run: /tmp/memos-client/bin/ruff check cli tools/sync_cli_assets.py
+      - run: /tmp/memos-client/bin/ruff format --check cli tools/sync_cli_assets.py
+      - run: /tmp/memos-client/bin/python -m pytest -q cli/tests
+      - run: uv build --project cli
+      - run: uv venv --python ${{ matrix.python }} /tmp/memos-wheel
+      - run: uv pip install --python /tmp/memos-wheel/bin/python cli/dist/*.whl
+      - run: /tmp/memos-wheel/bin/python tools/smoke_memos_wheel.py
+      - uses: actions/upload-artifact@v4
+        if: matrix.python == '3.12'
+        with:
+          name: memos-cli
+          path: cli/dist/*
+
+  remote-smoke:
+    if: github.event_name == 'workflow_dispatch' && inputs.remote_smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - uses: docker/setup-buildx-action@v3
+      - run: uv python install 3.12
+      - run: uv venv --python 3.12 /tmp/memos-client
+      - run: uv pip install --python /tmp/memos-client/bin/python ./cli
+      - name: Configure disposable SSH target
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y openssh-server
+          sudo systemctl start ssh
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          ssh-keygen -t ed25519 -N '' -f ~/.ssh/id_ed25519
+          cat ~/.ssh/id_ed25519.pub >> ~/.ssh/authorized_keys
+          chmod 600 ~/.ssh/authorized_keys
+          ssh-keyscan -H 127.0.0.1 >> ~/.ssh/known_hosts
+      - name: Test install, restart, upgrade, failure recovery, export and restore
+        run: /tmp/memos-client/bin/python tools/smoke_memos_remote.py --host "$USER@127.0.0.1" --source "$GITHUB_WORKSPACE"
