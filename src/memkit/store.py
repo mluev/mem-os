@@ -1,63 +1,108 @@
-"""Authoritative evidence/memory writes and derived-index plans."""
+"""Authoritative writes: evidence, memories, revisions, and index handoff.
+
+Every write here is scope-addressed. A memory belongs to exactly one scope --
+the entity whose space holds it -- and authorization is a predicate on that
+column, never on configuration. Functions that mutate an existing row take the
+set of scopes the caller may write to, so a handler cannot lose the check by
+forgetting to pass an owner: with no scopes, nothing is writable.
+"""
 
 from __future__ import annotations
 
-import json
-import sqlite3
+import hashlib
+import re
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
 
+import psycopg
+from psycopg.types.json import Jsonb
 from qdrant_client import QdrantClient
 
-from . import outbox, provenance, security, vectors
-from .db import ensure_owner, utcnow
+from . import filters, outbox, provenance, security, vectors
+from .db import Row, as_datetime, iso, utcnow
 from .embed import Embedder
 from .limits import MAX_MEMORY_CHARS, MAX_MESSAGE_CHARS, MIN_INDEX_CHARS
 
-__all__ = ["MIN_INDEX_CHARS"]
+REVIEW_STATUSES = frozenset({"pending", "confirmed", "declined"})
 
 
-def _object(value: dict[str, Any] | None) -> str:
-    return json.dumps(value or {}, ensure_ascii=False, sort_keys=True)
+class SessionNotAvailable(LookupError):
+    """This session is not the caller's to write into.
+
+    Deliberately not distinguished from "no such session" at the boundary: a
+    different answer for a session that exists would let anyone enumerate other
+    people's conversation ids.
+    """
 
 
-def _array(value: list[str] | None) -> str:
-    return json.dumps(value or [], ensure_ascii=False)
+def content_hash(text: str) -> str:
+    """Identity of a claim's wording, for exact-duplicate rejection.
+
+    Case-folded with runs of whitespace collapsed, so the same sentence written
+    twice with different spacing is one claim. Anything looser belongs to
+    semantic dedup, which is a measured threshold rather than an equality.
+    """
+    return hashlib.sha256(re.sub(r"\s+", " ", text).strip().casefold().encode()).hexdigest()
+
+
+def _returned(row: Row | None, what: str) -> Row:
+    """Narrow a RETURNING result, which cannot be empty after a successful write.
+
+    A helper rather than an assertion so the failure survives `python -O` and
+    reads as what it is: the database not returning a row it was asked for.
+    """
+    if row is None:  # pragma: no cover - would mean the server broke its contract
+        raise RuntimeError(f"{what} returned no row")
+    return row
 
 
 def _session(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     *,
     session_id: str,
-    owner_id: str,
+    user_id: str,
+    scope_id: str,
     agent_id: str,
-    started_at: str,
-    context: dict[str, Any],
-) -> None:
+    started_at: datetime,
+    context: dict[str, Any] | None,
+) -> Row:
+    """Create the session on first sight; never move it afterwards.
+
+    User, scope and agent are fixed when a session begins. A later event
+    claiming a different one is a bug or an attack, and silently re-pointing
+    the session would move every fact extracted from it.
+    """
     row = conn.execute(
-        "SELECT owner_id,agent_id FROM sessions WHERE id=?", (session_id,)
+        """INSERT INTO sessions (id,user_id,scope_id,agent_id,started_at,context)
+           VALUES (%s,%s,%s,%s,%s,%s)
+           ON CONFLICT (id) DO NOTHING
+           RETURNING *""",
+        (session_id, user_id, scope_id, agent_id, started_at, Jsonb(context or {})),
     ).fetchone()
-    if row:
-        if row["owner_id"] != owner_id or row["agent_id"] != agent_id:
-            raise ValueError("session identity does not match its stored owner and agent")
-        return
-    conn.execute(
-        """INSERT INTO sessions
-           (id,owner_id,agent_id,started_at,context_json) VALUES (?,?,?,?,?)""",
-        (session_id, owner_id, agent_id, started_at, _object(context)),
-    )
+    if row is not None:
+        return row
+    existing = conn.execute("SELECT * FROM sessions WHERE id=%s", (session_id,)).fetchone()
+    if existing is None:  # pragma: no cover - only under concurrent deletion
+        raise RuntimeError(f"session vanished during creation: {session_id}")
+    if str(existing["user_id"]) != str(user_id):
+        raise SessionNotAvailable(session_id)
+    if existing["agent_id"] != agent_id:
+        raise ValueError("session belongs to another agent")
+    return existing
 
 
 def add_message(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     *,
     session_id: str,
-    owner_id: str,
+    user_id: str,
+    scope_id: str,
     agent_id: str,
     role: str,
     content: str,
-    created_at: str | None = None,
+    created_at: datetime | str | None = None,
     external_source: str | None = None,
     external_id: str | None = None,
     context: dict[str, Any] | None = None,
@@ -72,28 +117,29 @@ def add_message(
         raise ValueError("invalid message role")
     cleaned = security.redact(content)
     context, context_redactions = security.redact_value(context or {})
-    now = created_at or utcnow()
-    ensure_owner(conn, owner_id, owner_id)
-    _session(
+    now = as_datetime(created_at) or utcnow()
+    session = _session(
         conn,
         session_id=session_id,
-        owner_id=owner_id,
+        user_id=user_id,
+        scope_id=scope_id,
         agent_id=agent_id,
         started_at=now,
         context=context,
     )
 
     if external_id is not None:
+        # Idempotency is per user: two people on one machine would otherwise
+        # collide on the same transcript line ids.
         row = conn.execute(
-            """SELECT m.*,s.owner_id,s.agent_id FROM messages m
+            """SELECT m.*,s.scope_id,s.agent_id FROM messages m
                  JOIN sessions s ON s.id=m.session_id
-                WHERE external_source IS ? AND external_id=?""",
-            (external_source, external_id),
+                WHERE m.user_id=%s AND m.external_source IS NOT DISTINCT FROM %s
+                  AND m.external_id=%s""",
+            (user_id, external_source, external_id),
         ).fetchone()
         if row is not None:
-            if row["owner_id"] != owner_id:
-                raise ValueError("idempotency key belongs to another owner")
-            if row["role"] == "user" and len(row["content"]) >= MIN_INDEX_CHARS:
+            if row["role"] == "user" and len(str(row["content"])) >= MIN_INDEX_CHARS:
                 outbox.ensure_pending(
                     conn,
                     collection=vectors.RAW,
@@ -103,64 +149,63 @@ def add_message(
                 )
             return int(row["id"]), True, bool(row["redacted"])
 
-    cur = conn.execute(
+    row = conn.execute(
         """INSERT INTO messages
-           (session_id,role,content,created_at,external_source,external_id,
-            context_json,redacted)
-           VALUES (?,?,?,?,?,?,?,?)""",
+           (session_id,user_id,role,content,created_at,external_source,external_id,
+            context,redacted)
+           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+           RETURNING *""",
         (
             session_id,
+            user_id,
             role,
             cleaned.text,
             now,
             external_source,
             external_id,
-            _object(context),
-            int(cleaned.redacted or context_redactions > 0),
+            Jsonb(context),
+            bool(cleaned.redacted or context_redactions > 0),
         ),
-    )
-    message_id = int(cur.lastrowid)
+    ).fetchone()
+    row = _returned(row, "message insert")
+    message_id = int(row["id"])
     if role == "user" and len(cleaned.text) >= MIN_INDEX_CHARS:
-        row = conn.execute(
-            """SELECT m.*,s.owner_id,s.agent_id FROM messages m
-                 JOIN sessions s ON s.id=m.session_id WHERE m.id=?""",
-            (message_id,),
-        ).fetchone()
         outbox.enqueue(
             conn,
             collection=vectors.RAW,
             entity_id=message_id,
             operation="upsert",
-            payload=raw_payload(row),
+            payload=raw_payload(
+                {**dict(row), "scope_id": session["scope_id"], "agent_id": agent_id}
+            ),
         )
     return message_id, False, cleaned.redacted
 
 
-def raw_payload(row: sqlite3.Row | dict[str, Any]) -> dict[str, Any]:
-    context = dict(row).get("context_json", "{}")
+def raw_payload(row: Row | dict[str, Any]) -> dict[str, Any]:
+    data = dict(row)
     return {
-        "owner_id": row["owner_id"],
-        "agent_id": row["agent_id"],
-        "session_id": row["session_id"],
-        "role": row["role"],
-        "text": row["content"],
-        "context": json.loads(context or "{}"),
-        "created_at": row["created_at"],
-        "message_id": int(row["id"]),
-        "redacted": bool(row["redacted"]) if "redacted" in row else False,
+        "user_id": str(data["user_id"]),
+        "scope_id": str(data["scope_id"]) if data.get("scope_id") else None,
+        "agent_id": data.get("agent_id"),
+        "session_id": data["session_id"],
+        "role": data["role"],
+        "text": data["content"],
+        "context": data.get("context") or {},
+        "created_at": iso(data["created_at"]),
+        "message_id": int(data["id"]),
+        "redacted": bool(data.get("redacted", False)),
     }
 
 
-def ensure_raw_outbox(conn: sqlite3.Connection, message_ids: list[int]) -> int:
+def ensure_raw_outbox(conn: psycopg.Connection, message_ids: list[int]) -> int:
     if not message_ids:
         return 0
-    placeholders = ",".join("?" for _ in message_ids)
     rows = conn.execute(
-        f"""SELECT m.*,s.owner_id,s.agent_id FROM messages m
-              JOIN sessions s ON s.id=m.session_id
-             WHERE m.id IN ({placeholders}) AND m.role='user'
-               AND length(m.content)>=?""",
-        (*message_ids, MIN_INDEX_CHARS),
+        """SELECT m.*,s.scope_id,s.agent_id FROM messages m
+             JOIN sessions s ON s.id=m.session_id
+            WHERE m.id = ANY(%s) AND m.role='user' AND length(m.content) >= %s""",
+        (list(message_ids), MIN_INDEX_CHARS),
     ).fetchall()
     for row in rows:
         outbox.ensure_pending(
@@ -174,47 +219,131 @@ def ensure_raw_outbox(conn: sqlite3.Connection, message_ids: list[int]) -> int:
 
 
 def search_raw(
+    conn: psycopg.Connection,
     client: QdrantClient,
     embedder: Embedder,
     *,
     query: str,
-    owner_id: str,
+    scope_ids: Sequence[str],
     limit: int = 30,
+    vector: list[float] | None = None,
+    expression: dict[str, Any] | None = None,
+    kinds: list[str] | None = None,
 ) -> list[dict[str, Any]]:
-    vector = embedder.encode_one(query)
+    """Semantic search over retained user turns, within the caller's scopes."""
+    if not scope_ids or (kinds and "evidence" not in kinds):
+        return []
+    # The memory search on the same request already embedded this query; pass
+    # its vector rather than paying for the identical encode twice.
+    vector = vector if vector is not None else embedder.encode_one(query)
     hits = vectors.search(
         client,
         vectors.RAW,
         vector,
         limit=limit,
-        must=[vectors.keyword("owner_id", owner_id)],
+        must=[vectors.keyword("scope_id", list(scope_ids)), vectors.keyword("role", "user")],
     )
+    scores = {}
+    for hit in hits:
+        try:
+            scores[int(hit.id)] = round(float(hit.score), 4)
+        except (TypeError, ValueError):
+            continue
+    if not scores:
+        return []
+    # An outbox backlog can leave stale ownership or text in the index.
+    # Only the current Postgres row can authorize or supply a quotation.
+    rows = conn.execute(
+        """SELECT m.*,s.agent_id FROM messages m JOIN sessions s ON s.id=m.session_id
+           WHERE m.id=ANY(%s) AND s.scope_id=ANY(%s) AND m.role='user'""",
+        (list(scores), [uuid.UUID(str(scope)) for scope in scope_ids]),
+    ).fetchall()
     return [
         {
-            "message_id": hit.payload.get("message_id"),
-            "text": hit.payload.get("text", ""),
-            "similarity": round(float(hit.score), 4),
-            "context": hit.payload.get("context") or {},
-            "session_id": hit.payload.get("session_id"),
-            "created_at": hit.payload.get("created_at"),
+            "message_id": int(row["id"]),
+            "text": row["content"],
+            "similarity": scores[int(row["id"])],
+            "context": dict(row["context"] or {}),
+            "session_id": row["session_id"],
+            "created_at": iso(row["created_at"]),
+            "source_role": "user",
         }
-        for hit in hits
+        for row in sorted(rows, key=lambda r: (-scores[int(r["id"])], int(r["id"])))
+        if filters.matches(
+            {
+                "kind": "evidence",
+                "context": dict(row["context"] or {}),
+                "tags": [],
+                "agent_id": row["agent_id"],
+                "subject_id": None,
+            },
+            expression,
+        )
     ]
 
 
-def record_retrieval(conn: sqlite3.Connection, memory_ids: list[str]) -> None:
+def evidence_excerpts(
+    conn: psycopg.Connection,
+    memory_ids: list[str],
+    *,
+    per_memory: int = 3,
+    scope_ids: Sequence[str] | None = None,
+) -> dict[str, list[dict[str, Any]]]:
+    """Verbatim source spans for search results — search facts, return evidence.
+
+    An atomic memory embeds precisely but is lossy; the cited span carries the
+    detail. Every span is re-sliced from the retained message and verified
+    against `excerpt_sha256` before leaving the store — the hash was written
+    for exactly this moment, and a mismatch (edited row, drifted offset) drops
+    the span rather than returning corrupted evidence as if it were verbatim.
+    """
+    if not memory_ids:
+        return {}
+    rows = conn.execute(
+        """SELECT e.memory_id,e.message_id,e.start_char,e.end_char,e.excerpt_sha256,
+                  m.content,m.role,m.created_at
+             FROM memory_evidence e JOIN messages m ON m.id=e.message_id
+             JOIN sessions s ON s.id=m.session_id
+            WHERE e.memory_id = ANY(%s)
+              AND (%s::uuid[] IS NULL OR s.scope_id=ANY(%s::uuid[]))
+            ORDER BY e.memory_id,e.message_id,e.start_char""",
+        (
+            [uuid.UUID(str(mid)) for mid in memory_ids],
+            [uuid.UUID(str(s)) for s in scope_ids] if scope_ids is not None else None,
+            [uuid.UUID(str(s)) for s in scope_ids] if scope_ids is not None else None,
+        ),
+    ).fetchall()
+    excerpts: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        bucket = excerpts.setdefault(str(row["memory_id"]), [])
+        if len(bucket) >= per_memory:
+            continue
+        excerpt = str(row["content"])[row["start_char"] : row["end_char"]]
+        if hashlib.sha256(excerpt.encode()).hexdigest() != row["excerpt_sha256"]:
+            continue
+        bucket.append(
+            {
+                "message_id": int(row["message_id"]),
+                "excerpt": excerpt,
+                "role": row["role"],
+                "created_at": iso(row["created_at"]),
+            }
+        )
+    return excerpts
+
+
+def record_retrieval(conn: psycopg.Connection, memory_ids: list[str]) -> None:
     if not memory_ids:
         return
-    now = utcnow()
-    conn.executemany(
-        """UPDATE memories SET last_retrieved_at=?,retrieval_count=retrieval_count+1
-            WHERE id=?""",
-        [(now, memory_id) for memory_id in memory_ids],
+    conn.execute(
+        """UPDATE memories SET last_retrieved_at=now(),retrieval_count=retrieval_count+1
+            WHERE id = ANY(%s)""",
+        ([uuid.UUID(str(mid)) for mid in memory_ids],),
     )
 
 
 def record_feedback(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     *,
     memory_id: str,
     query_hash: str,
@@ -222,24 +351,42 @@ def record_feedback(
     correct: bool | None,
 ) -> None:
     conn.execute(
-        """INSERT INTO retrieval_feedback
-           (memory_id,query_hash,useful,correct,created_at) VALUES (?,?,?,?,?)""",
-        (
-            memory_id,
-            query_hash,
-            None if useful is None else int(useful),
-            None if correct is None else int(correct),
-            utcnow(),
-        ),
+        """INSERT INTO retrieval_feedback (memory_id,query_hash,useful,correct)
+           VALUES (%s,%s,%s,%s)""",
+        (memory_id, query_hash, useful, correct),
     )
 
 
-def add_memory(
-    conn: sqlite3.Connection,
+def find_duplicate(
+    conn: psycopg.Connection,
     *,
-    owner_id: str,
+    scope_id: str,
     text: str,
     kind: str,
+    context: dict[str, Any] | None = None,
+) -> Row | None:
+    """An active memory in this scope that already says exactly this.
+
+    Exact identity only, and scoped: the same sentence in two scopes is two
+    facts, because one may be shared and the other private.
+    """
+    return conn.execute(
+        """SELECT * FROM memories
+            WHERE scope_id=%s AND status='active' AND content_hash=%s
+              AND kind=%s AND context=%s
+            ORDER BY created_at LIMIT 1""",
+        (scope_id, content_hash(text), kind.strip(), Jsonb(context or {})),
+    ).fetchone()
+
+
+def add_memory(
+    conn: psycopg.Connection,
+    *,
+    scope_id: str,
+    author_id: str,
+    text: str,
+    kind: str,
+    subject_id: str | None = None,
     context: dict[str, Any] | None = None,
     tags: list[str] | None = None,
     agent_id: str | None = None,
@@ -247,11 +394,17 @@ def add_memory(
     confidence: float = 0.9,
     extraction_version: str = "manual",
     judge_run_id: int | None = None,
-    valid_until: str | None = None,
+    valid_until: datetime | str | None = None,
     source_role: str = provenance.DEFAULT_ROLE,
+    review_status: str = "pending",
     memory_id: str | None = None,
 ) -> str:
-    """Insert one authoritative memory and enqueue its index operation."""
+    """Insert one authoritative memory and enqueue its index operation.
+
+    `review_status` defaults to pending because most writes are automatic: the
+    fact is usable immediately and a human confirms or deletes it later. A
+    caller storing a user's own explicit statement passes `confirmed`.
+    """
     text = text.strip()
     kind = kind.strip()
     if not text:
@@ -260,40 +413,46 @@ def add_memory(
         raise ValueError(f"memory text exceeds {MAX_MEMORY_CHARS} characters")
     if not kind or len(kind) > 64:
         raise ValueError("memory kind must contain 1–64 characters")
+    if review_status not in REVIEW_STATUSES:
+        raise ValueError(f"unknown review status: {review_status!r}")
     provenance.validate(source_role)
     cleaned = security.redact(text)
     context, context_redactions = security.redact_value(context or {})
     tags, tag_redactions = security.redact_value(tags or [])
-    ensure_owner(conn, owner_id, owner_id)
     memory_id = memory_id or str(uuid.uuid4())
     now = utcnow()
-    conn.execute(
+    row = conn.execute(
         """INSERT INTO memories
-           (id,owner_id,agent_id,kind,text,importance,confidence,status,valid_from,
-            valid_until,created_at,updated_at,extraction_version,judge_run_id,
-            source_role,context_json,tags_json,redacted)
-           VALUES (?,?,?,?,?,?,?,'active',?,?,?,?,?,?,?,?,?,?)""",
+           (id,scope_id,subject_id,author_id,agent_id,kind,text,importance,confidence,
+            status,valid_from,valid_until,created_at,updated_at,extraction_version,
+            judge_run_id,source_role,review_status,content_hash,context,tags,redacted)
+           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,'active',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+           RETURNING *""",
         (
             memory_id,
-            owner_id,
+            scope_id,
+            subject_id,
+            author_id,
             agent_id,
             kind,
             cleaned.text,
             importance,
             confidence,
             now,
-            valid_until,
+            as_datetime(valid_until),
             now,
             now,
             extraction_version,
             judge_run_id,
             source_role,
-            _object(context),
-            _array(tags),
-            int(cleaned.redacted or context_redactions > 0 or tag_redactions > 0),
+            review_status,
+            content_hash(cleaned.text),
+            Jsonb(context),
+            Jsonb(tags),
+            bool(cleaned.redacted or context_redactions > 0 or tag_redactions > 0),
         ),
-    )
-    row = conn.execute("SELECT * FROM memories WHERE id=?", (memory_id,)).fetchone()
+    ).fetchone()
+    row = _returned(row, "memory insert")
     append_memory_revision(conn, row)
     outbox.enqueue(
         conn,
@@ -305,16 +464,20 @@ def add_memory(
     return memory_id
 
 
-def append_memory_revision(conn: sqlite3.Connection, row: sqlite3.Row) -> None:
+def append_memory_revision(conn: psycopg.Connection, row: Row) -> None:
     conn.execute(
         """INSERT INTO memory_revisions
-           (memory_id,revision,kind,text,importance,confidence,status,superseded_by,
-            valid_until,extraction_version,judge_run_id,source_role,context_json,
-            tags_json,redacted,created_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+           (memory_id,revision,scope_id,subject_id,author_id,kind,text,importance,
+            confidence,status,superseded_by,valid_until,extraction_version,judge_run_id,
+            source_role,review_status,context,tags,redacted,created_at)
+           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+           ON CONFLICT (memory_id,revision) DO NOTHING""",
         (
             row["id"],
             row["revision"],
+            row["scope_id"],
+            row["subject_id"],
+            row["author_id"],
             row["kind"],
             row["text"],
             row["importance"],
@@ -325,19 +488,37 @@ def append_memory_revision(conn: sqlite3.Connection, row: sqlite3.Row) -> None:
             row["extraction_version"],
             row["judge_run_id"],
             row["source_role"],
-            row["context_json"],
-            row["tags_json"],
+            row["review_status"],
+            Jsonb(row["context"]),
+            Jsonb(row["tags"]),
             row["redacted"],
             row["updated_at"],
         ),
     )
 
 
+def _load_for_write(conn: psycopg.Connection, *, memory_id: str, scopes: Sequence[str]) -> Row:
+    """The row, if the caller may write to its scope. KeyError otherwise.
+
+    KeyError rather than a distinct permission error on purpose: a memory in a
+    scope the caller cannot reach must be indistinguishable from one that does
+    not exist, or the API becomes an existence oracle for other people's facts.
+    A scope named *explicitly* in a request is a 403 instead -- see principal.
+    """
+    row = conn.execute(
+        "SELECT * FROM memories WHERE id=%s AND scope_id = ANY(%s)",
+        (memory_id, [uuid.UUID(str(scope)) for scope in scopes]),
+    ).fetchone()
+    if row is None:
+        raise KeyError(memory_id)
+    return row
+
+
 def update_memory(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     *,
     memory_id: str,
-    owner_id: str,
+    scopes: Sequence[str],
     expected_revision: int,
     text: str,
     kind: str,
@@ -345,11 +526,14 @@ def update_memory(
     tags: list[str],
     importance: float,
     confidence: float,
-    valid_until: str | None,
+    valid_until: datetime | str | None,
+    subject_id: str | None = None,
+    scope_id: str | None = None,
     extraction_version: str | None = None,
     judge_run_id: int | None = None,
     source_role: str | None = None,
-) -> sqlite3.Row:
+    review_status: str | None = None,
+) -> Row:
     """Atomically replace mutable memory fields and append one immutable revision."""
     text = text.strip()
     kind = kind.strip()
@@ -357,50 +541,53 @@ def update_memory(
         raise ValueError("memory text must contain 1–2000 characters")
     if not kind or len(kind) > 64:
         raise ValueError("memory kind must contain 1–64 characters")
+    if review_status is not None and review_status not in REVIEW_STATUSES:
+        raise ValueError(f"unknown review status: {review_status!r}")
     cleaned = security.redact(text)
     context, context_redactions = security.redact_value(context)
     tags, tag_redactions = security.redact_value(tags)
-    now = utcnow()
-    current = conn.execute(
-        "SELECT * FROM memories WHERE id=? AND owner_id=?",
-        (memory_id, owner_id),
-    ).fetchone()
-    if current is None:
-        raise KeyError(memory_id)
-    next_source_role = source_role or current["source_role"]
+    current = _load_for_write(conn, memory_id=memory_id, scopes=scopes)
+    next_source_role = source_role or str(current["source_role"])
     provenance.validate(next_source_role)
     changed = conn.execute(
         """UPDATE memories
-              SET text=?,kind=?,importance=?,confidence=?,context_json=?,tags_json=?,
-                  valid_until=?,updated_at=?,revision=revision+1,extraction_version=?,
-                  judge_run_id=?,source_role=?,redacted=?
-            WHERE id=? AND owner_id=? AND revision=?""",
+              SET text=%s,kind=%s,importance=%s,confidence=%s,context=%s,tags=%s,
+                  valid_until=%s,updated_at=%s,revision=revision+1,extraction_version=%s,
+                  judge_run_id=%s,source_role=%s,review_status=%s,content_hash=%s,
+                  subject_id=%s,scope_id=%s,redacted=%s
+            WHERE id=%s AND revision=%s""",
         (
             cleaned.text,
             kind,
             importance,
             confidence,
-            _object(context),
-            _array(tags),
-            valid_until,
-            now,
+            Jsonb(context),
+            Jsonb(tags),
+            as_datetime(valid_until),
+            utcnow(),
             extraction_version or current["extraction_version"],
             judge_run_id if judge_run_id is not None else current["judge_run_id"],
             next_source_role,
-            int(
+            review_status or current["review_status"],
+            content_hash(cleaned.text),
+            subject_id if subject_id is not None else current["subject_id"],
+            scope_id or current["scope_id"],
+            bool(
                 cleaned.redacted
                 or context_redactions > 0
                 or tag_redactions > 0
                 or (bool(current["redacted"]) and cleaned.text == current["text"])
             ),
             memory_id,
-            owner_id,
             expected_revision,
         ),
     ).rowcount
     if not changed:
         raise RuntimeError("memory revision conflict")
-    saved = conn.execute("SELECT * FROM memories WHERE id=?", (memory_id,)).fetchone()
+    saved = _returned(
+        conn.execute("SELECT * FROM memories WHERE id=%s", (memory_id,)).fetchone(),
+        "memory reload",
+    )
     append_memory_revision(conn, saved)
     outbox.enqueue(
         conn,
@@ -413,73 +600,129 @@ def update_memory(
 
 
 def set_memory_status(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     *,
     memory_id: str,
-    owner_id: str,
+    scopes: Sequence[str],
     status: str,
     expected_revision: int | None = None,
     superseded_by: str | None = None,
-) -> sqlite3.Row:
-    current = conn.execute(
-        "SELECT * FROM memories WHERE id=? AND owner_id=?", (memory_id, owner_id)
-    ).fetchone()
-    if current is None:
-        raise KeyError(memory_id)
+) -> Row:
+    current = _load_for_write(conn, memory_id=memory_id, scopes=scopes)
     revision = int(current["revision"])
     if expected_revision is not None and revision != expected_revision:
         raise RuntimeError("memory revision conflict")
     changed = conn.execute(
-        """UPDATE memories SET status=?,superseded_by=?,updated_at=?,revision=revision+1
-             WHERE id=? AND owner_id=? AND revision=?""",
-        (status, superseded_by, utcnow(), memory_id, owner_id, revision),
+        """UPDATE memories SET status=%s,superseded_by=%s,updated_at=%s,revision=revision+1
+             WHERE id=%s AND revision=%s""",
+        (status, superseded_by, utcnow(), memory_id, revision),
     ).rowcount
     if not changed:
         raise RuntimeError("memory revision conflict")
-    saved = conn.execute("SELECT * FROM memories WHERE id=?", (memory_id,)).fetchone()
+    saved = _returned(
+        conn.execute("SELECT * FROM memories WHERE id=%s", (memory_id,)).fetchone(),
+        "memory reload",
+    )
     append_memory_revision(conn, saved)
     outbox.enqueue(
         conn,
         collection=vectors.MEMORIES,
         entity_id=memory_id,
         operation="delete" if status != "active" else "upsert",
-        payload={"owner_id": owner_id} if status != "active" else mem_payload(saved),
+        payload=(
+            {"scope_id": str(saved["scope_id"])} if status != "active" else mem_payload(saved)
+        ),
     )
     return saved
 
 
-def mem_payload(row: sqlite3.Row | dict[str, Any]) -> dict[str, Any]:
-    keys = row.keys()
+def set_review_status(
+    conn: psycopg.Connection,
+    *,
+    memory_id: str,
+    scopes: Sequence[str],
+    review_status: str,
+    reviewed_by: str,
+    expected_revision: int | None = None,
+) -> Row:
+    """Confirm or decline a memory.
+
+    Declining archives it in the same step: a fact a human has rejected must
+    stop being retrieved, and keeping it active with a label would mean the
+    label had no effect. Confirming re-activates, so a decline is reversible
+    from the dashboard rather than only from the revision history.
+    """
+    if review_status not in REVIEW_STATUSES:
+        raise ValueError(f"unknown review status: {review_status!r}")
+    current = _load_for_write(conn, memory_id=memory_id, scopes=scopes)
+    revision = int(current["revision"])
+    if expected_revision is not None and revision != expected_revision:
+        raise RuntimeError("memory revision conflict")
+    status = "archived" if review_status == "declined" else "active"
+    changed = conn.execute(
+        """UPDATE memories
+              SET review_status=%s,reviewed_by=%s,reviewed_at=now(),status=%s,
+                  updated_at=%s,revision=revision+1
+            WHERE id=%s AND revision=%s""",
+        (review_status, reviewed_by, status, utcnow(), memory_id, revision),
+    ).rowcount
+    if not changed:
+        raise RuntimeError("memory revision conflict")
+    saved = _returned(
+        conn.execute("SELECT * FROM memories WHERE id=%s", (memory_id,)).fetchone(),
+        "memory reload",
+    )
+    append_memory_revision(conn, saved)
+    outbox.enqueue(
+        conn,
+        collection=vectors.MEMORIES,
+        entity_id=memory_id,
+        operation="upsert" if status == "active" else "delete",
+        payload=(
+            mem_payload(saved) if status == "active" else {"scope_id": str(saved["scope_id"])}
+        ),
+    )
+    return saved
+
+
+def mem_payload(row: Row | dict[str, Any]) -> dict[str, Any]:
+    data = dict(row)
     return {
-        "owner_id": row["owner_id"],
-        "agent_id": row["agent_id"],
-        "kind": row["kind"],
-        "text": row["text"],
-        "importance": float(row["importance"]),
-        "confidence": float(row["confidence"]),
-        "status": row["status"],
-        "source_role": row["source_role"],
-        "context": json.loads(row["context_json"] or "{}"),
-        "tags": json.loads(row["tags_json"] or "[]"),
-        "valid_until": row["valid_until"],
-        "created_at": row["created_at"],
-        "updated_at": row["updated_at"],
-        "revision": int(row["revision"]) if "revision" in keys else 1,
-        "redacted": bool(row["redacted"]) if "redacted" in keys else False,
+        "scope_id": str(data["scope_id"]),
+        "subject_id": str(data["subject_id"]) if data.get("subject_id") else None,
+        "author_id": str(data["author_id"]),
+        "agent_id": data.get("agent_id"),
+        "kind": data["kind"],
+        "text": data["text"],
+        "importance": float(data["importance"]),
+        "confidence": float(data["confidence"]),
+        "status": data["status"],
+        "source_role": data["source_role"],
+        "review_status": data.get("review_status", "pending"),
+        "context": data.get("context") or {},
+        "tags": data.get("tags") or [],
+        "valid_until": iso(data.get("valid_until")),
+        "created_at": iso(data.get("created_at")),
+        "updated_at": iso(data.get("updated_at")),
+        "revision": int(data.get("revision", 1)),
+        "redacted": bool(data.get("redacted", False)),
     }
 
 
-def memory_active(row: sqlite3.Row | dict[str, Any], *, now: datetime | None = None) -> bool:
-    if row["status"] != "active":
+def memory_active(row: Row | dict[str, Any], *, now: datetime | None = None) -> bool:
+    """Active and not expired.
+
+    Review status is deliberately not part of this: an unconfirmed memory is
+    live and retrievable, because a fact nobody has got round to confirming is
+    still the best thing we know.
+    """
+    data = dict(row)
+    if data["status"] != "active":
         return False
-    valid_until = row["valid_until"]
+    valid_until = data.get("valid_until")
     if not valid_until:
         return True
-    now = now or datetime.now(UTC)
-    try:
-        expiry = datetime.fromisoformat(str(valid_until).replace("Z", "+00:00"))
-    except ValueError:
+    expiry = as_datetime(valid_until)
+    if expiry is None:
         return False
-    if expiry.tzinfo is None:
-        expiry = expiry.replace(tzinfo=UTC)
-    return expiry > now
+    return expiry > (now or datetime.now(UTC))

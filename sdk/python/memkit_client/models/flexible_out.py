@@ -11,7 +11,7 @@ T = TypeVar("T", bound="FlexibleOut")
 
 @_attrs_define
 class FlexibleOut:
-    """Typed public fields while allowing additive response evolution."""
+    """ """
 
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 

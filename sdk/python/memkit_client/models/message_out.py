@@ -5,7 +5,6 @@ from typing import Any, TypeVar, cast
 
 from attrs import define as _attrs_define
 
-from ..models.message_out_index_status import MessageOutIndexStatus
 from ..types import UNSET, Unset
 
 T = TypeVar("T", bound="MessageOut")
@@ -15,27 +14,25 @@ T = TypeVar("T", bound="MessageOut")
 class MessageOut:
     """
     Attributes:
-        index_status (MessageOutIndexStatus):
+        index_status (str):
         indexed (bool):
         message_id (int):
         deduplicated (bool | Unset):  Default: False.
         extraction_job_id (None | str | Unset):
         index_job_id (None | str | Unset):
         redacted (bool | Unset):  Default: False.
-        stored (bool | Unset):  Default: True.
     """
 
-    index_status: MessageOutIndexStatus
+    index_status: str
     indexed: bool
     message_id: int
     deduplicated: bool | Unset = False
     extraction_job_id: None | str | Unset = UNSET
     index_job_id: None | str | Unset = UNSET
     redacted: bool | Unset = False
-    stored: bool | Unset = True
 
     def to_dict(self) -> dict[str, Any]:
-        index_status = self.index_status.value
+        index_status = self.index_status
 
         indexed = self.indexed
 
@@ -57,8 +54,6 @@ class MessageOut:
 
         redacted = self.redacted
 
-        stored = self.stored
-
         field_dict: dict[str, Any] = {}
 
         field_dict.update(
@@ -76,15 +71,13 @@ class MessageOut:
             field_dict["index_job_id"] = index_job_id
         if redacted is not UNSET:
             field_dict["redacted"] = redacted
-        if stored is not UNSET:
-            field_dict["stored"] = stored
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        index_status = MessageOutIndexStatus(d.pop("index_status"))
+        index_status = d.pop("index_status")
 
         indexed = d.pop("indexed")
 
@@ -112,8 +105,6 @@ class MessageOut:
 
         redacted = d.pop("redacted", UNSET)
 
-        stored = d.pop("stored", UNSET)
-
         message_out = cls(
             index_status=index_status,
             indexed=indexed,
@@ -122,7 +113,6 @@ class MessageOut:
             extraction_job_id=extraction_job_id,
             index_job_id=index_job_id,
             redacted=redacted,
-            stored=stored,
         )
 
         return message_out

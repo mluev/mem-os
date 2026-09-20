@@ -19,7 +19,7 @@ export default defineConfig(({ mode }) => {
         "/v1": {
           target: backendUrl,
           changeOrigin: false,
-          headers: { "X-API-Key": env.MEMKIT_API_KEY ?? "change-me" },
+          headers: env.MEMKIT_API_KEY ? { "X-API-Key": env.MEMKIT_API_KEY } : undefined,
         },
         "/healthz": { target: backendUrl },
         "/openapi.json": { target: backendUrl },

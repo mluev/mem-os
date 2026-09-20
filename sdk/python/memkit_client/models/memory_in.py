@@ -27,6 +27,8 @@ class MemoryIn:
         confidence (float | Unset):  Default: 0.9.
         context (MemoryInContext | Unset):
         importance (float | Unset):  Default: 0.6.
+        scope (None | str | Unset):
+        subject (None | str | Unset):
         tags (list[str] | Unset):
         valid_until (datetime.datetime | None | Unset):
     """
@@ -38,6 +40,8 @@ class MemoryIn:
     confidence: float | Unset = 0.9
     context: MemoryInContext | Unset = UNSET
     importance: float | Unset = 0.6
+    scope: None | str | Unset = UNSET
+    subject: None | str | Unset = UNSET
     tags: list[str] | Unset = UNSET
     valid_until: datetime.datetime | None | Unset = UNSET
 
@@ -61,6 +65,18 @@ class MemoryIn:
             context = self.context.to_dict()
 
         importance = self.importance
+
+        scope: None | str | Unset
+        if isinstance(self.scope, Unset):
+            scope = UNSET
+        else:
+            scope = self.scope
+
+        subject: None | str | Unset
+        if isinstance(self.subject, Unset):
+            subject = UNSET
+        else:
+            subject = self.subject
 
         tags: list[str] | Unset = UNSET
         if not isinstance(self.tags, Unset):
@@ -91,6 +107,10 @@ class MemoryIn:
             field_dict["context"] = context
         if importance is not UNSET:
             field_dict["importance"] = importance
+        if scope is not UNSET:
+            field_dict["scope"] = scope
+        if subject is not UNSET:
+            field_dict["subject"] = subject
         if tags is not UNSET:
             field_dict["tags"] = tags
         if valid_until is not UNSET:
@@ -129,6 +149,24 @@ class MemoryIn:
 
         importance = d.pop("importance", UNSET)
 
+        def _parse_scope(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        scope = _parse_scope(d.pop("scope", UNSET))
+
+        def _parse_subject(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        subject = _parse_subject(d.pop("subject", UNSET))
+
         tags = cast(list[str], d.pop("tags", UNSET))
 
         def _parse_valid_until(data: object) -> datetime.datetime | None | Unset:
@@ -156,6 +194,8 @@ class MemoryIn:
             confidence=confidence,
             context=context,
             importance=importance,
+            scope=scope,
+            subject=subject,
             tags=tags,
             valid_until=valid_until,
         )

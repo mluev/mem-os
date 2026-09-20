@@ -1,0 +1,1139 @@
+[
+  {
+    "split": "heldout",
+    "language": "en",
+    "scenario": "engineer-en",
+    "cohort": "development",
+    "id": "engineer-en-same",
+    "stage": "relation",
+    "state": {
+      "existing": "Atlas production uses PostgreSQL.",
+      "incoming": "PostgreSQL is the database used in production by Atlas."
+    },
+    "expected": "equivalent"
+  },
+  {
+    "split": "heldout",
+    "language": "en",
+    "scenario": "engineer-en",
+    "cohort": "development",
+    "id": "engineer-en-different",
+    "stage": "relation",
+    "state": {
+      "existing": "Atlas production uses PostgreSQL.",
+      "incoming": "Atlas staging uses PostgreSQL."
+    },
+    "expected": "unrelated"
+  },
+  {
+    "split": "heldout",
+    "language": "en",
+    "scenario": "engineer-en",
+    "cohort": "development",
+    "id": "engineer-en-answer",
+    "stage": "relevance",
+    "state": {
+      "query": "Which database does Atlas use in production?",
+      "memories": [
+        "Atlas staging uses PostgreSQL.",
+        "Atlas production uses PostgreSQL.",
+        "The office walls are blue."
+      ]
+    },
+    "expected": [
+      1
+    ]
+  },
+  {
+    "split": "heldout",
+    "language": "en",
+    "scenario": "engineer-en",
+    "cohort": "development",
+    "id": "engineer-en-missing",
+    "stage": "relevance",
+    "state": {
+      "query": "Which cloud region hosts Atlas?",
+      "memories": [
+        "Atlas staging uses PostgreSQL.",
+        "Atlas production uses PostgreSQL.",
+        "The office walls are blue."
+      ]
+    },
+    "expected": []
+  },
+  {
+    "split": "heldout",
+    "language": "en",
+    "scenario": "engineer-en",
+    "cohort": "development",
+    "id": "engineer-en-supported",
+    "stage": "support",
+    "state": {
+      "user_spans": [
+        "Atlas production uses PostgreSQL."
+      ],
+      "claim": "PostgreSQL is the database used in production by Atlas.",
+      "context": ""
+    },
+    "expected": true
+  },
+  {
+    "split": "heldout",
+    "language": "en",
+    "scenario": "engineer-en",
+    "cohort": "development",
+    "id": "engineer-en-unsupported",
+    "stage": "support",
+    "state": {
+      "user_spans": [
+        "Atlas production uses PostgreSQL."
+      ],
+      "claim": "Atlas staging uses PostgreSQL.",
+      "context": ""
+    },
+    "expected": false
+  },
+  {
+    "split": "heldout",
+    "language": "ru",
+    "scenario": "engineer-ru",
+    "cohort": "development",
+    "id": "engineer-ru-same",
+    "stage": "relation",
+    "state": {
+      "existing": "В проекте Вега тесты запускаем через pytest.",
+      "incoming": "Для запуска тестов проекта Вега используем pytest."
+    },
+    "expected": "equivalent"
+  },
+  {
+    "split": "heldout",
+    "language": "ru",
+    "scenario": "engineer-ru",
+    "cohort": "development",
+    "id": "engineer-ru-different",
+    "stage": "relation",
+    "state": {
+      "existing": "В проекте Вега тесты запускаем через pytest.",
+      "incoming": "В проекте Вега тесты запускаем через Jest."
+    },
+    "expected": "conflict"
+  },
+  {
+    "split": "heldout",
+    "language": "ru",
+    "scenario": "engineer-ru",
+    "cohort": "development",
+    "id": "engineer-ru-answer",
+    "stage": "relevance",
+    "state": {
+      "query": "Чем запускают тесты в Веге?",
+      "memories": [
+        "В проекте Вега тесты запускаем через Jest.",
+        "В проекте Вега тесты запускаем через pytest.",
+        "The office walls are blue."
+      ]
+    },
+    "expected": [
+      0,
+      1
+    ]
+  },
+  {
+    "split": "heldout",
+    "language": "ru",
+    "scenario": "engineer-ru",
+    "cohort": "development",
+    "id": "engineer-ru-missing",
+    "stage": "relevance",
+    "state": {
+      "query": "На каком порту работает Вега?",
+      "memories": [
+        "В проекте Вега тесты запускаем через Jest.",
+        "В проекте Вега тесты запускаем через pytest.",
+        "The office walls are blue."
+      ]
+    },
+    "expected": []
+  },
+  {
+    "split": "heldout",
+    "language": "ru",
+    "scenario": "engineer-ru",
+    "cohort": "development",
+    "id": "engineer-ru-supported",
+    "stage": "support",
+    "state": {
+      "user_spans": [
+        "В проекте Вега тесты запускаем через pytest."
+      ],
+      "claim": "Для запуска тестов проекта Вега используем pytest.",
+      "context": ""
+    },
+    "expected": true
+  },
+  {
+    "split": "heldout",
+    "language": "ru",
+    "scenario": "engineer-ru",
+    "cohort": "development",
+    "id": "engineer-ru-unsupported",
+    "stage": "support",
+    "state": {
+      "user_spans": [
+        "В проекте Вега тесты запускаем через pytest."
+      ],
+      "claim": "В проекте Вега тесты запускаем через Jest.",
+      "context": ""
+    },
+    "expected": false
+  },
+  {
+    "split": "heldout",
+    "language": "uz",
+    "scenario": "engineer-uz",
+    "cohort": "development",
+    "id": "engineer-uz-same",
+    "stage": "relation",
+    "state": {
+      "existing": "Orion loyihasida Redis ishlatmaymiz.",
+      "incoming": "Orion loyihasi Redisdan foydalanmaydi."
+    },
+    "expected": "equivalent"
+  },
+  {
+    "split": "heldout",
+    "language": "uz",
+    "scenario": "engineer-uz",
+    "cohort": "development",
+    "id": "engineer-uz-different",
+    "stage": "relation",
+    "state": {
+      "existing": "Orion loyihasida Redis ishlatmaymiz.",
+      "incoming": "Orion loyihasida Redis ishlatamiz."
+    },
+    "expected": "conflict"
+  },
+  {
+    "split": "heldout",
+    "language": "uz",
+    "scenario": "engineer-uz",
+    "cohort": "development",
+    "id": "engineer-uz-answer",
+    "stage": "relevance",
+    "state": {
+      "query": "Orion Redisdan foydalanadimi?",
+      "memories": [
+        "Orion loyihasida Redis ishlatamiz.",
+        "Orion loyihasida Redis ishlatmaymiz.",
+        "The office walls are blue."
+      ]
+    },
+    "expected": [
+      0,
+      1
+    ]
+  },
+  {
+    "split": "heldout",
+    "language": "uz",
+    "scenario": "engineer-uz",
+    "cohort": "development",
+    "id": "engineer-uz-missing",
+    "stage": "relevance",
+    "state": {
+      "query": "Orionning ishlab chiqarish serveri qayerda?",
+      "memories": [
+        "Orion loyihasida Redis ishlatamiz.",
+        "Orion loyihasida Redis ishlatmaymiz.",
+        "The office walls are blue."
+      ]
+    },
+    "expected": []
+  },
+  {
+    "split": "heldout",
+    "language": "uz",
+    "scenario": "engineer-uz",
+    "cohort": "development",
+    "id": "engineer-uz-supported",
+    "stage": "support",
+    "state": {
+      "user_spans": [
+        "Orion loyihasida Redis ishlatmaymiz."
+      ],
+      "claim": "Orion loyihasi Redisdan foydalanmaydi.",
+      "context": ""
+    },
+    "expected": true
+  },
+  {
+    "split": "heldout",
+    "language": "uz",
+    "scenario": "engineer-uz",
+    "cohort": "development",
+    "id": "engineer-uz-unsupported",
+    "stage": "support",
+    "state": {
+      "user_spans": [
+        "Orion loyihasida Redis ishlatmaymiz."
+      ],
+      "claim": "Orion loyihasida Redis ishlatamiz.",
+      "context": ""
+    },
+    "expected": false
+  },
+  {
+    "split": "heldout",
+    "language": "mixed",
+    "scenario": "engineer-mixed",
+    "cohort": "development",
+    "id": "engineer-mixed-same",
+    "stage": "relation",
+    "state": {
+      "existing": "В проекте Cedar используем pnpm только для frontend.",
+      "incoming": "Cedar uses pnpm for the frontend only."
+    },
+    "expected": "equivalent"
+  },
+  {
+    "split": "heldout",
+    "language": "mixed",
+    "scenario": "engineer-mixed",
+    "cohort": "development",
+    "id": "engineer-mixed-different",
+    "stage": "relation",
+    "state": {
+      "existing": "В проекте Cedar используем pnpm только для frontend.",
+      "incoming": "Cedar uses pnpm for every component."
+    },
+    "expected": "conflict"
+  },
+  {
+    "split": "heldout",
+    "language": "mixed",
+    "scenario": "engineer-mixed",
+    "cohort": "development",
+    "id": "engineer-mixed-answer",
+    "stage": "relevance",
+    "state": {
+      "query": "Какой package manager у frontend проекта Cedar?",
+      "memories": [
+        "Cedar uses pnpm for every component.",
+        "В проекте Cedar используем pnpm только для frontend.",
+        "The office walls are blue."
+      ]
+    },
+    "expected": [
+      0,
+      1
+    ]
+  },
+  {
+    "split": "heldout",
+    "language": "mixed",
+    "scenario": "engineer-mixed",
+    "cohort": "development",
+    "id": "engineer-mixed-missing",
+    "stage": "relevance",
+    "state": {
+      "query": "What is the release date for Cedar?",
+      "memories": [
+        "Cedar uses pnpm for every component.",
+        "В проекте Cedar используем pnpm только для frontend.",
+        "The office walls are blue."
+      ]
+    },
+    "expected": []
+  },
+  {
+    "split": "heldout",
+    "language": "mixed",
+    "scenario": "engineer-mixed",
+    "cohort": "development",
+    "id": "engineer-mixed-supported",
+    "stage": "support",
+    "state": {
+      "user_spans": [
+        "В проекте Cedar используем pnpm только для frontend."
+      ],
+      "claim": "Cedar uses pnpm for the frontend only.",
+      "context": ""
+    },
+    "expected": true
+  },
+  {
+    "split": "heldout",
+    "language": "mixed",
+    "scenario": "engineer-mixed",
+    "cohort": "development",
+    "id": "engineer-mixed-unsupported",
+    "stage": "support",
+    "state": {
+      "user_spans": [
+        "В проекте Cedar используем pnpm только для frontend."
+      ],
+      "claim": "Cedar uses pnpm for every component.",
+      "context": ""
+    },
+    "expected": false
+  },
+  {
+    "split": "heldout",
+    "language": "en",
+    "scenario": "teacher-en",
+    "cohort": "education",
+    "id": "teacher-en-same",
+    "stage": "relation",
+    "state": {
+      "existing": "Professor Lee accepts assignments in PDF format only.",
+      "incoming": "PDF is the only assignment format Professor Lee accepts."
+    },
+    "expected": "equivalent"
+  },
+  {
+    "split": "heldout",
+    "language": "en",
+    "scenario": "teacher-en",
+    "cohort": "education",
+    "id": "teacher-en-different",
+    "stage": "relation",
+    "state": {
+      "existing": "Professor Lee accepts assignments in PDF format only.",
+      "incoming": "Professor Kim accepts assignments in PDF format only."
+    },
+    "expected": "unrelated"
+  },
+  {
+    "split": "heldout",
+    "language": "en",
+    "scenario": "teacher-en",
+    "cohort": "education",
+    "id": "teacher-en-answer",
+    "stage": "relevance",
+    "state": {
+      "query": "Which assignment format does Professor Lee accept?",
+      "memories": [
+        "Professor Kim accepts assignments in PDF format only.",
+        "Professor Lee accepts assignments in PDF format only.",
+        "The office walls are blue."
+      ]
+    },
+    "expected": [
+      1
+    ]
+  },
+  {
+    "split": "heldout",
+    "language": "en",
+    "scenario": "teacher-en",
+    "cohort": "education",
+    "id": "teacher-en-missing",
+    "stage": "relevance",
+    "state": {
+      "query": "When does Professor Lee hold office hours?",
+      "memories": [
+        "Professor Kim accepts assignments in PDF format only.",
+        "Professor Lee accepts assignments in PDF format only.",
+        "The office walls are blue."
+      ]
+    },
+    "expected": []
+  },
+  {
+    "split": "heldout",
+    "language": "en",
+    "scenario": "teacher-en",
+    "cohort": "education",
+    "id": "teacher-en-supported",
+    "stage": "support",
+    "state": {
+      "user_spans": [
+        "Professor Lee accepts assignments in PDF format only."
+      ],
+      "claim": "PDF is the only assignment format Professor Lee accepts.",
+      "context": ""
+    },
+    "expected": true
+  },
+  {
+    "split": "heldout",
+    "language": "en",
+    "scenario": "teacher-en",
+    "cohort": "education",
+    "id": "teacher-en-unsupported",
+    "stage": "support",
+    "state": {
+      "user_spans": [
+        "Professor Lee accepts assignments in PDF format only."
+      ],
+      "claim": "Professor Kim accepts assignments in PDF format only.",
+      "context": ""
+    },
+    "expected": false
+  },
+  {
+    "split": "heldout",
+    "language": "ru",
+    "scenario": "teacher-ru",
+    "cohort": "education",
+    "id": "teacher-ru-same",
+    "stage": "relation",
+    "state": {
+      "existing": "На семинаре Ирины разрешены конспекты, но не интернет.",
+      "incoming": "На семинаре Ирины можно пользоваться конспектами; интернет запрещён."
+    },
+    "expected": "equivalent"
+  },
+  {
+    "split": "heldout",
+    "language": "ru",
+    "scenario": "teacher-ru",
+    "cohort": "education",
+    "id": "teacher-ru-different",
+    "stage": "relation",
+    "state": {
+      "existing": "На семинаре Ирины разрешены конспекты, но не интернет.",
+      "incoming": "На семинаре Ирины разрешён интернет."
+    },
+    "expected": "conflict"
+  },
+  {
+    "split": "heldout",
+    "language": "ru",
+    "scenario": "teacher-ru",
+    "cohort": "education",
+    "id": "teacher-ru-answer",
+    "stage": "relevance",
+    "state": {
+      "query": "Можно ли пользоваться интернетом на семинаре Ирины?",
+      "memories": [
+        "На семинаре Ирины разрешён интернет.",
+        "На семинаре Ирины разрешены конспекты, но не интернет.",
+        "The office walls are blue."
+      ]
+    },
+    "expected": [
+      0,
+      1
+    ]
+  },
+  {
+    "split": "heldout",
+    "language": "ru",
+    "scenario": "teacher-ru",
+    "cohort": "education",
+    "id": "teacher-ru-missing",
+    "stage": "relevance",
+    "state": {
+      "query": "В какой аудитории проходит семинар Ирины?",
+      "memories": [
+        "На семинаре Ирины разрешён интернет.",
+        "На семинаре Ирины разрешены конспекты, но не интернет.",
+        "The office walls are blue."
+      ]
+    },
+    "expected": []
+  },
+  {
+    "split": "heldout",
+    "language": "ru",
+    "scenario": "teacher-ru",
+    "cohort": "education",
+    "id": "teacher-ru-supported",
+    "stage": "support",
+    "state": {
+      "user_spans": [
+        "На семинаре Ирины разрешены конспекты, но не интернет."
+      ],
+      "claim": "На семинаре Ирины можно пользоваться конспектами; интернет запрещён.",
+      "context": ""
+    },
+    "expected": true
+  },
+  {
+    "split": "heldout",
+    "language": "ru",
+    "scenario": "teacher-ru",
+    "cohort": "education",
+    "id": "teacher-ru-unsupported",
+    "stage": "support",
+    "state": {
+      "user_spans": [
+        "На семинаре Ирины разрешены конспекты, но не интернет."
+      ],
+      "claim": "На семинаре Ирины разрешён интернет.",
+      "context": ""
+    },
+    "expected": false
+  },
+  {
+    "split": "heldout",
+    "language": "uz",
+    "scenario": "teacher-uz",
+    "cohort": "education",
+    "id": "teacher-uz-same",
+    "stage": "relation",
+    "state": {
+      "existing": "Malika talabalarga fikr-mulohazani yozma shaklda beradi.",
+      "incoming": "Malika talabalariga yozma fikr-mulohaza beradi."
+    },
+    "expected": "equivalent"
+  },
+  {
+    "split": "heldout",
+    "language": "uz",
+    "scenario": "teacher-uz",
+    "cohort": "education",
+    "id": "teacher-uz-different",
+    "stage": "relation",
+    "state": {
+      "existing": "Malika talabalarga fikr-mulohazani yozma shaklda beradi.",
+      "incoming": "Malika talabalarga faqat og‘zaki fikr-mulohaza beradi."
+    },
+    "expected": "conflict"
+  },
+  {
+    "split": "heldout",
+    "language": "uz",
+    "scenario": "teacher-uz",
+    "cohort": "education",
+    "id": "teacher-uz-answer",
+    "stage": "relevance",
+    "state": {
+      "query": "Malika talabalarga fikr-mulohazani qanday shaklda beradi?",
+      "memories": [
+        "Malika talabalarga faqat og‘zaki fikr-mulohaza beradi.",
+        "Malika talabalarga fikr-mulohazani yozma shaklda beradi.",
+        "The office walls are blue."
+      ]
+    },
+    "expected": [
+      0,
+      1
+    ]
+  },
+  {
+    "split": "heldout",
+    "language": "uz",
+    "scenario": "teacher-uz",
+    "cohort": "education",
+    "id": "teacher-uz-missing",
+    "stage": "relevance",
+    "state": {
+      "query": "Malikaning darsi qaysi xonada?",
+      "memories": [
+        "Malika talabalarga faqat og‘zaki fikr-mulohaza beradi.",
+        "Malika talabalarga fikr-mulohazani yozma shaklda beradi.",
+        "The office walls are blue."
+      ]
+    },
+    "expected": []
+  },
+  {
+    "split": "heldout",
+    "language": "uz",
+    "scenario": "teacher-uz",
+    "cohort": "education",
+    "id": "teacher-uz-supported",
+    "stage": "support",
+    "state": {
+      "user_spans": [
+        "Malika talabalarga fikr-mulohazani yozma shaklda beradi."
+      ],
+      "claim": "Malika talabalariga yozma fikr-mulohaza beradi.",
+      "context": ""
+    },
+    "expected": true
+  },
+  {
+    "split": "heldout",
+    "language": "uz",
+    "scenario": "teacher-uz",
+    "cohort": "education",
+    "id": "teacher-uz-unsupported",
+    "stage": "support",
+    "state": {
+      "user_spans": [
+        "Malika talabalarga fikr-mulohazani yozma shaklda beradi."
+      ],
+      "claim": "Malika talabalarga faqat og‘zaki fikr-mulohaza beradi.",
+      "context": ""
+    },
+    "expected": false
+  },
+  {
+    "split": "heldout",
+    "language": "mixed",
+    "scenario": "teacher-mixed",
+    "cohort": "education",
+    "id": "teacher-mixed-same",
+    "stage": "relation",
+    "state": {
+      "existing": "Курс Logic оценивается через oral exam, без письменного экзамена.",
+      "incoming": "The Logic course uses an oral examination and no written exam."
+    },
+    "expected": "equivalent"
+  },
+  {
+    "split": "heldout",
+    "language": "mixed",
+    "scenario": "teacher-mixed",
+    "cohort": "education",
+    "id": "teacher-mixed-different",
+    "stage": "relation",
+    "state": {
+      "existing": "Курс Logic оценивается через oral exam, без письменного экзамена.",
+      "incoming": "The Logic course uses only a written examination."
+    },
+    "expected": "conflict"
+  },
+  {
+    "split": "heldout",
+    "language": "mixed",
+    "scenario": "teacher-mixed",
+    "cohort": "education",
+    "id": "teacher-mixed-answer",
+    "stage": "relevance",
+    "state": {
+      "query": "Какой формат final exam у курса Logic?",
+      "memories": [
+        "The Logic course uses only a written examination.",
+        "Курс Logic оценивается через oral exam, без письменного экзамена.",
+        "The office walls are blue."
+      ]
+    },
+    "expected": [
+      0,
+      1
+    ]
+  },
+  {
+    "split": "heldout",
+    "language": "mixed",
+    "scenario": "teacher-mixed",
+    "cohort": "education",
+    "id": "teacher-mixed-missing",
+    "stage": "relevance",
+    "state": {
+      "query": "Who wrote the textbook for Logic?",
+      "memories": [
+        "The Logic course uses only a written examination.",
+        "Курс Logic оценивается через oral exam, без письменного экзамена.",
+        "The office walls are blue."
+      ]
+    },
+    "expected": []
+  },
+  {
+    "split": "heldout",
+    "language": "mixed",
+    "scenario": "teacher-mixed",
+    "cohort": "education",
+    "id": "teacher-mixed-supported",
+    "stage": "support",
+    "state": {
+      "user_spans": [
+        "Курс Logic оценивается через oral exam, без письменного экзамена."
+      ],
+      "claim": "The Logic course uses an oral examination and no written exam.",
+      "context": ""
+    },
+    "expected": true
+  },
+  {
+    "split": "heldout",
+    "language": "mixed",
+    "scenario": "teacher-mixed",
+    "cohort": "education",
+    "id": "teacher-mixed-unsupported",
+    "stage": "support",
+    "state": {
+      "user_spans": [
+        "Курс Logic оценивается через oral exam, без письменного экзамена."
+      ],
+      "claim": "The Logic course uses only a written examination.",
+      "context": ""
+    },
+    "expected": false
+  },
+  {
+    "split": "heldout",
+    "language": "en",
+    "scenario": "personal-en",
+    "cohort": "personal",
+    "id": "personal-en-same",
+    "stage": "relation",
+    "state": {
+      "existing": "Nora prefers quiet hotels.",
+      "incoming": "Nora likes hotels that are quiet."
+    },
+    "expected": "equivalent"
+  },
+  {
+    "split": "heldout",
+    "language": "en",
+    "scenario": "personal-en",
+    "cohort": "personal",
+    "id": "personal-en-different",
+    "stage": "relation",
+    "state": {
+      "existing": "Nora prefers quiet hotels.",
+      "incoming": "Nora prefers quiet hotels near a train station."
+    },
+    "expected": "addition"
+  },
+  {
+    "split": "heldout",
+    "language": "en",
+    "scenario": "personal-en",
+    "cohort": "personal",
+    "id": "personal-en-answer",
+    "stage": "relevance",
+    "state": {
+      "query": "What kind of hotels does Nora prefer?",
+      "memories": [
+        "Nora prefers quiet hotels near a train station.",
+        "Nora prefers quiet hotels.",
+        "The office walls are blue."
+      ]
+    },
+    "expected": [
+      0,
+      1
+    ]
+  },
+  {
+    "split": "heldout",
+    "language": "en",
+    "scenario": "personal-en",
+    "cohort": "personal",
+    "id": "personal-en-missing",
+    "stage": "relevance",
+    "state": {
+      "query": "What is Nora’s passport number?",
+      "memories": [
+        "Nora prefers quiet hotels near a train station.",
+        "Nora prefers quiet hotels.",
+        "The office walls are blue."
+      ]
+    },
+    "expected": []
+  },
+  {
+    "split": "heldout",
+    "language": "en",
+    "scenario": "personal-en",
+    "cohort": "personal",
+    "id": "personal-en-supported",
+    "stage": "support",
+    "state": {
+      "user_spans": [
+        "Nora prefers quiet hotels."
+      ],
+      "claim": "Nora likes hotels that are quiet.",
+      "context": ""
+    },
+    "expected": true
+  },
+  {
+    "split": "heldout",
+    "language": "en",
+    "scenario": "personal-en",
+    "cohort": "personal",
+    "id": "personal-en-unsupported",
+    "stage": "support",
+    "state": {
+      "user_spans": [
+        "Nora prefers quiet hotels."
+      ],
+      "claim": "Nora prefers quiet hotels near a train station.",
+      "context": ""
+    },
+    "expected": false
+  },
+  {
+    "split": "heldout",
+    "language": "ru",
+    "scenario": "personal-ru",
+    "cohort": "personal",
+    "id": "personal-ru-same",
+    "stage": "relation",
+    "state": {
+      "existing": "Олег предпочитает кофе без сахара.",
+      "incoming": "Олег предпочитает кофе без добавления сахара."
+    },
+    "expected": "equivalent"
+  },
+  {
+    "split": "heldout",
+    "language": "ru",
+    "scenario": "personal-ru",
+    "cohort": "personal",
+    "id": "personal-ru-different",
+    "stage": "relation",
+    "state": {
+      "existing": "Олег предпочитает кофе без сахара.",
+      "incoming": "Марина пьёт кофе без сахара."
+    },
+    "expected": "unrelated"
+  },
+  {
+    "split": "heldout",
+    "language": "ru",
+    "scenario": "personal-ru",
+    "cohort": "personal",
+    "id": "personal-ru-answer",
+    "stage": "relevance",
+    "state": {
+      "query": "Класть ли сахар в кофе Олегу?",
+      "memories": [
+        "Марина пьёт кофе без сахара.",
+        "Олег предпочитает кофе без сахара.",
+        "The office walls are blue."
+      ]
+    },
+    "expected": [
+      1
+    ]
+  },
+  {
+    "split": "heldout",
+    "language": "ru",
+    "scenario": "personal-ru",
+    "cohort": "personal",
+    "id": "personal-ru-missing",
+    "stage": "relevance",
+    "state": {
+      "query": "Какой у Олега размер обуви?",
+      "memories": [
+        "Марина пьёт кофе без сахара.",
+        "Олег предпочитает кофе без сахара.",
+        "The office walls are blue."
+      ]
+    },
+    "expected": []
+  },
+  {
+    "split": "heldout",
+    "language": "ru",
+    "scenario": "personal-ru",
+    "cohort": "personal",
+    "id": "personal-ru-supported",
+    "stage": "support",
+    "state": {
+      "user_spans": [
+        "Олег предпочитает кофе без сахара."
+      ],
+      "claim": "Олег предпочитает кофе без добавления сахара.",
+      "context": ""
+    },
+    "expected": true
+  },
+  {
+    "split": "heldout",
+    "language": "ru",
+    "scenario": "personal-ru",
+    "cohort": "personal",
+    "id": "personal-ru-unsupported",
+    "stage": "support",
+    "state": {
+      "user_spans": [
+        "Олег предпочитает кофе без сахара."
+      ],
+      "claim": "Марина пьёт кофе без сахара.",
+      "context": ""
+    },
+    "expected": false
+  },
+  {
+    "split": "heldout",
+    "language": "uz",
+    "scenario": "personal-uz",
+    "cohort": "personal",
+    "id": "personal-uz-same",
+    "stage": "relation",
+    "state": {
+      "existing": "Aziza uchrashuvlarni ertalab o‘tkazishni afzal ko‘radi.",
+      "incoming": "Aziza uchun uchrashuvlarni ertalab o‘tkazish ma’qul."
+    },
+    "expected": "equivalent"
+  },
+  {
+    "split": "heldout",
+    "language": "uz",
+    "scenario": "personal-uz",
+    "cohort": "personal",
+    "id": "personal-uz-different",
+    "stage": "relation",
+    "state": {
+      "existing": "Aziza uchrashuvlarni ertalab o‘tkazishni afzal ko‘radi.",
+      "incoming": "Aziza uchrashuvlarni faqat kechqurun o‘tkazishni afzal ko‘radi."
+    },
+    "expected": "conflict"
+  },
+  {
+    "split": "heldout",
+    "language": "uz",
+    "scenario": "personal-uz",
+    "cohort": "personal",
+    "id": "personal-uz-answer",
+    "stage": "relevance",
+    "state": {
+      "query": "Aziza uchrashuvlarni qachon o‘tkazishni afzal ko‘radi?",
+      "memories": [
+        "Aziza uchrashuvlarni faqat kechqurun o‘tkazishni afzal ko‘radi.",
+        "Aziza uchrashuvlarni ertalab o‘tkazishni afzal ko‘radi.",
+        "The office walls are blue."
+      ]
+    },
+    "expected": [
+      0,
+      1
+    ]
+  },
+  {
+    "split": "heldout",
+    "language": "uz",
+    "scenario": "personal-uz",
+    "cohort": "personal",
+    "id": "personal-uz-missing",
+    "stage": "relevance",
+    "state": {
+      "query": "Aziza qaysi shaharda tug‘ilgan?",
+      "memories": [
+        "Aziza uchrashuvlarni faqat kechqurun o‘tkazishni afzal ko‘radi.",
+        "Aziza uchrashuvlarni ertalab o‘tkazishni afzal ko‘radi.",
+        "The office walls are blue."
+      ]
+    },
+    "expected": []
+  },
+  {
+    "split": "heldout",
+    "language": "uz",
+    "scenario": "personal-uz",
+    "cohort": "personal",
+    "id": "personal-uz-supported",
+    "stage": "support",
+    "state": {
+      "user_spans": [
+        "Aziza uchrashuvlarni ertalab o‘tkazishni afzal ko‘radi."
+      ],
+      "claim": "Aziza uchun uchrashuvlarni ertalab o‘tkazish ma’qul.",
+      "context": ""
+    },
+    "expected": true
+  },
+  {
+    "split": "heldout",
+    "language": "uz",
+    "scenario": "personal-uz",
+    "cohort": "personal",
+    "id": "personal-uz-unsupported",
+    "stage": "support",
+    "state": {
+      "user_spans": [
+        "Aziza uchrashuvlarni ertalab o‘tkazishni afzal ko‘radi."
+      ],
+      "claim": "Aziza uchrashuvlarni faqat kechqurun o‘tkazishni afzal ko‘radi.",
+      "context": ""
+    },
+    "expected": false
+  },
+  {
+    "split": "heldout",
+    "language": "mixed",
+    "scenario": "personal-mixed",
+    "cohort": "personal",
+    "id": "personal-mixed-same",
+    "stage": "relation",
+    "state": {
+      "existing": "Для поездок Даниил предпочитает поезд, а не самолёт.",
+      "incoming": "Daniil prefers taking the train rather than flying."
+    },
+    "expected": "equivalent"
+  },
+  {
+    "split": "heldout",
+    "language": "mixed",
+    "scenario": "personal-mixed",
+    "cohort": "personal",
+    "id": "personal-mixed-different",
+    "stage": "relation",
+    "state": {
+      "existing": "Для поездок Даниил предпочитает поезд, а не самолёт.",
+      "incoming": "Daniil prefers flying rather than taking the train."
+    },
+    "expected": "conflict"
+  },
+  {
+    "split": "heldout",
+    "language": "mixed",
+    "scenario": "personal-mixed",
+    "cohort": "personal",
+    "id": "personal-mixed-answer",
+    "stage": "relevance",
+    "state": {
+      "query": "Какой transport предпочитает Daniil для поездок?",
+      "memories": [
+        "Daniil prefers flying rather than taking the train.",
+        "Для поездок Даниил предпочитает поезд, а не самолёт.",
+        "The office walls are blue."
+      ]
+    },
+    "expected": [
+      0,
+      1
+    ]
+  },
+  {
+    "split": "heldout",
+    "language": "mixed",
+    "scenario": "personal-mixed",
+    "cohort": "personal",
+    "id": "personal-mixed-missing",
+    "stage": "relevance",
+    "state": {
+      "query": "What is Daniil’s home address?",
+      "memories": [
+        "Daniil prefers flying rather than taking the train.",
+        "Для поездок Даниил предпочитает поезд, а не самолёт.",
+        "The office walls are blue."
+      ]
+    },
+    "expected": []
+  },
+  {
+    "split": "heldout",
+    "language": "mixed",
+    "scenario": "personal-mixed",
+    "cohort": "personal",
+    "id": "personal-mixed-supported",
+    "stage": "support",
+    "state": {
+      "user_spans": [
+        "Для поездок Даниил предпочитает поезд, а не самолёт."
+      ],
+      "claim": "Daniil prefers taking the train rather than flying.",
+      "context": ""
+    },
+    "expected": true
+  },
+  {
+    "split": "heldout",
+    "language": "mixed",
+    "scenario": "personal-mixed",
+    "cohort": "personal",
+    "id": "personal-mixed-unsupported",
+    "stage": "support",
+    "state": {
+      "user_spans": [
+        "Для поездок Даниил предпочитает поезд, а не самолёт."
+      ],
+      "claim": "Daniil prefers flying rather than taking the train.",
+      "context": ""
+    },
+    "expected": false
+  }
+]

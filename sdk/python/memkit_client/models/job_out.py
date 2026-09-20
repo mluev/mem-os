@@ -1,14 +1,10 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import Any, TypeVar
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
-
-if TYPE_CHECKING:
-    from ..models.job_out_history_item import JobOutHistoryItem
-
 
 T = TypeVar("T", bound="JobOut")
 
@@ -17,24 +13,17 @@ T = TypeVar("T", bound="JobOut")
 class JobOut:
     """
     Attributes:
-        history (list[JobOutHistoryItem]):
         id (str):
         kind (str):
         status (str):
     """
 
-    history: list[JobOutHistoryItem]
     id: str
     kind: str
     status: str
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        history = []
-        for history_item_data in self.history:
-            history_item = history_item_data.to_dict()
-            history.append(history_item)
-
         id = self.id
 
         kind = self.kind
@@ -45,7 +34,6 @@ class JobOut:
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "history": history,
                 "id": id,
                 "kind": kind,
                 "status": status,
@@ -56,16 +44,7 @@ class JobOut:
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
-        from ..models.job_out_history_item import JobOutHistoryItem
-
         d = dict(src_dict)
-        history = []
-        _history = d.pop("history")
-        for history_item_data in _history:
-            history_item = JobOutHistoryItem.from_dict(history_item_data)
-
-            history.append(history_item)
-
         id = d.pop("id")
 
         kind = d.pop("kind")
@@ -73,7 +52,6 @@ class JobOut:
         status = d.pop("status")
 
         job_out = cls(
-            history=history,
             id=id,
             kind=kind,
             status=status,

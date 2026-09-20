@@ -1,25 +1,27 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   BookOpen,
+  Boxes,
   Brain,
   Command,
   Database,
   Gauge,
-  GitCompareArrows,
-  KeyRound,
+  Inbox,
+  LogOut,
   Menu,
+  MessagesSquare,
   Moon,
   Search,
   ThumbsUp,
   Sun,
   TerminalSquare,
   UsersRound,
-  Vote,
   X,
 } from "lucide-react";
 import { Link, Outlet, useRouter, useRouterState } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
-import { api, forgetApiKey, getApiKey, rememberApiKey } from "../api/client";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { api, forgetApiKey } from "../api/client";
+import type { Me, Stats } from "../api/types";
 import {
   Button,
   Command as CommandMenu,
@@ -39,46 +41,66 @@ import {
 
 const NAV = [
   { to: "/", label: "Overview", icon: Gauge },
+  { to: "/review", label: "Needs attention", icon: Inbox },
   { to: "/memories", label: "Memories", icon: Brain },
   { to: "/search", label: "Search", icon: Search },
+  { to: "/entities", label: "Entities", icon: Boxes },
+  { to: "/team", label: "Team", icon: UsersRound },
+  { to: "/sessions", label: "Sessions", icon: MessagesSquare },
   { to: "/feedback", label: "Feedback", icon: ThumbsUp },
-  { to: "/replay", label: "Replay review", icon: GitCompareArrows },
-  { to: "/evaluations", label: "Evaluation", icon: Vote },
   { to: "/judge-runs", label: "Judge runs", icon: BookOpen },
-  { to: "/sessions", label: "Sessions", icon: UsersRound },
   { to: "/ops", label: "Operations", icon: TerminalSquare },
 ] as const;
 
 interface Health { qdrant: { available: boolean; memories: number | null; raw: number | null }; outbox: { pending: number } }
 
-export function KeyGate({ children }: { children: React.ReactNode }) {
-  const [ready, setReady] = useState(import.meta.env.DEV || Boolean(getApiKey()));
+export function AuthGate({ children }: { children: React.ReactNode }) {
+  const client = useQueryClient();
+  const me = useQuery({
+    queryKey: ["me"],
+    queryFn: () => api<Me>("/v1/auth/me"),
+    retry: false,
+    staleTime: 60_000,
+  });
+  const [signedOut, setSignedOut] = useState(false);
   useEffect(() => {
-    const locked = () => setReady(false);
-    const unlocked = () => setReady(true);
-    window.addEventListener("memkit:unauthorized", locked);
-    window.addEventListener("memkit:key-changed", unlocked);
-    return () => {
-      window.removeEventListener("memkit:unauthorized", locked);
-      window.removeEventListener("memkit:key-changed", unlocked);
+    const locked = () => {
+      setSignedOut(true);
+      // Cached memories and in-flight reads belong to the old identity.
+      // Cancelling first also prevents late responses from repopulating them.
+      void client.cancelQueries();
+      client.clear();
     };
-  }, []);
-  if (ready) return children;
-  return <KeyDialog onReady={() => setReady(true)} />;
+    window.addEventListener("memkit:unauthorized", locked);
+    return () => window.removeEventListener("memkit:unauthorized", locked);
+  }, [client]);
+  if (me.isLoading) return <main className="key-gate" aria-busy="true" />;
+  if (me.data && !signedOut) return children;
+  return <SignIn onSignedIn={() => { setSignedOut(false); void me.refetch(); }} />;
 }
 
-function KeyDialog({ onReady }: { onReady: () => void }) {
-  const [key, setKey] = useState("");
+function SignIn({ onSignedIn }: { onSignedIn: () => void }) {
+  const [handle, setHandle] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
   async function submit(event: FormEvent) {
     event.preventDefault();
-    rememberApiKey(key);
+    setBusy(true);
+    setError("");
     try {
-      await api("/v1/memories?limit=1");
-      onReady();
+      await api("/v1/auth/login", {
+        method: "POST",
+        body: JSON.stringify({ handle: handle.trim(), password }),
+      });
+      setPassword("");
+      onSignedIn();
     } catch (reason) {
-      forgetApiKey();
-      setError(reason instanceof Error ? reason.message : "Invalid key");
+      // The service answers identically for a wrong password and an unknown
+      // handle, so this message must not be more specific than that.
+      setError(reason instanceof Error ? reason.message : "Could not sign in");
+    } finally {
+      setBusy(false);
     }
   }
   return (
@@ -86,25 +108,33 @@ function KeyDialog({ onReady }: { onReady: () => void }) {
       <form className="key-card" onSubmit={submit}>
         <div className="brand-mark"><Database size={20} /></div>
         <div>
-          <span className="eyebrow">LOCAL ADMIN</span>
-          <h1>Unlock memkit</h1>
-          <p>The key stays in this browser tab and is sent only to Mem OS.</p>
+          <span className="eyebrow">MEM OS</span>
+          <h1>Sign in</h1>
+          <p>Your memory, and the memory your team shares.</p>
         </div>
         <label>
-          API key
-          <span className="input-with-icon">
-            <KeyRound size={15} />
-            <Input
-              type="password"
-              autoFocus
-              value={key}
-              onChange={(event) => setKey(event.target.value)}
-              placeholder="X-API-Key"
-            />
-          </span>
+          Handle
+          <Input
+            autoFocus
+            autoComplete="username"
+            value={handle}
+            onChange={(event) => setHandle(event.target.value)}
+            placeholder="you"
+          />
+        </label>
+        <label>
+          Password
+          <Input
+            type="password"
+            autoComplete="current-password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+          />
         </label>
         {error ? <p className="form-error">{error}</p> : null}
-        <Button type="submit" disabled={!key.trim()}>Open dashboard</Button>
+        <Button type="submit" disabled={busy || !handle.trim() || !password}>
+          {busy ? "Signing in…" : "Open dashboard"}
+        </Button>
       </form>
     </main>
   );
@@ -117,11 +147,22 @@ export function AppShell() {
   const [theme, setTheme] = useState(
     () => localStorage.getItem("memkit.theme") === "light" ? "light" : "dark",
   );
+  const me = useQuery({ queryKey: ["me"], queryFn: () => api<Me>("/v1/auth/me"), staleTime: 60_000 });
   const health = useQuery({
     queryKey: ["health"],
     queryFn: () => api<Health>("/v1/admin/health"),
     refetchInterval: 15_000,
+    retry: false,
   });
+  // The badge is the whole point of a review queue: work nobody can see does
+  // not get done.
+  const pending = useQuery({
+    queryKey: ["stats", "review", "badge"],
+    queryFn: () => api<Stats<{ pending: number }>>("/v1/admin/stats/review?days=1"),
+    refetchInterval: 30_000,
+    retry: false,
+  });
+  const waiting = pending.data?.totals.pending ?? 0;
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem("memkit.theme", theme);
@@ -162,6 +203,7 @@ export function AppShell() {
             >
               <Icon size={17} strokeWidth={1.8} />
               {label}
+              {to === "/review" && waiting > 0 ? <span className="nav-badge">{waiting}</span> : null}
             </Link>
           ))}
         </nav>
@@ -173,7 +215,28 @@ export function AppShell() {
               <small>{health.data ? `${health.data.qdrant.memories ?? "—"} memories · ${health.data.outbox.pending} queued` : "Checking…"}</small>
             </div>
           </div>
-          <Button variant="ghost" size="sm" className="key-forget" onClick={forgetApiKey}><KeyRound size={13} /> API key</Button>
+          {me.data ? (
+            <div className="identity">
+              <div>
+                <strong>{me.data.display_name}</strong>
+                <small>{me.data.handle} · {me.data.role}</small>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-label="Sign out"
+                onClick={async () => {
+                  try {
+                    await api("/v1/auth/logout", { method: "POST" });
+                  } finally {
+                    forgetApiKey();
+                  }
+                }}
+              >
+                <LogOut size={13} /> Sign out
+              </Button>
+            </div>
+          ) : null}
         </div>
       </aside>
       {sidebar ? <button type="button" className="sidebar-scrim" aria-label="Close navigation backdrop" onClick={() => setSidebar(false)} /> : null}
@@ -207,7 +270,7 @@ export function AppShell() {
         </header>
         {(health.data?.outbox.pending ?? 0) > 0 ? (
           <div className="health-banner">
-            <span><strong>Index updates are queued.</strong> SQLite is safe; inspect delivery in Operations.</span>
+            <span><strong>Index updates are queued.</strong> Nothing is lost — the database has them; only search is behind.</span>
             <Link to="/ops">Open maintenance →</Link>
           </div>
         ) : null}

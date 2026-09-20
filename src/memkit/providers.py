@@ -61,6 +61,12 @@ _OP_FIELDS = [
     "valid_until",
     "evidence",
     "reason",
+    # Routing. Integers referring to the ENTITIES block, never names or ids:
+    # the same reason candidate targets are integers, since a uuid shown to a
+    # model comes back subtly mutated often enough to matter.
+    "scope",
+    "subject",
+    "subject_name",
 ]
 
 
@@ -95,6 +101,9 @@ def _operation_properties(*, anthropic: bool) -> dict[str, Any]:
         "valid_until": nullable_string,
         "evidence": {"type": "array", "items": evidence_item},
         "reason": {"type": "string"},
+        "scope": {"type": ["integer", "null"]},
+        "subject": {"type": ["integer", "null"]},
+        "subject_name": nullable_string,
     }
 
 
@@ -254,22 +263,9 @@ def call_vertex(
     it to ``aiplatform.googleapis.com`` and restricted keys fail with
     ``API_KEY_SERVICE_BLOCKED`` even though the same key is valid for Gemini.
     """
-    from google import genai
     from google.genai import types
 
-    if project:
-        client = genai.Client(
-            vertexai=True,
-            project=project,
-            location=location or "global",
-            api_key=api_key or None,
-            http_options=types.HttpOptions(timeout=int(PROVIDER_TIMEOUT_SECONDS * 1000)),
-        )
-    else:
-        client = genai.Client(
-            api_key=api_key,
-            http_options=types.HttpOptions(timeout=int(PROVIDER_TIMEOUT_SECONDS * 1000)),
-        )
+    client = _gemini_client(api_key=api_key, project=project, location=location)
     response = client.models.generate_content(
         model=model,
         contents=prompt,
@@ -367,19 +363,9 @@ def call_merge(
     if which == "gemini":
         if not (gemini_api_key or project):
             return ProviderResult(error="no GEMINI_API_KEY and no VERTEX_PROJECT")
-        from google import genai
         from google.genai import types
 
-        client = (
-            genai.Client(
-                vertexai=True,
-                project=project,
-                location=location or "global",
-                api_key=gemini_api_key or None,
-            )
-            if project
-            else genai.Client(api_key=gemini_api_key)
-        )
+        client = _gemini_client(api_key=gemini_api_key, project=project, location=location)
         response = client.models.generate_content(
             model=model,
             contents=prompt,
@@ -439,6 +425,70 @@ def call_merge(
         if block.type == "tool_use" and block.name == tool["name"]:
             result.raw = block.input
     return result
+
+
+# Errors that prove nothing was billed: the request never reached a model, or
+# it was refused before inference. A failed call must not be charged against the
+# monthly ceiling as if it had run -- see judge.extract.
+UNBILLED_ERROR_PREFIXES = (
+    "no GEMINI_API_KEY",
+    "no ANTHROPIC_API_KEY",
+)
+UNBILLED_EXCEPTIONS = frozenset(
+    {
+        # Never reached the provider.
+        "ConnectError",
+        "ConnectTimeout",
+        "ConnectionError",
+        "ConnectionRefusedError",
+        "APIConnectionError",
+        "SSLError",
+        # Refused before inference (4xx).
+        "AuthenticationError",
+        "PermissionDeniedError",
+        "BadRequestError",
+        "NotFoundError",
+        "RateLimitError",
+        "ClientError",
+    }
+)
+
+
+def _gemini_client(*, api_key: str, project: str, location: str):
+    """One Gemini client builder for every call path.
+
+    The merge path used to build its own client with no timeout, so a hung
+    consolidation call blocked the single worker thread indefinitely -- for up
+    to twenty clusters in a row. Sharing the constructor makes forgetting the
+    timeout impossible.
+    """
+    from google import genai
+    from google.genai import types
+
+    http_options = types.HttpOptions(timeout=int(PROVIDER_TIMEOUT_SECONDS * 1000))
+    if project:
+        return genai.Client(
+            vertexai=True,
+            project=project,
+            location=location or "global",
+            api_key=api_key or None,
+            http_options=http_options,
+        )
+    return genai.Client(api_key=api_key, http_options=http_options)
+
+
+def is_unbilled(error: str) -> bool:
+    """True when this error means the provider certainly did not bill us.
+
+    Deliberately conservative: a timeout mid-inference or an unrecognised
+    exception is treated as possibly billed, because under-reporting spend is
+    worse than over-reporting it.
+    """
+    if not error:
+        return False
+    if error.startswith(UNBILLED_ERROR_PREFIXES):
+        return True
+    return error.partition(":")[0].strip() in UNBILLED_EXCEPTIONS
 
 
 def call(

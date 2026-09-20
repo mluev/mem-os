@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 from attrs import define as _attrs_define
 
+from ..types import UNSET, Unset
+
 if TYPE_CHECKING:
-    from ..models.profile_out_dynamic_item import ProfileOutDynamicItem
-    from ..models.profile_out_stable_item import ProfileOutStableItem
+    from ..models.profile_out_blocks import ProfileOutBlocks
+    from ..models.profile_out_scope_type_0 import ProfileOutScopeType0
 
 
 T = TypeVar("T", bound="ProfileOut")
@@ -17,82 +19,98 @@ T = TypeVar("T", bound="ProfileOut")
 class ProfileOut:
     """
     Attributes:
-        dynamic (list[ProfileOutDynamicItem]):
+        blocks (ProfileOutBlocks):
+        budget_tokens (int):
         generated_at (str):
         policy_id (str):
-        stable (list[ProfileOutStableItem]):
         used_tokens (int):
+        scope (None | ProfileOutScopeType0 | Unset):
     """
 
-    dynamic: list[ProfileOutDynamicItem]
+    blocks: ProfileOutBlocks
+    budget_tokens: int
     generated_at: str
     policy_id: str
-    stable: list[ProfileOutStableItem]
     used_tokens: int
+    scope: None | ProfileOutScopeType0 | Unset = UNSET
 
     def to_dict(self) -> dict[str, Any]:
-        dynamic = []
-        for dynamic_item_data in self.dynamic:
-            dynamic_item = dynamic_item_data.to_dict()
-            dynamic.append(dynamic_item)
+        from ..models.profile_out_scope_type_0 import ProfileOutScopeType0
+
+        blocks = self.blocks.to_dict()
+
+        budget_tokens = self.budget_tokens
 
         generated_at = self.generated_at
 
         policy_id = self.policy_id
 
-        stable = []
-        for stable_item_data in self.stable:
-            stable_item = stable_item_data.to_dict()
-            stable.append(stable_item)
-
         used_tokens = self.used_tokens
+
+        scope: dict[str, Any] | None | Unset
+        if isinstance(self.scope, Unset):
+            scope = UNSET
+        elif isinstance(self.scope, ProfileOutScopeType0):
+            scope = self.scope.to_dict()
+        else:
+            scope = self.scope
 
         field_dict: dict[str, Any] = {}
 
         field_dict.update(
             {
-                "dynamic": dynamic,
+                "blocks": blocks,
+                "budget_tokens": budget_tokens,
                 "generated_at": generated_at,
                 "policy_id": policy_id,
-                "stable": stable,
                 "used_tokens": used_tokens,
             }
         )
+        if scope is not UNSET:
+            field_dict["scope"] = scope
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
-        from ..models.profile_out_dynamic_item import ProfileOutDynamicItem
-        from ..models.profile_out_stable_item import ProfileOutStableItem
+        from ..models.profile_out_blocks import ProfileOutBlocks
+        from ..models.profile_out_scope_type_0 import ProfileOutScopeType0
 
         d = dict(src_dict)
-        dynamic = []
-        _dynamic = d.pop("dynamic")
-        for dynamic_item_data in _dynamic:
-            dynamic_item = ProfileOutDynamicItem.from_dict(dynamic_item_data)
+        blocks = ProfileOutBlocks.from_dict(d.pop("blocks"))
 
-            dynamic.append(dynamic_item)
+        budget_tokens = d.pop("budget_tokens")
 
         generated_at = d.pop("generated_at")
 
         policy_id = d.pop("policy_id")
 
-        stable = []
-        _stable = d.pop("stable")
-        for stable_item_data in _stable:
-            stable_item = ProfileOutStableItem.from_dict(stable_item_data)
-
-            stable.append(stable_item)
-
         used_tokens = d.pop("used_tokens")
 
+        def _parse_scope(data: object) -> None | ProfileOutScopeType0 | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                scope_type_0 = ProfileOutScopeType0.from_dict(data)
+
+                return scope_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(None | ProfileOutScopeType0 | Unset, data)
+
+        scope = _parse_scope(d.pop("scope", UNSET))
+
         profile_out = cls(
-            dynamic=dynamic,
+            blocks=blocks,
+            budget_tokens=budget_tokens,
             generated_at=generated_at,
             policy_id=policy_id,
-            stable=stable,
             used_tokens=used_tokens,
+            scope=scope,
         )
 
         return profile_out

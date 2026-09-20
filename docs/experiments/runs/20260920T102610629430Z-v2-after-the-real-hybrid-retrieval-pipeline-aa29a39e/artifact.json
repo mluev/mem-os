@@ -1,0 +1,1141 @@
+{
+  "corpus_sha256": "b5fe9fb77a0e550f3a3b9221cd37325e84aee8f9449200a414e2385fff4edb8c",
+  "split": "diagnostic-hybrid",
+  "provenance": {
+    "git_head": "b1516c73cbde8b443c0c1b5eb02f36146f6d310a",
+    "source_sha256": "a56d44f24036f626a32b3dd6dd6de136d0b9f3e1b359b25b1d659dbdde052de8",
+    "files": {
+      "eval/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "eval/context_review.py": "270b61cfc4d11352006443010a59597e052d54c09da0ee8d3d63ef24cb17e1b6",
+      "eval/experiment.py": "c1693fb8862b19335fb98089603118c0570fb63d8866dc0d760daba5727fb913",
+      "eval/golden.py": "65638611b24d409e48c84bfcf70db909502cae9ddae33316510a55b9839c5b08",
+      "eval/reports.py": "2a3c9606985cc30e99b3e0507d02cbc8f8372aadae859e08adfc32569cc57214",
+      "eval/run.py": "95bf50942e643c8a029512698673a00c37b357bba3b97d3a8b8783203ac6f799",
+      "eval/semantic.py": "41fb6bd712f4cbe534e6c64104f6362d99ef0823e3c8096f732d78430267ebc3",
+      "eval/semantic_cases.py": "35aeb7f4c4ce96ee24230506d9b7dd17f96450fd47cfeca12019092455a4f3c1",
+      "eval/semantic_extraction.py": "118e03c9bb5a0fa7e06109d6fae94b6d2cd6466717f60574f2b1401c2ab53543",
+      "eval/semantic_hybrid.py": "1f6e88b8ca309ef9f0507bdb59b57148403740d465ae96a9acfade1ddfea3ede",
+      "src/memkit/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "src/memkit/api.py": "df190b42fb53759ba26674aaf099e94561ad47a3ada25292550046d6e17ff121",
+      "src/memkit/auth.py": "558cb3292e4a0c0f635e7e505bbb287887b25f4927644d3524c7d5a376aaff30",
+      "src/memkit/cli.py": "8b604e64c8d9ff11356c4aa70f295cc75de9e3d2b0a3b13cfa5a3c214955fe05",
+      "src/memkit/config.py": "d553692af49d7a01398f03faef2427fbf5f52be6ecf322e9030d84eed34b2e84",
+      "src/memkit/consolidate.py": "123d0e6c2ee18575601f3d5563abb0c3bf7918907c4b2dd9bdfd68b1e9f2e9cb",
+      "src/memkit/db.py": "f90ba4ba62890ea02d4b62606df039348e8d1a875fa78bcda2ce36143c0c4075",
+      "src/memkit/embed.py": "bebfb614a5feef792dab3b88dd96b9b3deb15b992f414194568a477efea5bfef",
+      "src/memkit/entities.py": "00facdf7ceeef766d3369365b7273861fcc50aa3f3dd4d4886d7c6db59101da1",
+      "src/memkit/extract.py": "e3bf6252c20b63019a4492ab8875fc9fa3cc51bae95421853f8fffdbc6d64b7d",
+      "src/memkit/filters.py": "12459cea69879b4131146a804dc5b6c04b5e2ffa131652b8fa1177eb7c6a6ae1",
+      "src/memkit/importers/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "src/memkit/importers/claude_code.py": "4b1697106f0b8683e23db8714ab79de0dc99c5cdbd671ec1309a8f80253c6781",
+      "src/memkit/importers/sqlite_v6.py": "5f58c037abce61da274d897019c65d7035cbc3a3775e97a737f6d94854b080e8",
+      "src/memkit/jobs.py": "50bd3d25741eb811a2746ce3d013953398035428e8f7a9b16d34f3ff5df23104",
+      "src/memkit/judge.py": "7f5bd204ff1c21f3a098454c1dccd3a390968e19287b50bf6ccb175105979964",
+      "src/memkit/limits.py": "5b67b18d4e72600615c53ee8b728ea5665a164e60033534756366eded3a619fd",
+      "src/memkit/observability.py": "2c52d9522c78394ad50fb8b20a76eba99e6354d5110ec29335994a788d46b8d8",
+      "src/memkit/operations.py": "ddadca13310329423e56dafa47decb77fee9a30a65ae7bf1b8029c78d3a3e81f",
+      "src/memkit/outbox.py": "c322ee18803afdf09cb208bd45e801eca2f2714ec7b745e0959e2d88a21517d5",
+      "src/memkit/policies.py": "985160d0860ca0e58a670b19758a9be85a630a525de37140a4b7c5e22cdc9d91",
+      "src/memkit/principal.py": "a9a84c4f0e7ca41abf381dc4bd8f3803fecd1083220ba958307d2663feee566b",
+      "src/memkit/privacy.py": "df8f59c614a17fe5773b3dce7d885ca10729bcd0382d971e40158c71cb34dcd4",
+      "src/memkit/profiles.py": "a72756df37005b32ef903ff85275fd3e4717e92b13dab88e1f65fd7b1822c741",
+      "src/memkit/prompts.py": "15990bdfaee0dfe203a3fbb9a3a0a4763b4e979acf4879ae5d4285b0f3d82a01",
+      "src/memkit/provenance.py": "11732249cf6709f1a28788eaaf6105df6d0292a5f27149a06f9aa92ae7ef07b4",
+      "src/memkit/providers.py": "2a851b33ab3b2d4464c21400ad359db2c9c7982bff44b9aada6df0a4c74cf689",
+      "src/memkit/reextract.py": "566e687ee8e8a2e25e4462a08f29ad2fa142e152ee55128e980a3bd9dd1de7fb",
+      "src/memkit/reindex.py": "1c3145813943778bdd94f088c553cc4bc5288ea15461b06371a169a768b3207b",
+      "src/memkit/remote.py": "4db0b466e76f65561eea0800e272f1665ed53b0aec181cb5cbd9108da181c584",
+      "src/memkit/retrieval.py": "536adf3db3fffbd8352f1b8156d342b7e545accdc7f1221fb8cb16d615d5bbe7",
+      "src/memkit/routers/__init__.py": "c2f81de15b772736c92ca8257e341cfbc3625aa8d9ac050017e059845cacc6d0",
+      "src/memkit/routers/_adopt.py": "492fd498ff172dccff36b962a1e5f1cb693be6cc5e053b1b73fd4972d8af61dd",
+      "src/memkit/routers/evidence.py": "63655767f1150b25685c5142ee42f64207c0305b3225d12fa6b6c0e00b0ec221",
+      "src/memkit/routers/identity.py": "20a77f3455a0764263148f60c80c30b2f82392656347935a556cbdb10efa6d78",
+      "src/memkit/routers/memory.py": "2d1b6a528e65e7b7d71382a58b003e0eaf8e7ed82db0b33b221ed1eddc5e7054",
+      "src/memkit/routers/operations.py": "5a0a0c0a07ed56cfb692a78bcf856a70cf79c88f0c8b25fd0f6870d2377b2241",
+      "src/memkit/security.py": "fc463a70a8b077b276274a84c00f962f756eb6d667b1acd9f81f4a647eabe5a4",
+      "src/memkit/semantic.py": "f2200eb7b4b7319b763fe8196ccd5a6f05e512d313861cc47e621b3df91218b5",
+      "src/memkit/semantic_questions.py": "44a4018909858c4d75d6b4f1214aeb36cbd4603490aa6c8a20d8f37dff78d5ba",
+      "src/memkit/semantic_runtime.py": "8b7ba080e1e1ba31f1e436dbf7ab2a1645379ba68c33b6adf1796a94386b5873",
+      "src/memkit/stats.py": "0de855e3cfd1db4b282a959749cb05f9ba52581b50bd8f9abe1405a499f5069a",
+      "src/memkit/store.py": "88df8a3cb7bd1e1100da0d3e3755b340da388244cce1b54f8b03e56d9c3f1909",
+      "src/memkit/telemetry.py": "d2e37db8712b916c2d7e69e94298d1cfdd974e32178af40bd4776d37edd4585b",
+      "src/memkit/users.py": "9752f043ba9351c30d923a201e4b073da2db46590a5760689cf98a5a4013a1eb",
+      "src/memkit/vectors.py": "c3a6461ed65e19c1c9ce6a3597a7c3e47a5aa653ad0fec918109138b0f7e814a",
+      "src/memkit/worker.py": "c0b570639ba098be5f935417371db15e0a896e4a66dea4c326b7fae95083affd"
+    }
+  },
+  "retrieval_policy": "neutral-v1",
+  "embedding": {
+    "model": "BAAI/bge-m3",
+    "revision": "5617a9f61b028005a4858fdac845db406aefb181"
+  },
+  "thresholds": {
+    "relevance_floor": 2.0
+  },
+  "metrics": {
+    "baseline": {
+      "queries": 24,
+      "answerable": 12,
+      "top1_correct": 12,
+      "relevant_retained": 21,
+      "relevant_total": 21,
+      "unanswerable": 12,
+      "correct_abstentions": 0,
+      "irrelevant_returned": 334
+    },
+    "filtered": {
+      "queries": 24,
+      "answerable": 12,
+      "top1_correct": 12,
+      "relevant_retained": 21,
+      "relevant_total": 21,
+      "unanswerable": 12,
+      "correct_abstentions": 12,
+      "irrelevant_returned": 0
+    },
+    "service_errors": 0
+  },
+  "records": [
+    {
+      "id": "engineer-en-answer",
+      "language": "en",
+      "cohort": "development",
+      "expected": [
+        "Atlas production uses PostgreSQL."
+      ],
+      "baseline": [
+        "Atlas production uses PostgreSQL.",
+        "Atlas staging uses PostgreSQL.",
+        "Cedar uses pnpm for every component.",
+        "The Logic course uses only a written examination.",
+        "Orion loyihasida Redis ishlatamiz.",
+        "Orion loyihasida Redis ishlatmaymiz.",
+        "В проекте Cedar используем pnpm только для frontend.",
+        "The office walls are blue.",
+        "В проекте Вега тесты запускаем через Jest.",
+        "В проекте Вега тесты запускаем через pytest.",
+        "Aziza uchrashuvlarni ertalab o‘tkazishni afzal ko‘radi.",
+        "Professor Lee accepts assignments in PDF format only.",
+        "На семинаре Ирины разрешены конспекты, но не интернет.",
+        "На семинаре Ирины разрешён интернет.",
+        "Aziza uchrashuvlarni faqat kechqurun o‘tkazishni afzal ko‘radi.",
+        "Олег предпочитает кофе без сахара."
+      ],
+      "filtered": [
+        "Atlas production uses PostgreSQL."
+      ],
+      "observation": {
+        "stage": "relevance",
+        "version": "v2",
+        "questions": 16,
+        "model": "jev-1.13.0",
+        "errors": 0,
+        "input_tokens": 3229,
+        "output_tokens": 218,
+        "latency_ms": 930.74,
+        "mode": "filter",
+        "candidates": 16,
+        "selected": 1,
+        "order_changed": true
+      }
+    },
+    {
+      "id": "engineer-en-missing",
+      "language": "en",
+      "cohort": "development",
+      "expected": [],
+      "baseline": [
+        "Atlas production uses PostgreSQL.",
+        "Atlas staging uses PostgreSQL.",
+        "The office walls are blue.",
+        "Orion loyihasida Redis ishlatamiz.",
+        "Orion loyihasida Redis ishlatmaymiz.",
+        "Daniil prefers flying rather than taking the train.",
+        "На семинаре Ирины разрешён интернет.",
+        "Nora prefers quiet hotels.",
+        "Олег предпочитает кофе без сахара."
+      ],
+      "filtered": [],
+      "observation": {
+        "stage": "relevance",
+        "version": "v2",
+        "questions": 9,
+        "model": "jev-1.13.0",
+        "errors": 0,
+        "input_tokens": 1882,
+        "output_tokens": 121,
+        "latency_ms": 413.12,
+        "mode": "filter",
+        "candidates": 9,
+        "selected": 0,
+        "order_changed": true
+      }
+    },
+    {
+      "id": "engineer-ru-answer",
+      "language": "ru",
+      "cohort": "development",
+      "expected": [
+        "В проекте Вега тесты запускаем через Jest.",
+        "В проекте Вега тесты запускаем через pytest."
+      ],
+      "baseline": [
+        "В проекте Вега тесты запускаем через Jest.",
+        "В проекте Вега тесты запускаем через pytest.",
+        "The Logic course uses only a written examination.",
+        "Курс Logic оценивается через oral exam, без письменного экзамена.",
+        "Professor Lee accepts assignments in PDF format only.",
+        "Олег предпочитает кофе без сахара.",
+        "Aziza uchrashuvlarni ertalab o‘tkazishni afzal ko‘radi.",
+        "The office walls are blue.",
+        "Malika talabalarga fikr-mulohazani yozma shaklda beradi.",
+        "Orion loyihasida Redis ishlatamiz."
+      ],
+      "filtered": [
+        "В проекте Вега тесты запускаем через Jest.",
+        "В проекте Вега тесты запускаем через pytest."
+      ],
+      "observation": {
+        "stage": "relevance",
+        "version": "v2",
+        "questions": 10,
+        "model": "jev-1.13.0",
+        "errors": 0,
+        "input_tokens": 2156,
+        "output_tokens": 134,
+        "latency_ms": 376.42,
+        "mode": "filter",
+        "candidates": 10,
+        "selected": 2,
+        "order_changed": true
+      }
+    },
+    {
+      "id": "engineer-ru-missing",
+      "language": "ru",
+      "cohort": "development",
+      "expected": [],
+      "baseline": [
+        "В проекте Вега тесты запускаем через pytest.",
+        "В проекте Вега тесты запускаем через Jest.",
+        "Atlas staging uses PostgreSQL.",
+        "Nora prefers quiet hotels.",
+        "Nora prefers quiet hotels near a train station.",
+        "Atlas production uses PostgreSQL.",
+        "Олег предпочитает кофе без сахара.",
+        "The office walls are blue.",
+        "Professor Lee accepts assignments in PDF format only.",
+        "Aziza uchrashuvlarni faqat kechqurun o‘tkazishni afzal ko‘radi.",
+        "Orion loyihasida Redis ishlatamiz.",
+        "Aziza uchrashuvlarni ertalab o‘tkazishni afzal ko‘radi."
+      ],
+      "filtered": [],
+      "observation": {
+        "stage": "relevance",
+        "version": "v2",
+        "questions": 12,
+        "model": "jev-1.13.0",
+        "errors": 0,
+        "input_tokens": 2466,
+        "output_tokens": 162,
+        "latency_ms": 350.54,
+        "mode": "filter",
+        "candidates": 12,
+        "selected": 0,
+        "order_changed": true
+      }
+    },
+    {
+      "id": "engineer-uz-answer",
+      "language": "uz",
+      "cohort": "development",
+      "expected": [
+        "Orion loyihasida Redis ishlatamiz.",
+        "Orion loyihasida Redis ishlatmaymiz."
+      ],
+      "baseline": [
+        "Orion loyihasida Redis ishlatamiz.",
+        "Orion loyihasida Redis ishlatmaymiz.",
+        "Atlas production uses PostgreSQL.",
+        "Олег предпочитает кофе без сахара.",
+        "Для поездок Даниил предпочитает поезд, а не самолёт.",
+        "Cedar uses pnpm for every component.",
+        "Atlas staging uses PostgreSQL.",
+        "The Logic course uses only a written examination.",
+        "Nora prefers quiet hotels.",
+        "Nora prefers quiet hotels near a train station.",
+        "В проекте Вега тесты запускаем через Jest.",
+        "Курс Logic оценивается через oral exam, без письменного экзамена.",
+        "На семинаре Ирины разрешён интернет.",
+        "В проекте Cedar используем pnpm только для frontend.",
+        "Daniil prefers flying rather than taking the train.",
+        "Professor Lee accepts assignments in PDF format only.",
+        "The office walls are blue.",
+        "В проекте Вега тесты запускаем через pytest."
+      ],
+      "filtered": [
+        "Orion loyihasida Redis ishlatmaymiz.",
+        "Orion loyihasida Redis ishlatamiz."
+      ],
+      "observation": {
+        "stage": "relevance",
+        "version": "v2",
+        "questions": 18,
+        "model": "jev-1.13.0",
+        "errors": 0,
+        "input_tokens": 3588,
+        "output_tokens": 246,
+        "latency_ms": 344.81,
+        "mode": "filter",
+        "candidates": 18,
+        "selected": 2,
+        "order_changed": true
+      }
+    },
+    {
+      "id": "engineer-uz-missing",
+      "language": "uz",
+      "cohort": "development",
+      "expected": [],
+      "baseline": [
+        "Orion loyihasida Redis ishlatamiz.",
+        "Orion loyihasida Redis ishlatmaymiz.",
+        "Atlas production uses PostgreSQL.",
+        "The office walls are blue.",
+        "Олег предпочитает кофе без сахара.",
+        "На семинаре Ирины разрешён интернет.",
+        "Nora prefers quiet hotels near a train station.",
+        "На семинаре Ирины разрешены конспекты, но не интернет.",
+        "Cedar uses pnpm for every component.",
+        "Nora prefers quiet hotels.",
+        "В проекте Cedar используем pnpm только для frontend.",
+        "Atlas staging uses PostgreSQL.",
+        "Для поездок Даниил предпочитает поезд, а не самолёт.",
+        "Курс Logic оценивается через oral exam, без письменного экзамена."
+      ],
+      "filtered": [],
+      "observation": {
+        "stage": "relevance",
+        "version": "v2",
+        "questions": 14,
+        "model": "jev-1.13.0",
+        "errors": 0,
+        "input_tokens": 2874,
+        "output_tokens": 190,
+        "latency_ms": 390.44,
+        "mode": "filter",
+        "candidates": 14,
+        "selected": 0,
+        "order_changed": true
+      }
+    },
+    {
+      "id": "engineer-mixed-answer",
+      "language": "mixed",
+      "cohort": "development",
+      "expected": [
+        "Cedar uses pnpm for every component.",
+        "В проекте Cedar используем pnpm только для frontend."
+      ],
+      "baseline": [
+        "В проекте Cedar используем pnpm только для frontend.",
+        "Cedar uses pnpm for every component.",
+        "В проекте Вега тесты запускаем через Jest.",
+        "В проекте Вега тесты запускаем через pytest.",
+        "Orion loyihasida Redis ishlatamiz.",
+        "Atlas staging uses PostgreSQL.",
+        "Atlas production uses PostgreSQL.",
+        "Orion loyihasida Redis ishlatmaymiz.",
+        "The office walls are blue.",
+        "Professor Lee accepts assignments in PDF format only.",
+        "Professor Kim accepts assignments in PDF format only.",
+        "Олег предпочитает кофе без сахара.",
+        "Aziza uchrashuvlarni ertalab o‘tkazishni afzal ko‘radi.",
+        "Курс Logic оценивается через oral exam, без письменного экзамена.",
+        "Aziza uchrashuvlarni faqat kechqurun o‘tkazishni afzal ko‘radi.",
+        "На семинаре Ирины разрешён интернет.",
+        "Марина пьёт кофе без сахара."
+      ],
+      "filtered": [
+        "В проекте Cedar используем pnpm только для frontend.",
+        "Cedar uses pnpm for every component."
+      ],
+      "observation": {
+        "stage": "relevance",
+        "version": "v2",
+        "questions": 17,
+        "model": "jev-1.13.0",
+        "errors": 0,
+        "input_tokens": 3423,
+        "output_tokens": 232,
+        "latency_ms": 519.33,
+        "mode": "filter",
+        "candidates": 17,
+        "selected": 2,
+        "order_changed": true
+      }
+    },
+    {
+      "id": "engineer-mixed-missing",
+      "language": "mixed",
+      "cohort": "development",
+      "expected": [],
+      "baseline": [
+        "Cedar uses pnpm for every component.",
+        "В проекте Cedar используем pnpm только для frontend.",
+        "В проекте Вега тесты запускаем через Jest.",
+        "The office walls are blue."
+      ],
+      "filtered": [],
+      "observation": {
+        "stage": "relevance",
+        "version": "v2",
+        "questions": 4,
+        "model": "jev-1.13.0",
+        "errors": 0,
+        "input_tokens": 1014,
+        "output_tokens": 56,
+        "latency_ms": 386.0,
+        "mode": "filter",
+        "candidates": 4,
+        "selected": 0,
+        "order_changed": true
+      }
+    },
+    {
+      "id": "teacher-en-answer",
+      "language": "en",
+      "cohort": "education",
+      "expected": [
+        "Professor Lee accepts assignments in PDF format only."
+      ],
+      "baseline": [
+        "Professor Lee accepts assignments in PDF format only.",
+        "Professor Kim accepts assignments in PDF format only.",
+        "Malika talabalarga fikr-mulohazani yozma shaklda beradi.",
+        "The Logic course uses only a written examination.",
+        "Malika talabalarga faqat og‘zaki fikr-mulohaza beradi.",
+        "В проекте Вега тесты запускаем через Jest.",
+        "На семинаре Ирины разрешены конспекты, но не интернет.",
+        "Курс Logic оценивается через oral exam, без письменного экзамена.",
+        "Atlas staging uses PostgreSQL.",
+        "На семинаре Ирины разрешён интернет.",
+        "Atlas production uses PostgreSQL.",
+        "Orion loyihasida Redis ishlatamiz.",
+        "В проекте Cedar используем pnpm только для frontend.",
+        "Orion loyihasida Redis ishlatmaymiz.",
+        "В проекте Вега тесты запускаем через pytest.",
+        "Aziza uchrashuvlarni faqat kechqurun o‘tkazishni afzal ko‘radi.",
+        "Aziza uchrashuvlarni ertalab o‘tkazishni afzal ko‘radi.",
+        "The office walls are blue.",
+        "Олег предпочитает кофе без сахара.",
+        "Cedar uses pnpm for every component.",
+        "Для поездок Даниил предпочитает поезд, а не самолёт."
+      ],
+      "filtered": [
+        "Professor Lee accepts assignments in PDF format only."
+      ],
+      "observation": {
+        "stage": "relevance",
+        "version": "v2",
+        "questions": 21,
+        "model": "jev-1.13.0",
+        "errors": 0,
+        "input_tokens": 4191,
+        "output_tokens": 288,
+        "latency_ms": 358.65,
+        "mode": "filter",
+        "candidates": 21,
+        "selected": 1,
+        "order_changed": true
+      }
+    },
+    {
+      "id": "teacher-en-missing",
+      "language": "en",
+      "cohort": "education",
+      "expected": [],
+      "baseline": [
+        "Professor Lee accepts assignments in PDF format only.",
+        "Professor Kim accepts assignments in PDF format only.",
+        "The office walls are blue.",
+        "Malika talabalarga faqat og‘zaki fikr-mulohaza beradi.",
+        "Aziza uchrashuvlarni faqat kechqurun o‘tkazishni afzal ko‘radi.",
+        "Malika talabalarga fikr-mulohazani yozma shaklda beradi.",
+        "Aziza uchrashuvlarni ertalab o‘tkazishni afzal ko‘radi.",
+        "На семинаре Ирины разрешены конспекты, но не интернет.",
+        "На семинаре Ирины разрешён интернет.",
+        "The Logic course uses only a written examination.",
+        "Олег предпочитает кофе без сахара.",
+        "Курс Logic оценивается через oral exam, без письменного экзамена.",
+        "В проекте Вега тесты запускаем через Jest.",
+        "Nora prefers quiet hotels.",
+        "Nora prefers quiet hotels near a train station.",
+        "Atlas production uses PostgreSQL.",
+        "Atlas staging uses PostgreSQL.",
+        "Orion loyihasida Redis ishlatamiz.",
+        "Для поездок Даниил предпочитает поезд, а не самолёт.",
+        "Orion loyihasida Redis ishlatmaymiz."
+      ],
+      "filtered": [],
+      "observation": {
+        "stage": "relevance",
+        "version": "v2",
+        "questions": 20,
+        "model": "jev-1.13.0",
+        "errors": 0,
+        "input_tokens": 3977,
+        "output_tokens": 274,
+        "latency_ms": 366.95,
+        "mode": "filter",
+        "candidates": 20,
+        "selected": 0,
+        "order_changed": true
+      }
+    },
+    {
+      "id": "teacher-ru-answer",
+      "language": "ru",
+      "cohort": "education",
+      "expected": [
+        "На семинаре Ирины разрешён интернет.",
+        "На семинаре Ирины разрешены конспекты, но не интернет."
+      ],
+      "baseline": [
+        "На семинаре Ирины разрешён интернет.",
+        "На семинаре Ирины разрешены конспекты, но не интернет.",
+        "Malika talabalarga faqat og‘zaki fikr-mulohaza beradi.",
+        "Malika talabalarga fikr-mulohazani yozma shaklda beradi.",
+        "Professor Kim accepts assignments in PDF format only.",
+        "Aziza uchrashuvlarni faqat kechqurun o‘tkazishni afzal ko‘radi.",
+        "Professor Lee accepts assignments in PDF format only.",
+        "Aziza uchrashuvlarni ertalab o‘tkazishni afzal ko‘radi.",
+        "The Logic course uses only a written examination.",
+        "Марина пьёт кофе без сахара.",
+        "Курс Logic оценивается через oral exam, без письменного экзамена.",
+        "Nora prefers quiet hotels near a train station.",
+        "Nora prefers quiet hotels.",
+        "The office walls are blue.",
+        "Orion loyihasida Redis ishlatamiz.",
+        "Orion loyihasida Redis ishlatmaymiz.",
+        "В проекте Cedar используем pnpm только для frontend.",
+        "Олег предпочитает кофе без сахара.",
+        "Для поездок Даниил предпочитает поезд, а не самолёт.",
+        "Atlas staging uses PostgreSQL.",
+        "Daniil prefers flying rather than taking the train."
+      ],
+      "filtered": [
+        "На семинаре Ирины разрешены конспекты, но не интернет.",
+        "На семинаре Ирины разрешён интернет."
+      ],
+      "observation": {
+        "stage": "relevance",
+        "version": "v2",
+        "questions": 21,
+        "model": "jev-1.13.0",
+        "errors": 0,
+        "input_tokens": 4187,
+        "output_tokens": 288,
+        "latency_ms": 425.96,
+        "mode": "filter",
+        "candidates": 21,
+        "selected": 2,
+        "order_changed": true
+      }
+    },
+    {
+      "id": "teacher-ru-missing",
+      "language": "ru",
+      "cohort": "education",
+      "expected": [],
+      "baseline": [
+        "На семинаре Ирины разрешён интернет.",
+        "На семинаре Ирины разрешены конспекты, но не интернет.",
+        "Malika talabalarga fikr-mulohazani yozma shaklda beradi.",
+        "Malika talabalarga faqat og‘zaki fikr-mulohaza beradi.",
+        "Aziza uchrashuvlarni ertalab o‘tkazishni afzal ko‘radi.",
+        "Aziza uchrashuvlarni faqat kechqurun o‘tkazishni afzal ko‘radi.",
+        "Professor Kim accepts assignments in PDF format only.",
+        "The Logic course uses only a written examination.",
+        "The office walls are blue.",
+        "Курс Logic оценивается через oral exam, без письменного экзамена.",
+        "Professor Lee accepts assignments in PDF format only.",
+        "Марина пьёт кофе без сахара.",
+        "Nora prefers quiet hotels.",
+        "Nora prefers quiet hotels near a train station.",
+        "Orion loyihasida Redis ishlatamiz.",
+        "Atlas staging uses PostgreSQL.",
+        "Олег предпочитает кофе без сахара."
+      ],
+      "filtered": [],
+      "observation": {
+        "stage": "relevance",
+        "version": "v2",
+        "questions": 17,
+        "model": "jev-1.13.0",
+        "errors": 0,
+        "input_tokens": 3426,
+        "output_tokens": 232,
+        "latency_ms": 362.45,
+        "mode": "filter",
+        "candidates": 17,
+        "selected": 0,
+        "order_changed": true
+      }
+    },
+    {
+      "id": "teacher-uz-answer",
+      "language": "uz",
+      "cohort": "education",
+      "expected": [
+        "Malika talabalarga faqat og‘zaki fikr-mulohaza beradi.",
+        "Malika talabalarga fikr-mulohazani yozma shaklda beradi."
+      ],
+      "baseline": [
+        "Malika talabalarga fikr-mulohazani yozma shaklda beradi.",
+        "Malika talabalarga faqat og‘zaki fikr-mulohaza beradi.",
+        "The Logic course uses only a written examination.",
+        "Курс Logic оценивается через oral exam, без письменного экзамена.",
+        "На семинаре Ирины разрешён интернет.",
+        "Professor Kim accepts assignments in PDF format only.",
+        "На семинаре Ирины разрешены конспекты, но не интернет.",
+        "Professor Lee accepts assignments in PDF format only.",
+        "Aziza uchrashuvlarni ertalab o‘tkazishni afzal ko‘radi.",
+        "Aziza uchrashuvlarni faqat kechqurun o‘tkazishni afzal ko‘radi.",
+        "The office walls are blue.",
+        "Nora prefers quiet hotels.",
+        "Марина пьёт кофе без сахара.",
+        "Nora prefers quiet hotels near a train station."
+      ],
+      "filtered": [
+        "Malika talabalarga fikr-mulohazani yozma shaklda beradi.",
+        "Malika talabalarga faqat og‘zaki fikr-mulohaza beradi."
+      ],
+      "observation": {
+        "stage": "relevance",
+        "version": "v2",
+        "questions": 14,
+        "model": "jev-1.13.0",
+        "errors": 0,
+        "input_tokens": 2876,
+        "output_tokens": 190,
+        "latency_ms": 407.76,
+        "mode": "filter",
+        "candidates": 14,
+        "selected": 2,
+        "order_changed": true
+      }
+    },
+    {
+      "id": "teacher-uz-missing",
+      "language": "uz",
+      "cohort": "education",
+      "expected": [],
+      "baseline": [
+        "Malika talabalarga fikr-mulohazani yozma shaklda beradi.",
+        "Malika talabalarga faqat og‘zaki fikr-mulohaza beradi.",
+        "На семинаре Ирины разрешён интернет.",
+        "На семинаре Ирины разрешены конспекты, но не интернет.",
+        "The Logic course uses only a written examination.",
+        "The office walls are blue.",
+        "Professor Kim accepts assignments in PDF format only.",
+        "Professor Lee accepts assignments in PDF format only.",
+        "Курс Logic оценивается через oral exam, без письменного экзамена.",
+        "Aziza uchrashuvlarni faqat kechqurun o‘tkazishni afzal ko‘radi.",
+        "Nora prefers quiet hotels.",
+        "Aziza uchrashuvlarni ertalab o‘tkazishni afzal ko‘radi.",
+        "Марина пьёт кофе без сахара.",
+        "Nora prefers quiet hotels near a train station."
+      ],
+      "filtered": [],
+      "observation": {
+        "stage": "relevance",
+        "version": "v2",
+        "questions": 14,
+        "model": "jev-1.13.0",
+        "errors": 0,
+        "input_tokens": 2869,
+        "output_tokens": 190,
+        "latency_ms": 373.94,
+        "mode": "filter",
+        "candidates": 14,
+        "selected": 0,
+        "order_changed": true
+      }
+    },
+    {
+      "id": "teacher-mixed-answer",
+      "language": "mixed",
+      "cohort": "education",
+      "expected": [
+        "The Logic course uses only a written examination.",
+        "Курс Logic оценивается через oral exam, без письменного экзамена."
+      ],
+      "baseline": [
+        "Курс Logic оценивается через oral exam, без письменного экзамена.",
+        "The Logic course uses only a written examination.",
+        "Malika talabalarga fikr-mulohazani yozma shaklda beradi.",
+        "Malika talabalarga faqat og‘zaki fikr-mulohaza beradi.",
+        "Professor Lee accepts assignments in PDF format only.",
+        "Professor Kim accepts assignments in PDF format only.",
+        "На семинаре Ирины разрешены конспекты, но не интернет.",
+        "На семинаре Ирины разрешён интернет.",
+        "Orion loyihasida Redis ishlatamiz.",
+        "В проекте Вега тесты запускаем через Jest.",
+        "The office walls are blue.",
+        "В проекте Вега тесты запускаем через pytest.",
+        "Orion loyihasida Redis ishlatmaymiz.",
+        "Atlas staging uses PostgreSQL.",
+        "В проекте Cedar используем pnpm только для frontend.",
+        "Cedar uses pnpm for every component.",
+        "Олег предпочитает кофе без сахара.",
+        "Atlas production uses PostgreSQL.",
+        "Aziza uchrashuvlarni faqat kechqurun o‘tkazishni afzal ko‘radi.",
+        "Aziza uchrashuvlarni ertalab o‘tkazishni afzal ko‘radi."
+      ],
+      "filtered": [
+        "The Logic course uses only a written examination.",
+        "Курс Logic оценивается через oral exam, без письменного экзамена."
+      ],
+      "observation": {
+        "stage": "relevance",
+        "version": "v2",
+        "questions": 20,
+        "model": "jev-1.13.0",
+        "errors": 0,
+        "input_tokens": 3990,
+        "output_tokens": 274,
+        "latency_ms": 470.98,
+        "mode": "filter",
+        "candidates": 20,
+        "selected": 2,
+        "order_changed": true
+      }
+    },
+    {
+      "id": "teacher-mixed-missing",
+      "language": "mixed",
+      "cohort": "education",
+      "expected": [],
+      "baseline": [
+        "The Logic course uses only a written examination.",
+        "Курс Logic оценивается через oral exam, без письменного экзамена.",
+        "Malika talabalarga fikr-mulohazani yozma shaklda beradi.",
+        "Malika talabalarga faqat og‘zaki fikr-mulohaza beradi.",
+        "Professor Lee accepts assignments in PDF format only.",
+        "Professor Kim accepts assignments in PDF format only.",
+        "На семинаре Ирины разрешены конспекты, но не интернет.",
+        "The office walls are blue.",
+        "На семинаре Ирины разрешён интернет.",
+        "Orion loyihasida Redis ishlatamiz."
+      ],
+      "filtered": [],
+      "observation": {
+        "stage": "relevance",
+        "version": "v2",
+        "questions": 10,
+        "model": "jev-1.13.0",
+        "errors": 0,
+        "input_tokens": 2125,
+        "output_tokens": 134,
+        "latency_ms": 351.79,
+        "mode": "filter",
+        "candidates": 10,
+        "selected": 0,
+        "order_changed": true
+      }
+    },
+    {
+      "id": "personal-en-answer",
+      "language": "en",
+      "cohort": "personal",
+      "expected": [
+        "Nora prefers quiet hotels near a train station.",
+        "Nora prefers quiet hotels."
+      ],
+      "baseline": [
+        "Nora prefers quiet hotels.",
+        "Nora prefers quiet hotels near a train station.",
+        "Daniil prefers flying rather than taking the train.",
+        "Для поездок Даниил предпочитает поезд, а не самолёт.",
+        "Aziza uchrashuvlarni ertalab o‘tkazishni afzal ko‘radi.",
+        "Aziza uchrashuvlarni faqat kechqurun o‘tkazishni afzal ko‘radi.",
+        "Олег предпочитает кофе без сахара.",
+        "Malika talabalarga faqat og‘zaki fikr-mulohaza beradi.",
+        "Марина пьёт кофе без сахара.",
+        "Orion loyihasida Redis ishlatamiz.",
+        "Malika talabalarga fikr-mulohazani yozma shaklda beradi.",
+        "На семинаре Ирины разрешён интернет.",
+        "Orion loyihasida Redis ishlatmaymiz.",
+        "В проекте Cedar используем pnpm только для frontend.",
+        "Cedar uses pnpm for every component.",
+        "The office walls are blue.",
+        "Atlas staging uses PostgreSQL.",
+        "На семинаре Ирины разрешены конспекты, но не интернет.",
+        "Atlas production uses PostgreSQL."
+      ],
+      "filtered": [
+        "Nora prefers quiet hotels.",
+        "Nora prefers quiet hotels near a train station."
+      ],
+      "observation": {
+        "stage": "relevance",
+        "version": "v2",
+        "questions": 19,
+        "model": "jev-1.13.0",
+        "errors": 0,
+        "input_tokens": 3777,
+        "output_tokens": 260,
+        "latency_ms": 453.11,
+        "mode": "filter",
+        "candidates": 19,
+        "selected": 2,
+        "order_changed": true
+      }
+    },
+    {
+      "id": "personal-en-missing",
+      "language": "en",
+      "cohort": "personal",
+      "expected": [],
+      "baseline": [
+        "Nora prefers quiet hotels.",
+        "Nora prefers quiet hotels near a train station.",
+        "Марина пьёт кофе без сахара.",
+        "Для поездок Даниил предпочитает поезд, а не самолёт.",
+        "На семинаре Ирины разрешён интернет.",
+        "Daniil prefers flying rather than taking the train.",
+        "Олег предпочитает кофе без сахара.",
+        "Cedar uses pnpm for every component.",
+        "Orion loyihasida Redis ishlatamiz.",
+        "В проекте Cedar используем pnpm только для frontend.",
+        "Professor Kim accepts assignments in PDF format only.",
+        "Aziza uchrashuvlarni ertalab o‘tkazishni afzal ko‘radi.",
+        "На семинаре Ирины разрешены конспекты, но не интернет.",
+        "Malika talabalarga fikr-mulohazani yozma shaklda beradi.",
+        "Orion loyihasida Redis ishlatmaymiz.",
+        "The office walls are blue.",
+        "Aziza uchrashuvlarni faqat kechqurun o‘tkazishni afzal ko‘radi.",
+        "Malika talabalarga faqat og‘zaki fikr-mulohaza beradi.",
+        "Professor Lee accepts assignments in PDF format only."
+      ],
+      "filtered": [],
+      "observation": {
+        "stage": "relevance",
+        "version": "v2",
+        "questions": 19,
+        "model": "jev-1.13.0",
+        "errors": 0,
+        "input_tokens": 3780,
+        "output_tokens": 260,
+        "latency_ms": 334.52,
+        "mode": "filter",
+        "candidates": 19,
+        "selected": 0,
+        "order_changed": true
+      }
+    },
+    {
+      "id": "personal-ru-answer",
+      "language": "ru",
+      "cohort": "personal",
+      "expected": [
+        "Олег предпочитает кофе без сахара."
+      ],
+      "baseline": [
+        "Олег предпочитает кофе без сахара.",
+        "Марина пьёт кофе без сахара.",
+        "Orion loyihasida Redis ishlatmaymiz.",
+        "Aziza uchrashuvlarni ertalab o‘tkazishni afzal ko‘radi.",
+        "Aziza uchrashuvlarni faqat kechqurun o‘tkazishni afzal ko‘radi.",
+        "Orion loyihasida Redis ishlatamiz.",
+        "Для поездок Даниил предпочитает поезд, а не самолёт.",
+        "Professor Lee accepts assignments in PDF format only.",
+        "Курс Logic оценивается через oral exam, без письменного экзамена.",
+        "Daniil prefers flying rather than taking the train.",
+        "Nora prefers quiet hotels.",
+        "Malika talabalarga faqat og‘zaki fikr-mulohaza beradi.",
+        "Professor Kim accepts assignments in PDF format only.",
+        "Nora prefers quiet hotels near a train station.",
+        "На семинаре Ирины разрешён интернет.",
+        "The Logic course uses only a written examination.",
+        "Malika talabalarga fikr-mulohazani yozma shaklda beradi.",
+        "На семинаре Ирины разрешены конспекты, но не интернет.",
+        "The office walls are blue.",
+        "В проекте Вега тесты запускаем через pytest.",
+        "В проекте Вега тесты запускаем через Jest."
+      ],
+      "filtered": [
+        "Олег предпочитает кофе без сахара."
+      ],
+      "observation": {
+        "stage": "relevance",
+        "version": "v2",
+        "questions": 21,
+        "model": "jev-1.13.0",
+        "errors": 0,
+        "input_tokens": 4197,
+        "output_tokens": 288,
+        "latency_ms": 360.98,
+        "mode": "filter",
+        "candidates": 21,
+        "selected": 1,
+        "order_changed": true
+      }
+    },
+    {
+      "id": "personal-ru-missing",
+      "language": "ru",
+      "cohort": "personal",
+      "expected": [],
+      "baseline": [
+        "Олег предпочитает кофе без сахара.",
+        "Для поездок Даниил предпочитает поезд, а не самолёт.",
+        "Daniil prefers flying rather than taking the train.",
+        "The office walls are blue.",
+        "Orion loyihasida Redis ishlatamiz.",
+        "Orion loyihasida Redis ishlatmaymiz.",
+        "Malika talabalarga faqat og‘zaki fikr-mulohaza beradi.",
+        "На семинаре Ирины разрешён интернет.",
+        "Aziza uchrashuvlarni ertalab o‘tkazishni afzal ko‘radi.",
+        "Aziza uchrashuvlarni faqat kechqurun o‘tkazishni afzal ko‘radi.",
+        "Nora prefers quiet hotels.",
+        "The Logic course uses only a written examination.",
+        "Malika talabalarga fikr-mulohazani yozma shaklda beradi.",
+        "Курс Logic оценивается через oral exam, без письменного экзамена."
+      ],
+      "filtered": [],
+      "observation": {
+        "stage": "relevance",
+        "version": "v2",
+        "questions": 14,
+        "model": "jev-1.13.0",
+        "errors": 0,
+        "input_tokens": 2888,
+        "output_tokens": 190,
+        "latency_ms": 384.37,
+        "mode": "filter",
+        "candidates": 14,
+        "selected": 0,
+        "order_changed": true
+      }
+    },
+    {
+      "id": "personal-uz-answer",
+      "language": "uz",
+      "cohort": "personal",
+      "expected": [
+        "Aziza uchrashuvlarni faqat kechqurun o‘tkazishni afzal ko‘radi.",
+        "Aziza uchrashuvlarni ertalab o‘tkazishni afzal ko‘radi."
+      ],
+      "baseline": [
+        "Aziza uchrashuvlarni ertalab o‘tkazishni afzal ko‘radi.",
+        "Aziza uchrashuvlarni faqat kechqurun o‘tkazishni afzal ko‘radi.",
+        "Nora prefers quiet hotels.",
+        "Malika talabalarga faqat og‘zaki fikr-mulohaza beradi.",
+        "На семинаре Ирины разрешён интернет.",
+        "Nora prefers quiet hotels near a train station.",
+        "Malika talabalarga fikr-mulohazani yozma shaklda beradi.",
+        "На семинаре Ирины разрешены конспекты, но не интернет.",
+        "Олег предпочитает кофе без сахара.",
+        "The office walls are blue.",
+        "Для поездок Даниил предпочитает поезд, а не самолёт.",
+        "Daniil prefers flying rather than taking the train.",
+        "Professor Kim accepts assignments in PDF format only.",
+        "В проекте Вега тесты запускаем через Jest.",
+        "Professor Lee accepts assignments in PDF format only.",
+        "The Logic course uses only a written examination.",
+        "Марина пьёт кофе без сахара.",
+        "Курс Logic оценивается через oral exam, без письменного экзамена.",
+        "Atlas staging uses PostgreSQL.",
+        "Atlas production uses PostgreSQL."
+      ],
+      "filtered": [
+        "Aziza uchrashuvlarni ertalab o‘tkazishni afzal ko‘radi.",
+        "Aziza uchrashuvlarni faqat kechqurun o‘tkazishni afzal ko‘radi."
+      ],
+      "observation": {
+        "stage": "relevance",
+        "version": "v2",
+        "questions": 20,
+        "model": "jev-1.13.0",
+        "errors": 0,
+        "input_tokens": 3998,
+        "output_tokens": 274,
+        "latency_ms": 352.96,
+        "mode": "filter",
+        "candidates": 20,
+        "selected": 2,
+        "order_changed": true
+      }
+    },
+    {
+      "id": "personal-uz-missing",
+      "language": "uz",
+      "cohort": "personal",
+      "expected": [],
+      "baseline": [
+        "Aziza uchrashuvlarni faqat kechqurun o‘tkazishni afzal ko‘radi.",
+        "Aziza uchrashuvlarni ertalab o‘tkazishni afzal ko‘radi.",
+        "Malika talabalarga faqat og‘zaki fikr-mulohaza beradi."
+      ],
+      "filtered": [],
+      "observation": {
+        "stage": "relevance",
+        "version": "v2",
+        "questions": 3,
+        "model": "jev-1.13.0",
+        "errors": 0,
+        "input_tokens": 850,
+        "output_tokens": 43,
+        "latency_ms": 611.63,
+        "mode": "filter",
+        "candidates": 3,
+        "selected": 0,
+        "order_changed": true
+      }
+    },
+    {
+      "id": "personal-mixed-answer",
+      "language": "mixed",
+      "cohort": "personal",
+      "expected": [
+        "Daniil prefers flying rather than taking the train.",
+        "Для поездок Даниил предпочитает поезд, а не самолёт."
+      ],
+      "baseline": [
+        "Для поездок Даниил предпочитает поезд, а не самолёт.",
+        "Daniil prefers flying rather than taking the train.",
+        "Олег предпочитает кофе без сахара.",
+        "Nora prefers quiet hotels near a train station.",
+        "Nora prefers quiet hotels.",
+        "Aziza uchrashuvlarni ertalab o‘tkazishni afzal ko‘radi.",
+        "Aziza uchrashuvlarni faqat kechqurun o‘tkazishni afzal ko‘radi.",
+        "Orion loyihasida Redis ishlatamiz.",
+        "Orion loyihasida Redis ishlatmaymiz.",
+        "На семинаре Ирины разрешён интернет.",
+        "В проекте Cedar используем pnpm только для frontend.",
+        "Марина пьёт кофе без сахара.",
+        "Atlas production uses PostgreSQL.",
+        "Atlas staging uses PostgreSQL.",
+        "Cedar uses pnpm for every component.",
+        "Professor Kim accepts assignments in PDF format only."
+      ],
+      "filtered": [
+        "Для поездок Даниил предпочитает поезд, а не самолёт.",
+        "Daniil prefers flying rather than taking the train."
+      ],
+      "observation": {
+        "stage": "relevance",
+        "version": "v2",
+        "questions": 16,
+        "model": "jev-1.13.0",
+        "errors": 0,
+        "input_tokens": 3224,
+        "output_tokens": 218,
+        "latency_ms": 419.63,
+        "mode": "filter",
+        "candidates": 16,
+        "selected": 2,
+        "order_changed": true
+      }
+    },
+    {
+      "id": "personal-mixed-missing",
+      "language": "mixed",
+      "cohort": "personal",
+      "expected": [],
+      "baseline": [
+        "Daniil prefers flying rather than taking the train.",
+        "Для поездок Даниил предпочитает поезд, а не самолёт.",
+        "Nora prefers quiet hotels near a train station.",
+        "Олег предпочитает кофе без сахара.",
+        "The office walls are blue.",
+        "Nora prefers quiet hotels."
+      ],
+      "filtered": [],
+      "observation": {
+        "stage": "relevance",
+        "version": "v2",
+        "questions": 6,
+        "model": "jev-1.13.0",
+        "errors": 0,
+        "input_tokens": 1373,
+        "output_tokens": 82,
+        "latency_ms": 405.91,
+        "mode": "filter",
+        "candidates": 6,
+        "selected": 0,
+        "order_changed": true
+      }
+    }
+  ],
+  "by_cohort": {
+    "development": {
+      "baseline": {
+        "queries": 8,
+        "answerable": 4,
+        "top1_correct": 4,
+        "relevant_retained": 7,
+        "relevant_total": 7,
+        "unanswerable": 4,
+        "correct_abstentions": 0,
+        "irrelevant_returned": 93
+      },
+      "filtered": {
+        "queries": 8,
+        "answerable": 4,
+        "top1_correct": 4,
+        "relevant_retained": 7,
+        "relevant_total": 7,
+        "unanswerable": 4,
+        "correct_abstentions": 4,
+        "irrelevant_returned": 0
+      }
+    },
+    "education": {
+      "baseline": {
+        "queries": 8,
+        "answerable": 4,
+        "top1_correct": 4,
+        "relevant_retained": 7,
+        "relevant_total": 7,
+        "unanswerable": 4,
+        "correct_abstentions": 0,
+        "irrelevant_returned": 130
+      },
+      "filtered": {
+        "queries": 8,
+        "answerable": 4,
+        "top1_correct": 4,
+        "relevant_retained": 7,
+        "relevant_total": 7,
+        "unanswerable": 4,
+        "correct_abstentions": 4,
+        "irrelevant_returned": 0
+      }
+    },
+    "personal": {
+      "baseline": {
+        "queries": 8,
+        "answerable": 4,
+        "top1_correct": 4,
+        "relevant_retained": 7,
+        "relevant_total": 7,
+        "unanswerable": 4,
+        "correct_abstentions": 0,
+        "irrelevant_returned": 111
+      },
+      "filtered": {
+        "queries": 8,
+        "answerable": 4,
+        "top1_correct": 4,
+        "relevant_retained": 7,
+        "relevant_total": 7,
+        "unanswerable": 4,
+        "correct_abstentions": 4,
+        "irrelevant_returned": 0
+      }
+    }
+  }
+}

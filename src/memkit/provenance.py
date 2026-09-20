@@ -12,12 +12,11 @@ the guarantee: a column no writer can omit, and a predicate at the write itself.
 
 Honest scope, because the value of a guard is exactly what it catches:
 
-* On the **extraction path** `may_write` cannot currently fire. `apply_ops` links
-  the whole window to every fact it creates, and `fast_forward_to_user_turn`
-  guarantees each window holds a user turn, so the roles are always
-  ``{user, assistant}``. It is a fail-closed regression detector there -- it
-  starts doing real work the day the judge cites its own evidence per operation,
-  or the day someone narrows the window for cost.
+* On the **extraction path** it fires per operation. `_validated_evidence`
+  derives the roles from that operation's own citations, so a fact the model
+  supported only with assistant spans is refused and recorded as
+  ``assistant_only_source`` in the extraction outcome. (Windows holding no user
+  turn at all never reach a provider: they are marked processed and skipped.)
 * On the **API path** the column is load-bearing today. Two Hermes features write
   model-authored text straight past the judge: ``on_memory_write`` at importance
   0.8 and the ``memkit_remember`` tool at 0.9. Before this column they landed as
@@ -32,7 +31,7 @@ logged where they are rather than into an events journal.
 
 from __future__ import annotations
 
-import sqlite3
+import psycopg
 
 # The vocabulary from the original spec, kept verbatim so an archived document
 # and a live column mean the same thing.
@@ -55,16 +54,15 @@ DEFAULT_ROLE = "manual"
 REJECTED_ASSISTANT_ONLY = "assistant_only_source"
 
 
-def roles_of(conn: sqlite3.Connection, message_ids: list[int] | None) -> set[str]:
+def roles_of(conn: psycopg.Connection, message_ids: list[int] | None) -> set[str]:
     """The distinct roles of the messages a write cites. One query."""
     if not message_ids:
         return set()
-    placeholders = ",".join("?" * len(message_ids))
     rows = conn.execute(
-        f"SELECT DISTINCT role FROM messages WHERE id IN ({placeholders})",
-        tuple(message_ids),
+        "SELECT DISTINCT role FROM messages WHERE id = ANY(%s)",
+        (list(message_ids),),
     ).fetchall()
-    return {row["role"] for row in rows}
+    return {str(row["role"]) for row in rows}
 
 
 def source_role_for(roles: set[str]) -> str:

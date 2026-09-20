@@ -1,0 +1,374 @@
+{
+  "schema_version": 1,
+  "run_id": "20260920T102610424606Z-v1-with-corrected-response-parsing-e17c70a1",
+  "name": "v1 with corrected response parsing",
+  "archived_at": "2026-09-20T10:26:10.424606+00:00",
+  "source_name": "v1-dev-fixed.json",
+  "technology": "Jev",
+  "models": [
+    "jev-1.13.0"
+  ],
+  "hypothesis": "Establish a valid development baseline.",
+  "decision": "observe",
+  "limitations": [
+    "Small author-labeled synthetic development set; one Russian equivalence label is ambiguous and remains unchanged.",
+    "Historical artifacts without recorded execution provenance are explicitly marked unknown; archive-time source hashes do not reconstruct that history."
+  ],
+  "data_class": "synthetic",
+  "label_source": "author-labeled; not independently reviewed",
+  "dataset_sha256": "ed15b53c96e6ca3530c924a65b2d07d6c53a8139ad5e9ed40db7effef188be3b",
+  "split": "dev",
+  "questions_sha256": "e9d689d89b9f45879b5d4d761a6d503917f7b07d9b8c4c1161d44de930594f05",
+  "thresholds": {
+    "support_floor": 0.9,
+    "duplicate_floor": 0.9,
+    "relevance_floor": 2.0
+  },
+  "repeat": 2,
+  "metrics": {
+    "cases": 100,
+    "service_errors": 0,
+    "support": {
+      "n": 40,
+      "accuracy": 0.9,
+      "true_positive": 10,
+      "false_positive": 0,
+      "false_negative": 4,
+      "precision": 1.0,
+      "recall": 0.7142857142857143
+    },
+    "citation_only_acceptance": {
+      "n": 40,
+      "accuracy": 0.35,
+      "true_positive": 14,
+      "false_positive": 26,
+      "false_negative": 0,
+      "precision": 0.35,
+      "recall": 1.0
+    },
+    "relation": {
+      "n": 36,
+      "correct": 33
+    },
+    "duplicate": {
+      "n": 36,
+      "accuracy": 0.9444444444444444,
+      "true_positive": 6,
+      "false_positive": 0,
+      "false_negative": 2,
+      "precision": 1.0,
+      "recall": 0.75
+    },
+    "retrieval": {
+      "n": 24,
+      "answerable": 20,
+      "top1": 1.0,
+      "mrr": 1.0,
+      "unanswerable": 4,
+      "correct_abstentions": 4,
+      "false_empty": 0,
+      "relevant_retained": 20,
+      "relevant_total": 20
+    },
+    "cosine_duplicate_at_0.90": {
+      "n": 36,
+      "accuracy": 0.8333333333333334,
+      "true_positive": 4,
+      "false_positive": 2,
+      "false_negative": 4,
+      "precision": 0.6666666666666666,
+      "recall": 0.5
+    },
+    "dense_only_retrieval": {
+      "n": 24,
+      "answerable": 20,
+      "top1": 0.9,
+      "mrr": 0.95,
+      "unanswerable": 4,
+      "correct_abstentions": 0,
+      "false_empty": 0,
+      "relevant_retained": 20,
+      "relevant_total": 20
+    },
+    "input_tokens": 50796,
+    "output_tokens": 4972,
+    "median_request_ms": 397.1591454974259
+  },
+  "slices": {
+    "by_language": {
+      "en": {
+        "cases": 80,
+        "service_errors": 0,
+        "support": {
+          "n": 32,
+          "accuracy": 0.9375,
+          "true_positive": 6,
+          "false_positive": 0,
+          "false_negative": 2,
+          "precision": 1.0,
+          "recall": 0.75
+        },
+        "citation_only_acceptance": {
+          "n": 32,
+          "accuracy": 0.25,
+          "true_positive": 8,
+          "false_positive": 24,
+          "false_negative": 0,
+          "precision": 0.25,
+          "recall": 1.0
+        },
+        "relation": {
+          "n": 28,
+          "correct": 25
+        },
+        "duplicate": {
+          "n": 28,
+          "accuracy": 1.0,
+          "true_positive": 4,
+          "false_positive": 0,
+          "false_negative": 0,
+          "precision": 1.0,
+          "recall": 1.0
+        },
+        "retrieval": {
+          "n": 20,
+          "answerable": 16,
+          "top1": 1.0,
+          "mrr": 1.0,
+          "unanswerable": 4,
+          "correct_abstentions": 4,
+          "false_empty": 0,
+          "relevant_retained": 16,
+          "relevant_total": 16
+        },
+        "cosine_duplicate_at_0.90": {
+          "n": 28,
+          "accuracy": 0.8571428571428571,
+          "true_positive": 2,
+          "false_positive": 2,
+          "false_negative": 2,
+          "precision": 0.5,
+          "recall": 0.5
+        },
+        "dense_only_retrieval": {
+          "n": 20,
+          "answerable": 16,
+          "top1": 0.875,
+          "mrr": 0.9375,
+          "unanswerable": 4,
+          "correct_abstentions": 0,
+          "false_empty": 0,
+          "relevant_retained": 16,
+          "relevant_total": 16
+        },
+        "input_tokens": 40494,
+        "output_tokens": 3964,
+        "median_request_ms": 394.95556250039954
+      },
+      "mixed": {
+        "cases": 6,
+        "service_errors": 0,
+        "support": {
+          "n": 2,
+          "accuracy": 1.0,
+          "true_positive": 2,
+          "false_positive": 0,
+          "false_negative": 0,
+          "precision": 1.0,
+          "recall": 1.0
+        },
+        "citation_only_acceptance": {
+          "n": 2,
+          "accuracy": 1.0,
+          "true_positive": 2,
+          "false_positive": 0,
+          "false_negative": 0,
+          "precision": 1.0,
+          "recall": 1.0
+        },
+        "relation": {
+          "n": 2,
+          "correct": 2
+        },
+        "duplicate": {
+          "n": 2,
+          "accuracy": 1.0,
+          "true_positive": 2,
+          "false_positive": 0,
+          "false_negative": 0,
+          "precision": 1.0,
+          "recall": 1.0
+        },
+        "retrieval": {
+          "n": 2,
+          "answerable": 2,
+          "top1": 1.0,
+          "mrr": 1.0,
+          "unanswerable": 0,
+          "correct_abstentions": 0,
+          "false_empty": 0,
+          "relevant_retained": 2,
+          "relevant_total": 2
+        },
+        "cosine_duplicate_at_0.90": {
+          "n": 2,
+          "accuracy": 1.0,
+          "true_positive": 2,
+          "false_positive": 0,
+          "false_negative": 0,
+          "precision": 1.0,
+          "recall": 1.0
+        },
+        "dense_only_retrieval": {
+          "n": 2,
+          "answerable": 2,
+          "top1": 1.0,
+          "mrr": 1.0,
+          "unanswerable": 0,
+          "correct_abstentions": 0,
+          "false_empty": 0,
+          "relevant_retained": 2,
+          "relevant_total": 2
+        },
+        "input_tokens": 3246,
+        "output_tokens": 294,
+        "median_request_ms": 386.3376454974059
+      },
+      "ru": {
+        "cases": 14,
+        "service_errors": 0,
+        "support": {
+          "n": 6,
+          "accuracy": 0.6666666666666666,
+          "true_positive": 2,
+          "false_positive": 0,
+          "false_negative": 2,
+          "precision": 1.0,
+          "recall": 0.5
+        },
+        "citation_only_acceptance": {
+          "n": 6,
+          "accuracy": 0.6666666666666666,
+          "true_positive": 4,
+          "false_positive": 2,
+          "false_negative": 0,
+          "precision": 0.6666666666666666,
+          "recall": 1.0
+        },
+        "relation": {
+          "n": 6,
+          "correct": 6
+        },
+        "duplicate": {
+          "n": 6,
+          "accuracy": 0.6666666666666666,
+          "true_positive": 0,
+          "false_positive": 0,
+          "false_negative": 2,
+          "precision": null,
+          "recall": 0.0
+        },
+        "retrieval": {
+          "n": 2,
+          "answerable": 2,
+          "top1": 1.0,
+          "mrr": 1.0,
+          "unanswerable": 0,
+          "correct_abstentions": 0,
+          "false_empty": 0,
+          "relevant_retained": 2,
+          "relevant_total": 2
+        },
+        "cosine_duplicate_at_0.90": {
+          "n": 6,
+          "accuracy": 0.6666666666666666,
+          "true_positive": 0,
+          "false_positive": 0,
+          "false_negative": 2,
+          "precision": null,
+          "recall": 0.0
+        },
+        "dense_only_retrieval": {
+          "n": 2,
+          "answerable": 2,
+          "top1": 1.0,
+          "mrr": 1.0,
+          "unanswerable": 0,
+          "correct_abstentions": 0,
+          "false_empty": 0,
+          "relevant_retained": 2,
+          "relevant_total": 2
+        },
+        "input_tokens": 7056,
+        "output_tokens": 714,
+        "median_request_ms": 489.6930000031716
+      }
+    }
+  },
+  "execution_provenance": null,
+  "archive_provenance": {
+    "git_head": "b1516c73cbde8b443c0c1b5eb02f36146f6d310a",
+    "source_sha256": "3c362f90ab415dfe5d27705d2d3f4f4d1aefb52005712d8c2cbaf4006bdb44f4",
+    "files": {
+      "eval/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "eval/context_review.py": "270b61cfc4d11352006443010a59597e052d54c09da0ee8d3d63ef24cb17e1b6",
+      "eval/experiment.py": "c1693fb8862b19335fb98089603118c0570fb63d8866dc0d760daba5727fb913",
+      "eval/golden.py": "65638611b24d409e48c84bfcf70db909502cae9ddae33316510a55b9839c5b08",
+      "eval/reports.py": "6ce13068d438e93bf2117ae1e65cb714ca7d7e2ea346aa02c9e8d6884069eff9",
+      "eval/run.py": "95bf50942e643c8a029512698673a00c37b357bba3b97d3a8b8783203ac6f799",
+      "eval/semantic.py": "41fb6bd712f4cbe534e6c64104f6362d99ef0823e3c8096f732d78430267ebc3",
+      "eval/semantic_cases.py": "35aeb7f4c4ce96ee24230506d9b7dd17f96450fd47cfeca12019092455a4f3c1",
+      "eval/semantic_dedup.py": "14e2f9e8e9e547047ccf355847b8c67588e4c3bf2329c9bb95c09e221bb0301f",
+      "eval/semantic_extraction.py": "118e03c9bb5a0fa7e06109d6fae94b6d2cd6466717f60574f2b1401c2ab53543",
+      "eval/semantic_hybrid.py": "1f6e88b8ca309ef9f0507bdb59b57148403740d465ae96a9acfade1ddfea3ede",
+      "src/memkit/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "src/memkit/api.py": "e7d4c1856f5030c8502cc39cf965cf8d69680ac90b409baafdbee2a9f677aa26",
+      "src/memkit/auth.py": "558cb3292e4a0c0f635e7e505bbb287887b25f4927644d3524c7d5a376aaff30",
+      "src/memkit/cli.py": "8b604e64c8d9ff11356c4aa70f295cc75de9e3d2b0a3b13cfa5a3c214955fe05",
+      "src/memkit/config.py": "d553692af49d7a01398f03faef2427fbf5f52be6ecf322e9030d84eed34b2e84",
+      "src/memkit/consolidate.py": "123d0e6c2ee18575601f3d5563abb0c3bf7918907c4b2dd9bdfd68b1e9f2e9cb",
+      "src/memkit/db.py": "f90ba4ba62890ea02d4b62606df039348e8d1a875fa78bcda2ce36143c0c4075",
+      "src/memkit/embed.py": "bebfb614a5feef792dab3b88dd96b9b3deb15b992f414194568a477efea5bfef",
+      "src/memkit/entities.py": "00facdf7ceeef766d3369365b7273861fcc50aa3f3dd4d4886d7c6db59101da1",
+      "src/memkit/extract.py": "e3bf6252c20b63019a4492ab8875fc9fa3cc51bae95421853f8fffdbc6d64b7d",
+      "src/memkit/filters.py": "12459cea69879b4131146a804dc5b6c04b5e2ffa131652b8fa1177eb7c6a6ae1",
+      "src/memkit/importers/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "src/memkit/importers/claude_code.py": "4b1697106f0b8683e23db8714ab79de0dc99c5cdbd671ec1309a8f80253c6781",
+      "src/memkit/importers/sqlite_v6.py": "5f58c037abce61da274d897019c65d7035cbc3a3775e97a737f6d94854b080e8",
+      "src/memkit/jobs.py": "50bd3d25741eb811a2746ce3d013953398035428e8f7a9b16d34f3ff5df23104",
+      "src/memkit/judge.py": "7f5bd204ff1c21f3a098454c1dccd3a390968e19287b50bf6ccb175105979964",
+      "src/memkit/limits.py": "5b67b18d4e72600615c53ee8b728ea5665a164e60033534756366eded3a619fd",
+      "src/memkit/observability.py": "2c52d9522c78394ad50fb8b20a76eba99e6354d5110ec29335994a788d46b8d8",
+      "src/memkit/operations.py": "ddadca13310329423e56dafa47decb77fee9a30a65ae7bf1b8029c78d3a3e81f",
+      "src/memkit/outbox.py": "c322ee18803afdf09cb208bd45e801eca2f2714ec7b745e0959e2d88a21517d5",
+      "src/memkit/policies.py": "985160d0860ca0e58a670b19758a9be85a630a525de37140a4b7c5e22cdc9d91",
+      "src/memkit/principal.py": "a9a84c4f0e7ca41abf381dc4bd8f3803fecd1083220ba958307d2663feee566b",
+      "src/memkit/privacy.py": "df8f59c614a17fe5773b3dce7d885ca10729bcd0382d971e40158c71cb34dcd4",
+      "src/memkit/profiles.py": "a72756df37005b32ef903ff85275fd3e4717e92b13dab88e1f65fd7b1822c741",
+      "src/memkit/prompts.py": "15990bdfaee0dfe203a3fbb9a3a0a4763b4e979acf4879ae5d4285b0f3d82a01",
+      "src/memkit/provenance.py": "11732249cf6709f1a28788eaaf6105df6d0292a5f27149a06f9aa92ae7ef07b4",
+      "src/memkit/providers.py": "2a851b33ab3b2d4464c21400ad359db2c9c7982bff44b9aada6df0a4c74cf689",
+      "src/memkit/reextract.py": "566e687ee8e8a2e25e4462a08f29ad2fa142e152ee55128e980a3bd9dd1de7fb",
+      "src/memkit/reindex.py": "1c3145813943778bdd94f088c553cc4bc5288ea15461b06371a169a768b3207b",
+      "src/memkit/remote.py": "4db0b466e76f65561eea0800e272f1665ed53b0aec181cb5cbd9108da181c584",
+      "src/memkit/retrieval.py": "536adf3db3fffbd8352f1b8156d342b7e545accdc7f1221fb8cb16d615d5bbe7",
+      "src/memkit/routers/__init__.py": "c2f81de15b772736c92ca8257e341cfbc3625aa8d9ac050017e059845cacc6d0",
+      "src/memkit/routers/_adopt.py": "492fd498ff172dccff36b962a1e5f1cb693be6cc5e053b1b73fd4972d8af61dd",
+      "src/memkit/routers/evidence.py": "63655767f1150b25685c5142ee42f64207c0305b3225d12fa6b6c0e00b0ec221",
+      "src/memkit/routers/identity.py": "20a77f3455a0764263148f60c80c30b2f82392656347935a556cbdb10efa6d78",
+      "src/memkit/routers/memory.py": "2d1b6a528e65e7b7d71382a58b003e0eaf8e7ed82db0b33b221ed1eddc5e7054",
+      "src/memkit/routers/operations.py": "5a0a0c0a07ed56cfb692a78bcf856a70cf79c88f0c8b25fd0f6870d2377b2241",
+      "src/memkit/security.py": "fc463a70a8b077b276274a84c00f962f756eb6d667b1acd9f81f4a647eabe5a4",
+      "src/memkit/semantic.py": "e948d19d60255ed1d042aff085c90254c750c6d694e83b3a336e1bfa5326b361",
+      "src/memkit/semantic_questions.py": "44a4018909858c4d75d6b4f1214aeb36cbd4603490aa6c8a20d8f37dff78d5ba",
+      "src/memkit/semantic_runtime.py": "8b7ba080e1e1ba31f1e436dbf7ab2a1645379ba68c33b6adf1796a94386b5873",
+      "src/memkit/stats.py": "0de855e3cfd1db4b282a959749cb05f9ba52581b50bd8f9abe1405a499f5069a",
+      "src/memkit/store.py": "88df8a3cb7bd1e1100da0d3e3755b340da388244cce1b54f8b03e56d9c3f1909",
+      "src/memkit/telemetry.py": "d2e37db8712b916c2d7e69e94298d1cfdd974e32178af40bd4776d37edd4585b",
+      "src/memkit/users.py": "9752f043ba9351c30d923a201e4b073da2db46590a5760689cf98a5a4013a1eb",
+      "src/memkit/vectors.py": "c3a6461ed65e19c1c9ce6a3597a7c3e47a5aa653ad0fec918109138b0f7e814a",
+      "src/memkit/worker.py": "c0b570639ba098be5f935417371db15e0a896e4a66dea4c326b7fae95083affd"
+    }
+  },
+  "artifact_sha256": "8ec0080fc7122f64b299431230cd072f26f78d47ef7798906e44586faf3e4978"
+}

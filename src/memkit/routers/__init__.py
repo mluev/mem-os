@@ -4,18 +4,18 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 
-from . import evidence, memory, operations, platform, replay
+from . import evidence, identity, memory, operations
 
 
 def mount_domain_routers(app: FastAPI) -> None:
     """Move registered v1 endpoints into explicit domain routers.
 
-    Endpoint implementations retain one stable dependency surface while the
-    runtime/OpenAPI route graph is split by bounded context. This deliberately
-    runs after endpoint declaration so existing function imports and generated
-    SDK operation IDs remain compatible.
+    Endpoint implementations keep one dependency surface while the OpenAPI
+    route graph is grouped by bounded context, which is what gives the
+    generated SDKs stable, readable tags. This runs after declaration so
+    function imports and operation ids stay compatible.
     """
-    for module in (evidence, memory, platform, replay, operations):
+    for module in (identity, evidence, memory, operations):
         module.adopt(app)
 
 

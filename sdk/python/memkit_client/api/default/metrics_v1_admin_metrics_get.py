@@ -5,25 +5,46 @@ import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
+from ...models.http_validation_error import HTTPValidationError
 from ...models.metrics_out import MetricsOut
-from ...types import Response
+from ...types import UNSET, Response, Unset
 
 
-def _get_kwargs() -> dict[str, Any]:
+def _get_kwargs(
+    *,
+    x_requested_with: None | str | Unset = UNSET,
+    memkit_session: None | str | Unset = UNSET,
+) -> dict[str, Any]:
+    headers: dict[str, Any] = {}
+    if not isinstance(x_requested_with, Unset):
+        headers["x-requested-with"] = x_requested_with
+
+    cookies = {}
+    if memkit_session is not UNSET:
+        cookies["memkit_session"] = memkit_session
 
     _kwargs: dict[str, Any] = {
         "method": "get",
         "url": "/v1/admin/metrics",
+        "cookies": cookies,
     }
 
+    _kwargs["headers"] = headers
     return _kwargs
 
 
-def _parse_response(*, client: AuthenticatedClient | Client, response: httpx.Response) -> MetricsOut | None:
+def _parse_response(
+    *, client: AuthenticatedClient | Client, response: httpx.Response
+) -> HTTPValidationError | MetricsOut | None:
     if response.status_code == 200:
         response_200 = MetricsOut.from_dict(response.json())
 
         return response_200
+
+    if response.status_code == 422:
+        response_422 = HTTPValidationError.from_dict(response.json())
+
+        return response_422
 
     if client.raise_on_unexpected_status:
         raise errors.UnexpectedStatus(response.status_code, response.content)
@@ -31,7 +52,9 @@ def _parse_response(*, client: AuthenticatedClient | Client, response: httpx.Res
         return None
 
 
-def _build_response(*, client: AuthenticatedClient | Client, response: httpx.Response) -> Response[MetricsOut]:
+def _build_response(
+    *, client: AuthenticatedClient | Client, response: httpx.Response
+) -> Response[HTTPValidationError | MetricsOut]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -43,18 +66,29 @@ def _build_response(*, client: AuthenticatedClient | Client, response: httpx.Res
 def sync_detailed(
     *,
     client: AuthenticatedClient,
-) -> Response[MetricsOut]:
+    x_requested_with: None | str | Unset = UNSET,
+    memkit_session: None | str | Unset = UNSET,
+) -> Response[HTTPValidationError | MetricsOut]:
     """Metrics
+
+     Instance metrics for an administrator, own metrics for anyone else.
+
+    Args:
+        x_requested_with (None | str | Unset):
+        memkit_session (None | str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[MetricsOut]
+        Response[HTTPValidationError | MetricsOut]
     """
 
-    kwargs = _get_kwargs()
+    kwargs = _get_kwargs(
+        x_requested_with=x_requested_with,
+        memkit_session=memkit_session,
+    )
 
     response = client.get_httpx_client().request(
         **kwargs,
@@ -66,37 +100,58 @@ def sync_detailed(
 def sync(
     *,
     client: AuthenticatedClient,
-) -> MetricsOut | None:
+    x_requested_with: None | str | Unset = UNSET,
+    memkit_session: None | str | Unset = UNSET,
+) -> HTTPValidationError | MetricsOut | None:
     """Metrics
+
+     Instance metrics for an administrator, own metrics for anyone else.
+
+    Args:
+        x_requested_with (None | str | Unset):
+        memkit_session (None | str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        MetricsOut
+        HTTPValidationError | MetricsOut
     """
 
     return sync_detailed(
         client=client,
+        x_requested_with=x_requested_with,
+        memkit_session=memkit_session,
     ).parsed
 
 
 async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
-) -> Response[MetricsOut]:
+    x_requested_with: None | str | Unset = UNSET,
+    memkit_session: None | str | Unset = UNSET,
+) -> Response[HTTPValidationError | MetricsOut]:
     """Metrics
+
+     Instance metrics for an administrator, own metrics for anyone else.
+
+    Args:
+        x_requested_with (None | str | Unset):
+        memkit_session (None | str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[MetricsOut]
+        Response[HTTPValidationError | MetricsOut]
     """
 
-    kwargs = _get_kwargs()
+    kwargs = _get_kwargs(
+        x_requested_with=x_requested_with,
+        memkit_session=memkit_session,
+    )
 
     response = await client.get_async_httpx_client().request(**kwargs)
 
@@ -106,19 +161,29 @@ async def asyncio_detailed(
 async def asyncio(
     *,
     client: AuthenticatedClient,
-) -> MetricsOut | None:
+    x_requested_with: None | str | Unset = UNSET,
+    memkit_session: None | str | Unset = UNSET,
+) -> HTTPValidationError | MetricsOut | None:
     """Metrics
+
+     Instance metrics for an administrator, own metrics for anyone else.
+
+    Args:
+        x_requested_with (None | str | Unset):
+        memkit_session (None | str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        MetricsOut
+        HTTPValidationError | MetricsOut
     """
 
     return (
         await asyncio_detailed(
             client=client,
+            x_requested_with=x_requested_with,
+            memkit_session=memkit_session,
         )
     ).parsed

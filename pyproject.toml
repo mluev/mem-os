@@ -1,7 +1,7 @@
 [project]
 name = "memkit"
-version = "0.2.0"
-description = "Local memory service for agents: SQLite truth, Qdrant index, local embeddings, LLM judge"
+version = "0.3.0"
+description = "Team memory service for agents: Postgres truth, Qdrant index, local embeddings, LLM judge"
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "fastapi>=0.115",
@@ -9,6 +9,8 @@ dependencies = [
     "pydantic>=2.9",
     "pydantic-settings>=2.6",
     "qdrant-client==1.18.0",
+    "psycopg[binary,pool]>=3.2",
+    "argon2-cffi>=23.1",
     "sentence-transformers>=3.3",
     "anthropic>=0.40",
     "google-genai>=1.0",
@@ -16,6 +18,7 @@ dependencies = [
     "httpx>=0.28",
     "jsonschema>=4.25",
     "tiktoken>=0.11",
+    "numpy>=2.0",
     "cryptography>=50.0.0",
     "h2>=4.4.1",
 ]
@@ -26,6 +29,7 @@ dev = [
     "openapi-python-client>=0.26",
     "pytest>=8.3",
     "pytest-cov>=6.0",
+    "pytest-xdist>=3.6",
     "pip-audit>=2.9",
     "ruff>=0.12",
 ]
@@ -43,6 +47,7 @@ artifacts = ["src/memkit/web_dist"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "integrations/hermes/memkit" = "memkit/hermes_provider"
+"integrations/claude-code" = "memkit/claude_code_integration"
 "eval/queries.yaml" = "memkit/release_queries.yaml"
 
 [tool.ruff]
@@ -61,6 +66,7 @@ ignore = ["B008", "S110", "S608", "RUF001"]
 include = [
     "src/memkit",
     "integrations/hermes/memkit",
+    "integrations/claude-code",
     "eval/queries.yaml",
     "pyproject.toml",
     "README.md",

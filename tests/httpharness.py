@@ -7,11 +7,15 @@ Those are contract claims, and a doc cannot check them.
 
 What is stubbed and what is not
 -------------------------------
-The route bodies, the Pydantic validation, the dependency graph and the SQLite
-work are all real. Two things are replaced: Qdrant (a dict) and the embedder
-(a constant vector), because the real pair needs a container and an ~11 second
-torch/MPS model load. `api.lifespan` is swapped rather than patched piecemeal so
-startup ordering and `close_all()` on shutdown still run.
+The route bodies, the Pydantic validation, the dependency graph, the identity
+resolution and the database work are all real. Two things are replaced: Qdrant
+(a dict) and the embedder (a constant vector), because the real pair needs a
+container and an ~11 second torch/MPS model load. `api.lifespan` is swapped
+rather than patched piecemeal so startup ordering and `close_all()` on shutdown
+still run.
+
+Every case gets two users. A single-user harness cannot catch the failure this
+system most needs to avoid, which is one person's memory reaching another.
 
 Not covered here, deliberately, because all four are decided at import time from
 `_startup_settings` and testing them needs `importlib.reload` or a subprocess --
@@ -24,27 +28,19 @@ which would register a second `app` object and cause worse problems than the gap
 from __future__ import annotations
 
 import os
-import tempfile
-import threading
 import unittest
 from contextlib import asynccontextmanager
-from pathlib import Path
 from unittest.mock import patch
 
-# Belt and braces, and it must happen before memkit.config is imported: `.env`
-# sets MEMKIT_DB_PATH to the live database and api.py builds the settings
-# singleton at import time. A forgotten patch downstream must not be able to
-# open production data.
-_HARNESS_TMP = Path(tempfile.mkdtemp(prefix="memkit-http-"))
-os.environ["MEMKIT_DB_PATH"] = str(_HARNESS_TMP / "import-time-guard.db")
+from fastapi.testclient import TestClient
 
-from fastapi.testclient import TestClient  # noqa: E402
+from memkit import api, auth, config, outbox
+from memkit.db import ConnectionPool, connect, truncate_all
+from tests.fixtures import PASSWORD, StubEmbedder, StubQdrant, seed_team
 
-from memkit import api, config  # noqa: E402
-from memkit.db import ConnectionPool, ensure_owner, init_db, transaction  # noqa: E402
-from tests.fixtures import OWNER, StubEmbedder, StubQdrant  # noqa: E402
 
-TEST_KEY = "test-key"
+def fixtures_password() -> str:
+    return PASSWORD
 
 
 # The credential fields carry a `validation_alias`, which means pydantic accepts
@@ -53,6 +49,8 @@ TEST_KEY = "test-key"
 # here looks right, does nothing, and lets a test make a real billed API call.
 # Found the hard way: the first run of this suite called Gemini for real.
 _CREDENTIAL_ALIASES = {
+    "JEV": "",
+    "TYPESAFE_API_KEY": "",
     "ANTHROPIC_API_KEY": "",
     "GEMINI_API_KEY": "",
     "GOOGLE_API_KEY": "",
@@ -63,20 +61,17 @@ _CREDENTIAL_ALIASES = {
 }
 
 
-def test_settings(db_path: Path) -> config.Settings:
-    """Settings for one test: temp DB, known key, and no judge credentials.
+def test_settings() -> config.Settings:
+    """Settings for one test: the test database, and no judge credentials.
 
     Init kwargs outrank `.env` in pydantic-settings, so blanking every
     credential alias here is what keeps a test run offline. `assert_offline`
     below is the guard that this actually worked.
     """
     return config.Settings(
-        api_key=TEST_KEY,
-        api_key_file=None,
-        telemetry_hmac_key=TEST_KEY,
-        db_path=db_path,
-        owner_id=OWNER,
-        owner_name="test",
+        telemetry_hmac_key="test-hmac-key-that-is-long-enough-32ch",
+        database_url=os.environ["MEMKIT_DATABASE_URL"],
+        cookie_secure=False,
         monthly_cost_limit_usd=1.0,
         **_CREDENTIAL_ALIASES,
     )
@@ -92,7 +87,7 @@ def assert_offline(settings: config.Settings) -> None:
     """
     leaked = [
         name
-        for name in ("anthropic_api_key", "gemini_api_key", "vertex_project")
+        for name in ("anthropic_api_key", "gemini_api_key", "vertex_project", "jev_api_key")
         if getattr(settings, name)
     ]
     if leaked or api.judge_configured(settings):
@@ -106,17 +101,33 @@ def assert_offline(settings: config.Settings) -> None:
 @asynccontextmanager
 async def stub_lifespan(app):
     """Mirrors api.lifespan, minus the container and the model load."""
-    s = config.get_settings()
-    init_db(s.db_path)
-    app.state.db = ConnectionPool(s.db_path)
-    with transaction(app.state.db()):
-        ensure_owner(app.state.db(), s.owner_id, s.owner_name)
+    settings = config.get_settings()
+    app.state.db = ConnectionPool(settings.database_url)
     app.state.qdrant = StubQdrant()
     app.state.embedder = StubEmbedder()
-    app.state.reindex_lock = threading.Lock()
-    app.state.reindex_job = {"status": "idle"}
-    app.state.index_dirty = False
     app.state.embedder.load()
+    app.state.index_ready = True
+    app.state.index_error = None
+    app.state.maintenance = False
+    app.state.semantic = None
+    app.state.reranker = None
+    app.state.login_limiter = auth.RateLimiter()
+
+    class _InlineWorker:
+        """Drains on wake, so a test sees the index the request implied.
+
+        Production hands this to a background thread; doing it inline keeps
+        assertions about what reached the index deterministic.
+        """
+
+        def wake(self) -> None:
+            with app.state.db.borrow() as conn:
+                outbox.drain(conn, app.state.qdrant, app.state.embedder, limit=200)
+
+        def stop(self) -> None:
+            pass
+
+    app.state.worker = _InlineWorker()
     yield
     app.state.db.close_all()
 
@@ -132,14 +143,21 @@ class ApiTestCase(unittest.TestCase):
     """
 
     def setUp(self) -> None:
-        self.tmpdir = Path(tempfile.mkdtemp(prefix="memkit-case-"))
-        self.db_path = self.tmpdir / "t.db"
-        settings = test_settings(self.db_path)
+        settings = test_settings()
         assert_offline(settings)
         self.enterContext(patch.object(config, "_settings", settings))
+        seeder = connect(settings.database_url)
+        truncate_all(seeder)
+        self.team = seed_team(seeder)
+        self.alice_key = self.team.alice_key
+        self.bob_key = self.team.bob_key
+        seeder.close()
         self.enterContext(patch.object(api.app.router, "lifespan_context", stub_lifespan))
         self.client = self.enterContext(TestClient(api.app))
-        self.auth = {"X-API-Key": TEST_KEY}
+        # `auth` stays the default caller so existing single-user assertions
+        # read unchanged; `as_bob` is the other side of every isolation claim.
+        self.auth = {"X-API-Key": self.team.alice_key}
+        self.as_bob = {"X-API-Key": self.team.bob_key}
 
     # --- accessors -------------------------------------------------------
 
@@ -169,7 +187,7 @@ class ApiTestCase(unittest.TestCase):
     ) -> int:
         """Create a message through the real endpoint, so the session exists."""
         body = {"session_id": session_id, "role": role, "content": content, **kw}
-        r = self.client.post("/v1/messages", json=body, headers=self.auth)
+        r = self.client.post("/v1/evidence/events", json=body, headers=self.auth)
         self.assertEqual(r.status_code, 201, r.text)
         return r.json()["message_id"]
 
@@ -186,8 +204,13 @@ class ApiTestCase(unittest.TestCase):
         self.assertEqual(r.status_code, 201, r.text)
         return r.json()["id"]
 
-    def set_reindex_running(self) -> None:
-        api.app.state.reindex_job = {"status": "running"}
+    def login(self, who: str = "alice") -> dict[str, str]:
+        """Sign in with a password and return the header a cookie write needs."""
+        r = self.client.post(
+            "/v1/auth/login", json={"handle": who, "password": fixtures_password()}
+        )
+        self.assertEqual(r.status_code, 200, r.text)
+        return {"X-Requested-With": "memkit"}
 
     # --- assertions ------------------------------------------------------
 
@@ -235,4 +258,11 @@ def sample_path(path: str) -> str:
         .replace("{message_id}", "1")
         .replace("{session_id}", "s-1")
         .replace("{run_id}", "1")
+        .replace("{user_id}", "00000000-0000-0000-0000-000000000000")
+        .replace("{key_id}", "00000000-0000-0000-0000-000000000000")
+        .replace("{item_id}", "00000000-0000-0000-0000-000000000000")
+        .replace("{retrieval_id}", "00000000-0000-0000-0000-000000000000")
+        .replace("{slug}", "no-such-entity")
+        .replace("{job_id}", "00000000-0000-0000-0000-000000000000")
+        .replace("{alias}", "nobody")
     )

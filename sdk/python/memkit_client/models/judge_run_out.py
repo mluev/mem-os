@@ -14,19 +14,29 @@ class JudgeRunOut:
     """
     Attributes:
         id (int):
+        kind (str):
+        model (str):
     """
 
     id: int
+    kind: str
+    model: str
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         id = self.id
+
+        kind = self.kind
+
+        model = self.model
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
                 "id": id,
+                "kind": kind,
+                "model": model,
             }
         )
 
@@ -37,8 +47,14 @@ class JudgeRunOut:
         d = dict(src_dict)
         id = d.pop("id")
 
+        kind = d.pop("kind")
+
+        model = d.pop("model")
+
         judge_run_out = cls(
             id=id,
+            kind=kind,
+            model=model,
         )
 
         judge_run_out.additional_properties = d

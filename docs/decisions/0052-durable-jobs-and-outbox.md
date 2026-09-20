@@ -3,7 +3,8 @@
     Status:        accepted
     Date:          2026-08-09
     Supersedes:    0012, 0018
-    Superseded by: —
+    Superseded by: 0059, in part — Postgres replaces SQLite and advisory locks replace the
+                   owner barriers; the outbox, leases and generation reindex stand
     Evidence:      ../audits/2026-08-09-engineering-audit.md
     Code:          src/memkit/jobs.py, src/memkit/outbox.py, src/memkit/reindex.py
     Contract:      ../01-architecture.md

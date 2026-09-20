@@ -9,21 +9,30 @@ from ...client import AuthenticatedClient, Client
 from ...models.feedback_out import FeedbackOut
 from ...models.http_validation_error import HTTPValidationError
 from ...models.retrieval_run_feedback_in import RetrievalRunFeedbackIn
-from ...types import Response
+from ...types import UNSET, Response, Unset
 
 
 def _get_kwargs(
     retrieval_id: str,
     *,
     body: RetrievalRunFeedbackIn,
+    x_requested_with: None | str | Unset = UNSET,
+    memkit_session: None | str | Unset = UNSET,
 ) -> dict[str, Any]:
     headers: dict[str, Any] = {}
+    if not isinstance(x_requested_with, Unset):
+        headers["x-requested-with"] = x_requested_with
+
+    cookies = {}
+    if memkit_session is not UNSET:
+        cookies["memkit_session"] = memkit_session
 
     _kwargs: dict[str, Any] = {
         "method": "post",
         "url": "/v1/retrieval-runs/{retrieval_id}/feedback".format(
             retrieval_id=quote(str(retrieval_id), safe=""),
         ),
+        "cookies": cookies,
     }
 
     _kwargs["json"] = body.to_dict()
@@ -69,11 +78,15 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
     body: RetrievalRunFeedbackIn,
+    x_requested_with: None | str | Unset = UNSET,
+    memkit_session: None | str | Unset = UNSET,
 ) -> Response[FeedbackOut | HTTPValidationError]:
     """Retrieval Run Feedback
 
     Args:
         retrieval_id (str):
+        x_requested_with (None | str | Unset):
+        memkit_session (None | str | Unset):
         body (RetrievalRunFeedbackIn):
 
     Raises:
@@ -87,6 +100,8 @@ def sync_detailed(
     kwargs = _get_kwargs(
         retrieval_id=retrieval_id,
         body=body,
+        x_requested_with=x_requested_with,
+        memkit_session=memkit_session,
     )
 
     response = client.get_httpx_client().request(
@@ -101,11 +116,15 @@ def sync(
     *,
     client: AuthenticatedClient,
     body: RetrievalRunFeedbackIn,
+    x_requested_with: None | str | Unset = UNSET,
+    memkit_session: None | str | Unset = UNSET,
 ) -> FeedbackOut | HTTPValidationError | None:
     """Retrieval Run Feedback
 
     Args:
         retrieval_id (str):
+        x_requested_with (None | str | Unset):
+        memkit_session (None | str | Unset):
         body (RetrievalRunFeedbackIn):
 
     Raises:
@@ -120,6 +139,8 @@ def sync(
         retrieval_id=retrieval_id,
         client=client,
         body=body,
+        x_requested_with=x_requested_with,
+        memkit_session=memkit_session,
     ).parsed
 
 
@@ -128,11 +149,15 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
     body: RetrievalRunFeedbackIn,
+    x_requested_with: None | str | Unset = UNSET,
+    memkit_session: None | str | Unset = UNSET,
 ) -> Response[FeedbackOut | HTTPValidationError]:
     """Retrieval Run Feedback
 
     Args:
         retrieval_id (str):
+        x_requested_with (None | str | Unset):
+        memkit_session (None | str | Unset):
         body (RetrievalRunFeedbackIn):
 
     Raises:
@@ -146,6 +171,8 @@ async def asyncio_detailed(
     kwargs = _get_kwargs(
         retrieval_id=retrieval_id,
         body=body,
+        x_requested_with=x_requested_with,
+        memkit_session=memkit_session,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -158,11 +185,15 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
     body: RetrievalRunFeedbackIn,
+    x_requested_with: None | str | Unset = UNSET,
+    memkit_session: None | str | Unset = UNSET,
 ) -> FeedbackOut | HTTPValidationError | None:
     """Retrieval Run Feedback
 
     Args:
         retrieval_id (str):
+        x_requested_with (None | str | Unset):
+        memkit_session (None | str | Unset):
         body (RetrievalRunFeedbackIn):
 
     Raises:
@@ -178,5 +209,7 @@ async def asyncio(
             retrieval_id=retrieval_id,
             client=client,
             body=body,
+            x_requested_with=x_requested_with,
+            memkit_session=memkit_session,
         )
     ).parsed

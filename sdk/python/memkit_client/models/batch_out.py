@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any, TypeVar
 from attrs import define as _attrs_define
 
 if TYPE_CHECKING:
-    from ..models.message_out import MessageOut
+    from ..models.batch_out_items_item import BatchOutItemsItem
 
 
 T = TypeVar("T", bound="BatchOut")
@@ -17,11 +17,11 @@ class BatchOut:
     """
     Attributes:
         count (int):
-        items (list[MessageOut]):
+        items (list[BatchOutItemsItem]):
     """
 
     count: int
-    items: list[MessageOut]
+    items: list[BatchOutItemsItem]
 
     def to_dict(self) -> dict[str, Any]:
         count = self.count
@@ -44,7 +44,7 @@ class BatchOut:
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
-        from ..models.message_out import MessageOut
+        from ..models.batch_out_items_item import BatchOutItemsItem
 
         d = dict(src_dict)
         count = d.pop("count")
@@ -52,7 +52,7 @@ class BatchOut:
         items = []
         _items = d.pop("items")
         for items_item_data in _items:
-            items_item = MessageOut.from_dict(items_item_data)
+            items_item = BatchOutItemsItem.from_dict(items_item_data)
 
             items.append(items_item)
 

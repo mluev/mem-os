@@ -28,6 +28,7 @@ class MessageIn:
         created_at (datetime.datetime | None | Unset):
         external_id (None | str | Unset):
         external_source (None | str | Unset):
+        scope (None | str | Unset):
     """
 
     content: str
@@ -38,6 +39,7 @@ class MessageIn:
     created_at: datetime.datetime | None | Unset = UNSET
     external_id: None | str | Unset = UNSET
     external_source: None | str | Unset = UNSET
+    scope: None | str | Unset = UNSET
 
     def to_dict(self) -> dict[str, Any]:
         content = self.content
@@ -72,6 +74,12 @@ class MessageIn:
         else:
             external_source = self.external_source
 
+        scope: None | str | Unset
+        if isinstance(self.scope, Unset):
+            scope = UNSET
+        else:
+            scope = self.scope
+
         field_dict: dict[str, Any] = {}
 
         field_dict.update(
@@ -91,6 +99,8 @@ class MessageIn:
             field_dict["external_id"] = external_id
         if external_source is not UNSET:
             field_dict["external_source"] = external_source
+        if scope is not UNSET:
+            field_dict["scope"] = scope
 
         return field_dict
 
@@ -149,6 +159,15 @@ class MessageIn:
 
         external_source = _parse_external_source(d.pop("external_source", UNSET))
 
+        def _parse_scope(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        scope = _parse_scope(d.pop("scope", UNSET))
+
         message_in = cls(
             content=content,
             role=role,
@@ -158,6 +177,7 @@ class MessageIn:
             created_at=created_at,
             external_id=external_id,
             external_source=external_source,
+            scope=scope,
         )
 
         return message_in

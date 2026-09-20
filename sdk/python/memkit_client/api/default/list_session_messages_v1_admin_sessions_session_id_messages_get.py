@@ -14,9 +14,18 @@ from ...types import UNSET, Response, Unset
 def _get_kwargs(
     session_id: str,
     *,
-    limit: int | Unset = 100,
+    limit: int | Unset = 200,
     offset: int | Unset = 0,
+    x_requested_with: None | str | Unset = UNSET,
+    memkit_session: None | str | Unset = UNSET,
 ) -> dict[str, Any]:
+    headers: dict[str, Any] = {}
+    if not isinstance(x_requested_with, Unset):
+        headers["x-requested-with"] = x_requested_with
+
+    cookies = {}
+    if memkit_session is not UNSET:
+        cookies["memkit_session"] = memkit_session
 
     params: dict[str, Any] = {}
 
@@ -32,8 +41,10 @@ def _get_kwargs(
             session_id=quote(str(session_id), safe=""),
         ),
         "params": params,
+        "cookies": cookies,
     }
 
+    _kwargs["headers"] = headers
     return _kwargs
 
 
@@ -71,15 +82,19 @@ def sync_detailed(
     session_id: str,
     *,
     client: AuthenticatedClient,
-    limit: int | Unset = 100,
+    limit: int | Unset = 200,
     offset: int | Unset = 0,
+    x_requested_with: None | str | Unset = UNSET,
+    memkit_session: None | str | Unset = UNSET,
 ) -> Response[HTTPValidationError | SessionMessagesOut]:
     """List Session Messages
 
     Args:
         session_id (str):
-        limit (int | Unset):  Default: 100.
+        limit (int | Unset):  Default: 200.
         offset (int | Unset):  Default: 0.
+        x_requested_with (None | str | Unset):
+        memkit_session (None | str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -93,6 +108,8 @@ def sync_detailed(
         session_id=session_id,
         limit=limit,
         offset=offset,
+        x_requested_with=x_requested_with,
+        memkit_session=memkit_session,
     )
 
     response = client.get_httpx_client().request(
@@ -106,15 +123,19 @@ def sync(
     session_id: str,
     *,
     client: AuthenticatedClient,
-    limit: int | Unset = 100,
+    limit: int | Unset = 200,
     offset: int | Unset = 0,
+    x_requested_with: None | str | Unset = UNSET,
+    memkit_session: None | str | Unset = UNSET,
 ) -> HTTPValidationError | SessionMessagesOut | None:
     """List Session Messages
 
     Args:
         session_id (str):
-        limit (int | Unset):  Default: 100.
+        limit (int | Unset):  Default: 200.
         offset (int | Unset):  Default: 0.
+        x_requested_with (None | str | Unset):
+        memkit_session (None | str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -129,6 +150,8 @@ def sync(
         client=client,
         limit=limit,
         offset=offset,
+        x_requested_with=x_requested_with,
+        memkit_session=memkit_session,
     ).parsed
 
 
@@ -136,15 +159,19 @@ async def asyncio_detailed(
     session_id: str,
     *,
     client: AuthenticatedClient,
-    limit: int | Unset = 100,
+    limit: int | Unset = 200,
     offset: int | Unset = 0,
+    x_requested_with: None | str | Unset = UNSET,
+    memkit_session: None | str | Unset = UNSET,
 ) -> Response[HTTPValidationError | SessionMessagesOut]:
     """List Session Messages
 
     Args:
         session_id (str):
-        limit (int | Unset):  Default: 100.
+        limit (int | Unset):  Default: 200.
         offset (int | Unset):  Default: 0.
+        x_requested_with (None | str | Unset):
+        memkit_session (None | str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -158,6 +185,8 @@ async def asyncio_detailed(
         session_id=session_id,
         limit=limit,
         offset=offset,
+        x_requested_with=x_requested_with,
+        memkit_session=memkit_session,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -169,15 +198,19 @@ async def asyncio(
     session_id: str,
     *,
     client: AuthenticatedClient,
-    limit: int | Unset = 100,
+    limit: int | Unset = 200,
     offset: int | Unset = 0,
+    x_requested_with: None | str | Unset = UNSET,
+    memkit_session: None | str | Unset = UNSET,
 ) -> HTTPValidationError | SessionMessagesOut | None:
     """List Session Messages
 
     Args:
         session_id (str):
-        limit (int | Unset):  Default: 100.
+        limit (int | Unset):  Default: 200.
         offset (int | Unset):  Default: 0.
+        x_requested_with (None | str | Unset):
+        memkit_session (None | str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -193,5 +226,7 @@ async def asyncio(
             client=client,
             limit=limit,
             offset=offset,
+            x_requested_with=x_requested_with,
+            memkit_session=memkit_session,
         )
     ).parsed

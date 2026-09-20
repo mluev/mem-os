@@ -23,14 +23,14 @@ class PolicyIn:
         kind (PolicyInKind):
         name (str):
         version (int):
-        namespace (None | str | Unset):
+        scope (None | str | Unset):
     """
 
     config: PolicyInConfig
     kind: PolicyInKind
     name: str
     version: int
-    namespace: None | str | Unset = UNSET
+    scope: None | str | Unset = UNSET
 
     def to_dict(self) -> dict[str, Any]:
         config = self.config.to_dict()
@@ -41,11 +41,11 @@ class PolicyIn:
 
         version = self.version
 
-        namespace: None | str | Unset
-        if isinstance(self.namespace, Unset):
-            namespace = UNSET
+        scope: None | str | Unset
+        if isinstance(self.scope, Unset):
+            scope = UNSET
         else:
-            namespace = self.namespace
+            scope = self.scope
 
         field_dict: dict[str, Any] = {}
 
@@ -57,8 +57,8 @@ class PolicyIn:
                 "version": version,
             }
         )
-        if namespace is not UNSET:
-            field_dict["namespace"] = namespace
+        if scope is not UNSET:
+            field_dict["scope"] = scope
 
         return field_dict
 
@@ -75,21 +75,21 @@ class PolicyIn:
 
         version = d.pop("version")
 
-        def _parse_namespace(data: object) -> None | str | Unset:
+        def _parse_scope(data: object) -> None | str | Unset:
             if data is None:
                 return data
             if isinstance(data, Unset):
                 return data
             return cast(None | str | Unset, data)
 
-        namespace = _parse_namespace(d.pop("namespace", UNSET))
+        scope = _parse_scope(d.pop("scope", UNSET))
 
         policy_in = cls(
             config=config,
             kind=kind,
             name=name,
             version=version,
-            namespace=namespace,
+            scope=scope,
         )
 
         return policy_in

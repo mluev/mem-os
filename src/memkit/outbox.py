@@ -1,23 +1,20 @@
-"""Durable SQLite-to-Qdrant delivery."""
+"""Durable Postgres-to-Qdrant delivery."""
 
 from __future__ import annotations
 
-import fcntl
-import json
 import logging
-import sqlite3
 import uuid
 from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
-from hashlib import sha256
-from pathlib import Path
+from datetime import timedelta
 from typing import Any
 
+import psycopg
+from psycopg.types.json import Jsonb
 from qdrant_client import QdrantClient
 
 from . import vectors
-from .db import transaction, utcnow
+from .db import Row, advisory_lock, as_datetime, utcnow
 from .embed import Embedder
 
 logger = logging.getLogger(__name__)
@@ -30,7 +27,7 @@ class DrainOutcome:
 
 
 def enqueue(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     *,
     collection: str,
     entity_id: str | int,
@@ -41,126 +38,139 @@ def enqueue(
     if operation not in {"upsert", "delete"}:
         raise ValueError(f"unsupported outbox operation: {operation}")
     now = utcnow()
-    encoded = json.dumps(payload or {}, ensure_ascii=False, sort_keys=True)
-    cur = conn.execute(
+    row = conn.execute(
         """INSERT INTO index_outbox
-           (collection,entity_id,operation,payload_json,status,attempts,
+           (collection,entity_id,operation,payload,status,attempts,
             available_at,created_at,updated_at)
-           VALUES (?,?,?,?,'pending',0,?,?,?)""",
-        (collection, str(entity_id), operation, encoded, now, now, now),
-    )
-    return int(cur.lastrowid)
+           VALUES (%s,%s,%s,%s,'pending',0,%s,%s,%s)
+           RETURNING id""",
+        (collection, str(entity_id), operation, Jsonb(payload or {}), now, now, now),
+    ).fetchone()
+    if row is None:  # pragma: no cover - RETURNING cannot be empty here
+        raise RuntimeError("outbox insert returned no row")
+    return int(row["id"])
 
 
-def _database_path(conn: sqlite3.Connection) -> Path:
-    path = str(conn.execute("PRAGMA database_list").fetchone()[2])
-    if not path:
-        raise RuntimeError("index delivery barrier requires a file-backed SQLite database")
-    return Path(path)
+def index_lock_name(scope_id: str) -> str:
+    """The advisory lock guarding index writes for one scope.
+
+    Exported because erasure has to take the same one; when the two names drifted
+    apart, each held a lock nobody else wanted and a queued delivery could put
+    back a vector that erasure had just removed.
+    """
+    return f"memkit:index:{scope_id}"
 
 
 @contextmanager
-def owner_barrier(conn: sqlite3.Connection, owner_id: str):
-    """Cross-process barrier shared by owner erasure and external index writes."""
-    digest = sha256(owner_id.encode()).hexdigest()[:16]
-    lock_path = _database_path(conn).with_suffix(f".owner-{digest}.index.lock")
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    with lock_path.open("a+b") as lock:
-        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
-            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+def scope_barrier(conn: psycopg.Connection, scope_id: str):
+    """Cross-process barrier shared by erasure and external index writes.
+
+    A late delivery must not resurrect a vector that erasure just removed. The
+    SQLite build coordinated that with a lock file beside the database, which
+    only worked because every process shared a filesystem; an advisory lock is
+    held by the database itself, so it also holds between containers.
+    """
+    with conn.transaction():
+        advisory_lock(conn, index_lock_name(scope_id))
+        yield
 
 
 def _claim_next(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     *,
     ignore_schedule: bool,
     lease_seconds: int,
-) -> sqlite3.Row | None:
+) -> Row | None:
+    """Lease the next deliverable operation, or None.
+
+    Ordering per entity is the invariant: an upsert must never overtake an
+    earlier delete for the same point, or the index ends up holding a row the
+    store has dropped. That is why a candidate is only eligible when no earlier
+    operation for the same entity is still outstanding.
+
+    One statement, so two workers cannot lease the same row: the subquery takes
+    a row lock with SKIP LOCKED, which replaces the whole-database write lock
+    that BEGIN IMMEDIATE used to provide.
+    """
     now = utcnow()
-    expires = (
-        (datetime.now(UTC) + timedelta(seconds=lease_seconds))
-        .isoformat(timespec="seconds")
-        .replace("+00:00", "Z")
-    )
-    conn.commit()
-    conn.execute("BEGIN IMMEDIATE")
-    try:
+    with conn.transaction():
+        # Reclaim leases whose holder died before finishing.
         conn.execute(
             """UPDATE index_outbox
-                  SET status='pending',claim_token=NULL,lease_expires_at=NULL,updated_at=?
+                  SET status='pending',claim_token=NULL,lease_expires_at=NULL,updated_at=%s
                 WHERE status='processing' AND lease_expires_at IS NOT NULL
-                  AND lease_expires_at<=?""",
+                  AND lease_expires_at <= %s""",
             (now, now),
         )
-        schedule = "" if ignore_schedule else "AND candidate.available_at<=?"
-        params: tuple[Any, ...] = () if ignore_schedule else (now,)
+        schedule = "" if ignore_schedule else "AND candidate.available_at <= %(now)s"
         row = conn.execute(
-            f"""SELECT candidate.* FROM index_outbox candidate
-                  WHERE candidate.status='pending' {schedule}
-                    AND NOT EXISTS (
-                        SELECT 1 FROM index_outbox earlier
-                         WHERE earlier.collection=candidate.collection
-                           AND earlier.entity_id=candidate.entity_id
-                           AND earlier.id<candidate.id
-                           AND earlier.status IN ('pending','processing')
-                    )
-                  ORDER BY candidate.id LIMIT 1""",
-            params,
+            f"""UPDATE index_outbox SET
+                    status='processing',
+                    claim_token=%(token)s,
+                    lease_expires_at=%(expires)s,
+                    updated_at=%(now)s
+                WHERE id = (
+                    SELECT candidate.id FROM index_outbox candidate
+                     WHERE candidate.status='pending' {schedule}
+                       AND NOT EXISTS (
+                           SELECT 1 FROM index_outbox earlier
+                            WHERE earlier.collection=candidate.collection
+                              AND earlier.entity_id=candidate.entity_id
+                              AND earlier.id < candidate.id
+                              AND earlier.status IN ('pending','processing')
+                       )
+                     ORDER BY candidate.id
+                     FOR UPDATE SKIP LOCKED
+                     LIMIT 1
+                )
+                RETURNING *""",
+            {
+                "token": str(uuid.uuid4()),
+                "expires": now + timedelta(seconds=lease_seconds),
+                "now": now,
+            },
         ).fetchone()
-        if row is None:
-            conn.execute("COMMIT")
-            return None
-        token = str(uuid.uuid4())
-        changed = conn.execute(
-            """UPDATE index_outbox
-                  SET status='processing',claim_token=?,lease_expires_at=?,updated_at=?
-                WHERE id=? AND status='pending'""",
-            (token, expires, now, row["id"]),
-        ).rowcount
-        conn.execute("COMMIT")
-        if not changed:
-            return None
-        return conn.execute("SELECT * FROM index_outbox WHERE id=?", (row["id"],)).fetchone()
-    except Exception:
-        conn.execute("ROLLBACK")
-        raise
+    return row
 
 
 def _authoritative_upsert_exists(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     *,
     collection: str,
     entity_id: str,
-    owner_id: str,
+    scope_id: str,
 ) -> bool:
+    """Is the row this delivery describes still the truth?
+
+    Delivery happens after commit and can be retried much later, so the store
+    is rechecked immediately before the external write. Without this, a delete
+    that raced ahead of a queued upsert would be undone by it.
+    """
     if collection == vectors.MEMORIES:
         row = conn.execute(
-            "SELECT * FROM memories WHERE id=? AND owner_id=?",
-            (entity_id, owner_id),
+            "SELECT * FROM memories WHERE id=%s AND scope_id=%s",
+            (entity_id, scope_id),
         ).fetchone()
         return bool(row and store_memory_active(row))
     if collection == vectors.RAW:
         row = conn.execute(
             """SELECT 1 FROM messages m JOIN sessions s ON s.id=m.session_id
-                 WHERE m.id=? AND s.owner_id=?""",
-            (entity_id, owner_id),
+                 WHERE m.id=%s AND s.scope_id=%s""",
+            (int(entity_id), scope_id),
         ).fetchone()
         return row is not None
     return True
 
 
-def store_memory_active(row: sqlite3.Row) -> bool:
+def store_memory_active(row: Row) -> bool:
     if row["status"] != "active":
         return False
-    expiry = row["valid_until"]
-    return not expiry or str(expiry) > utcnow()
+    expiry = as_datetime(row["valid_until"])
+    return expiry is None or expiry > utcnow()
 
 
 def ensure_pending(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     *,
     collection: str,
     entity_id: str | int,
@@ -177,8 +187,102 @@ def ensure_pending(
     )
 
 
+def _precompute_vectors(rows: list[Row], embedder: Embedder) -> dict[int, list[float]]:
+    """Embed every upsert in one call.
+
+    Delivery used to embed one row at a time, each acquiring the embedder lock.
+    A hundred-event batch therefore serialised a hundred model calls, and the
+    evidence endpoints drained inline, so the HTTP response waited for all of
+    them. `reindex` already batched; this is the same shape.
+
+    Returns what it managed to embed. A batch failure is not fatal: the caller
+    falls back to a single-text call per row, so one unembeddable text cannot
+    poison the rest of the batch.
+    """
+    pending: list[tuple[int, str]] = []
+    for row in rows:
+        if row["operation"] != "upsert":
+            continue
+        text = str((row["payload"] or {}).get("text") or "")
+        if text:
+            pending.append((int(row["id"]), text))
+    if not pending:
+        return {}
+    try:
+        encoded = embedder.encode([text for _, text in pending])
+    except Exception as exc:
+        logger.warning("batch embedding failed; falling back per row: %s", exc)
+        return {}
+    return {row_id: vector for (row_id, _), vector in zip(pending, encoded, strict=True)}
+
+
+def _deliver(
+    conn: psycopg.Connection,
+    client: QdrantClient,
+    embedder: Embedder,
+    row: Row,
+    *,
+    vector: list[float] | None,
+    max_attempts: int,
+) -> bool:
+    """Deliver one claimed operation. True when applied, False when retained."""
+    token = row["claim_token"]
+    try:
+        payload = dict(row["payload"] or {})
+        scope_id = str(payload.get("scope_id") or "")
+        barrier = scope_barrier(conn, scope_id) if scope_id else nullcontext()
+        with barrier:
+            point_id: str | int = (
+                int(row["entity_id"]) if row["collection"] == vectors.RAW else row["entity_id"]
+            )
+            if row["operation"] == "delete":
+                vectors.delete_points(client, row["collection"], [point_id])
+            elif scope_id and not _authoritative_upsert_exists(
+                conn,
+                collection=row["collection"],
+                entity_id=str(row["entity_id"]),
+                scope_id=scope_id,
+            ):
+                logger.info("skipping obsolete index delivery %s", row["id"])
+            else:
+                text = str(payload.get("text") or "")
+                if not text:
+                    raise ValueError("outbox upsert payload has no text")
+                point_vector = vector if vector is not None else embedder.encode_one(text)
+                vectors.upsert(client, row["collection"], [(point_id, point_vector, payload)])
+    except Exception as exc:  # delivery must survive transient Qdrant failures
+        attempts = int(row["attempts"]) + 1
+        terminal = attempts >= max_attempts
+        delay = min(300, 2 ** min(attempts, 8))
+        conn.execute(
+            """UPDATE index_outbox
+                  SET status=%s,attempts=%s,available_at=%s,last_error=%s,updated_at=%s,
+                      claim_token=NULL,lease_expires_at=NULL
+                WHERE id=%s AND status='processing' AND claim_token=%s""",
+            (
+                "failed" if terminal else "pending",
+                attempts,
+                utcnow() + timedelta(seconds=delay),
+                str(exc)[:1000],
+                utcnow(),
+                row["id"],
+                token,
+            ),
+        )
+        logger.warning("index delivery %s failed: %s", row["id"], exc)
+        return False
+    conn.execute(
+        """UPDATE index_outbox
+              SET status='done',last_error=NULL,updated_at=%s,claim_token=NULL,
+                  lease_expires_at=NULL
+            WHERE id=%s AND status='processing' AND claim_token=%s""",
+        (utcnow(), row["id"], token),
+    )
+    return True
+
+
 def drain(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     client: QdrantClient,
     embedder: Embedder,
     *,
@@ -186,84 +290,50 @@ def drain(
     max_attempts: int = 8,
     ignore_schedule: bool = False,
     claim_lease_seconds: int = 300,
+    batch_size: int = 32,
 ) -> DrainOutcome:
-    """Apply pending operations idempotently and retain failures for retry."""
+    """Apply pending operations idempotently and retain failures for retry.
+
+    Claims in batches so the embedder is called once per batch rather than once
+    per row; each row is still delivered and marked individually, so a poison
+    row fails alone.
+    """
     applied = failed = 0
-    for _ in range(limit):
-        row = _claim_next(
-            conn,
-            ignore_schedule=ignore_schedule,
-            lease_seconds=claim_lease_seconds,
-        )
-        if row is None:
-            break
-        token = row["claim_token"]
-        try:
-            payload = json.loads(row["payload_json"])
-            owner_id = str(payload.get("owner_id") or "")
-            barrier = owner_barrier(conn, owner_id) if owner_id else nullcontext()
-            with barrier:
-                point_id: str | int = (
-                    int(row["entity_id"]) if row["collection"] == vectors.RAW else row["entity_id"]
-                )
-                if row["operation"] == "delete":
-                    vectors.delete_points(client, row["collection"], [point_id])
-                elif owner_id and not _authoritative_upsert_exists(
-                    conn,
-                    collection=row["collection"],
-                    entity_id=str(row["entity_id"]),
-                    owner_id=owner_id,
-                ):
-                    logger.info("skipping obsolete index delivery %s", row["id"])
-                else:
-                    text = str(payload.get("text") or "")
-                    if not text:
-                        raise ValueError("outbox upsert payload has no text")
-                    vector = embedder.encode_one(text)
-                    vectors.upsert(client, row["collection"], [(point_id, vector, payload)])
-        except Exception as exc:  # delivery must survive transient Qdrant failures
-            attempts = int(row["attempts"]) + 1
-            terminal = attempts >= max_attempts
-            delay = min(300, 2 ** min(attempts, 8))
-            available = (
-                (datetime.now(UTC) + timedelta(seconds=delay))
-                .isoformat(timespec="seconds")
-                .replace("+00:00", "Z")
+    remaining = limit
+    while remaining > 0:
+        rows: list[Row] = []
+        for _ in range(min(batch_size, remaining)):
+            row = _claim_next(
+                conn,
+                ignore_schedule=ignore_schedule,
+                lease_seconds=claim_lease_seconds,
             )
-            with transaction(conn):
-                conn.execute(
-                    """UPDATE index_outbox
-                          SET status=?,attempts=?,available_at=?,last_error=?,updated_at=?,
-                              claim_token=NULL,lease_expires_at=NULL
-                        WHERE id=? AND status='processing' AND claim_token=?""",
-                    (
-                        "failed" if terminal else "pending",
-                        attempts,
-                        available,
-                        str(exc)[:1000],
-                        utcnow(),
-                        row["id"],
-                        token,
-                    ),
-                )
-            logger.warning("index delivery %s failed: %s", row["id"], exc)
-            failed += 1
-        else:
-            with transaction(conn):
-                conn.execute(
-                    """UPDATE index_outbox
-                          SET status='done',last_error=NULL,updated_at=?,claim_token=NULL,
-                              lease_expires_at=NULL
-                        WHERE id=? AND status='processing' AND claim_token=?""",
-                    (utcnow(), row["id"], token),
-                )
-            applied += 1
+            if row is None:
+                break
+            rows.append(row)
+        if not rows:
+            break
+        precomputed = _precompute_vectors(rows, embedder)
+        for row in rows:
+            if _deliver(
+                conn,
+                client,
+                embedder,
+                row,
+                vector=precomputed.get(int(row["id"])),
+                max_attempts=max_attempts,
+            ):
+                applied += 1
+            else:
+                failed += 1
+        remaining -= len(rows)
     return DrainOutcome(applied=applied, failed=failed)
 
 
-def pending_count(conn: sqlite3.Connection) -> int:
+def pending_count(conn: psycopg.Connection) -> int:
     return int(
         conn.execute(
-            "SELECT COUNT(*) FROM index_outbox WHERE status IN ('pending','processing','failed')"
+            "SELECT COUNT(*) AS n FROM index_outbox\n"
+            "             WHERE status IN ('pending','processing','failed')"
         ).fetchone()[0]
     )
