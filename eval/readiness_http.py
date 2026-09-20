@@ -165,11 +165,38 @@ def http_server():
                 raise RuntimeError("benchmark HTTP service did not shut down")
 
 
-def seed(client: httpx.Client, conn, corpus: dict, distractors: int) -> tuple[dict, dict]:
+def fixture_request(client, method: str, path: str, body: dict, retries: list) -> httpx.Response:
+    """Retry only explicit maintenance refusal during setup; never measured searches."""
+    for attempt in range(6):
+        response = client.request(method, path, json=body)
+        if response.is_success:
+            return response
+        try:
+            detail = response.json().get("detail")
+        except ValueError:
+            detail = None
+        if (
+            attempt == 5
+            or response.status_code != 503
+            or detail != "memory maintenance is in progress; retry shortly"
+            or "Retry-After" not in response.headers
+        ):
+            raise RuntimeError(
+                f"Fixture {method} {path}: HTTP {response.status_code}: {response.text}"
+            )
+        event = {"path": path, "status": response.status_code, "detail": detail}
+        retries.append(event)
+        print(json.dumps({"fixture_retry": event}), flush=True)
+        time.sleep(min(max(float(response.headers["Retry-After"]), 0), 5))
+    raise AssertionError("bounded fixture request exhausted without an outcome")
+
+
+def seed(client: httpx.Client, conn, corpus: dict, distractors: int) -> tuple[dict, dict, list]:
     from memkit import extract, outbox, store
     from memkit.api import app
 
     memory_ids, message_ids = {}, {}
+    retries: list[dict] = []
     by_key = {}
     for item in corpus["memories"]:
         body = {
@@ -178,20 +205,24 @@ def seed(client: httpx.Client, conn, corpus: dict, distractors: int) -> tuple[di
             "source_role": item.get("source_role", "user"),
             "context": {"scenario": item["family"]},
         }
-        response = client.post("/v1/memories", json=body)
-        response.raise_for_status()
+        response = fixture_request(client, "POST", "/v1/memories", body, retries)
         memory_id = response.json()["id"]
         memory_ids[memory_id] = item["id"]
         by_key[item["id"]] = memory_id
         if "initial_text" in item:
-            response = client.patch(
-                f"/v1/memories/{memory_id}", json={"expected_revision": 1, "text": item["text"]}
+            fixture_request(
+                client,
+                "PATCH",
+                f"/v1/memories/{memory_id}",
+                {"expected_revision": 1, "text": item["text"]},
+                retries,
             )
-            response.raise_for_status()
     for item in corpus["evidence"]:
-        response = client.post(
+        response = fixture_request(
+            client,
+            "POST",
             "/v1/evidence/events",
-            json={
+            {
                 "session_id": "readiness-" + item["family"],
                 "agent_id": "readiness-fixture",
                 "role": item.get("role", "user"),
@@ -199,8 +230,8 @@ def seed(client: httpx.Client, conn, corpus: dict, distractors: int) -> tuple[di
                 "created_at": item["created_at"],
                 "context": {"scenario": item["family"]},
             },
+            retries,
         )
-        response.raise_for_status()
         message_id = response.json()["message_id"]
         message_ids[message_id] = item["id"]
         if item.get("supports"):
@@ -241,7 +272,7 @@ def seed(client: httpx.Client, conn, corpus: dict, distractors: int) -> tuple[di
             "SELECT count(*) AS n FROM index_outbox WHERE status<>'done'"
         ).fetchone()["n"]
         if not pending:
-            return memory_ids, message_ids
+            return memory_ids, message_ids, retries
         time.sleep(0.1)
     raise RuntimeError("fixture index delivery did not finish")
 
@@ -425,7 +456,9 @@ def main() -> int:
                 httpx.Client(base_url=url, headers={"X-API-Key": key.token}, timeout=90) as client,
             ):
                 startup_ms = (time.perf_counter() - startup) * 1000
-                memory_ids, message_ids = seed(client, conn, corpus, args.distractors)
+                memory_ids, message_ids, fixture_retries = seed(
+                    client, conn, corpus, args.distractors
+                )
                 from memkit.api import app
 
                 if (
@@ -513,6 +546,7 @@ def main() -> int:
                     },
                     "startup_ms": round(startup_ms, 2),
                     "paid_provider_enabled": args.semantic != "off",
+                    "fixture_retries": fixture_retries,
                 }
     folder = archive(
         artifact,
