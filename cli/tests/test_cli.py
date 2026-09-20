@@ -382,6 +382,46 @@ def test_remote_compose_persists_data_and_binds_loopback():
         worker.image_check("example/memos:latest")
 
 
+def test_retry_incomplete_install_repairs_legacy_cache_ownership(tmp_path, monkeypatch):
+    worker = worker_module()
+    calls = []
+
+    def fail_initial_ownership(argv, **kwargs):
+        if "chown" in argv:
+            raise RuntimeError("ownership setup interrupted")
+        return ""
+
+    monkeypatch.setattr(worker, "run", fail_initial_ownership)
+    payload = {
+        "action": "install",
+        "directory": str(tmp_path),
+        "image": "memos:test",
+        "handle": "owner",
+        "password": "test-only",
+    }
+    with pytest.raises(RuntimeError, match="ownership setup interrupted"):
+        worker.perform(payload)
+    original_env = (tmp_path / "server.env").read_bytes()
+    config_path = tmp_path / "compose.json"
+    config = json.loads(config_path.read_text())
+    config["services"]["app"]["volumes"][0] = "models:/models"
+    config_path.write_text(json.dumps(config))
+
+    def retry(argv, **kwargs):
+        calls.append(argv)
+        if "up" in argv:
+            assert any("chown" in call for call in calls)
+            volumes = json.loads(config_path.read_text())["services"]["app"]["volumes"]
+            assert "models:/models:nocopy" in volumes
+        return '{"existing":true}' if worker.BOOTSTRAP in argv else ""
+
+    monkeypatch.setattr(worker, "run", retry)
+    result = worker.perform(payload)
+    assert result["installed"] is True
+    assert (tmp_path / "server.env").read_bytes() == original_env
+    assert not json.loads((tmp_path / ".memos-managed.json").read_text()).get("provisioning")
+
+
 def test_no_server_imports_in_fresh_process():
     root = Path(__file__).resolve().parents[1] / "src"
     source = "from memos_cli.cli import parser_tree; parser_tree(); import sys; assert not any(n in sys.modules for n in ('memkit','torch','sentence_transformers','psycopg','qdrant_client'))"

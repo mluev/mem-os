@@ -155,6 +155,15 @@ c.close()
 """
 
 
+RESTORE = """import os,subprocess,sys
+subprocess.run([
+ 'pg_restore','--dbname',os.environ['MEMKIT_DATABASE_URL'],
+ '--clean','--if-exists','--no-owner','--no-privileges',
+ '--single-transaction','--exit-on-error',sys.argv[1],
+],check=True)
+"""
+
+
 def perform(payload):
     action = payload["action"]
     directory = Path(payload["directory"]).expanduser()
@@ -301,6 +310,16 @@ def locked(p, directory, marker):
             for name in ("backups", "exports", "imports"):
                 folder = directory / name
                 folder.mkdir(mode=0o700, exist_ok=True)
+        elif action == "install" and metadata["image"] != p["image"]:
+            raise RuntimeError("Already installed with another image; use memos server upgrade.")
+        if action == "install" and metadata.get("provisioning"):
+            # Retry initialization after an interrupted install without rotating
+            # credentials. Repair the empty-cache mount of older provisioners.
+            config = json.loads((directory / "compose.json").read_text())
+            volumes = config["services"]["app"]["volumes"]
+            if "models:/models" in volumes:
+                volumes[volumes.index("models:/models")] = "models:/models:nocopy"
+                write(directory / "compose.json", json.dumps(config, indent=2))
             # Ownership adjustment happens on the remote Docker host only.
             dc(
                 "run",
@@ -316,8 +335,6 @@ def locked(p, directory, marker):
                 "/exports",
                 "/models",
             )
-        elif action == "install" and metadata["image"] != p["image"]:
-            raise RuntimeError("Already installed with another image; use memos server upgrade.")
         if action == "upgrade":
             old_image = metadata["image"]
             schema_command = [
@@ -466,17 +483,19 @@ def locked(p, directory, marker):
                     "Other database clients remain; app left stopped. Disconnect them before restoring."
                 )
             recovery = create_backup("--protected")
-            restore = "import os,subprocess,sys; e=dict(os.environ,PGDATABASE=os.environ['MEMKIT_DATABASE_URL']); subprocess.run(['pg_restore','--clean','--if-exists','--no-owner','--no-privileges','--exit-on-error',sys.argv[1]],env=e,check=True)"
+            stage = "database restore"
             try:
-                dc("run", "--rm", "--no-deps", "app", "python", "-c", restore, artifact["path"])
+                dc("run", "--rm", "--no-deps", "app", "python", "-c", RESTORE, artifact["path"])
+                stage = "index rebuild"
                 dc("run", "--rm", "--no-deps", "app", "memkit", "reindex")
+                stage = "service startup"
                 dc("up", "-d", "--wait", "--wait-timeout", "600")
                 ready()
             except Exception:
                 with contextlib.suppress(RuntimeError):
                     dc("stop", "app")
                 raise RuntimeError(
-                    f"Restore failed; app stop requested. Inspect server status before restarting. Recovery backup: {recovery['id']}"
+                    f"Restore failed during {stage}; app stop requested. Inspect server status before restarting. Recovery backup: {recovery['id']}"
                 ) from None
             return {"restored": artifact["id"], "recovery_backup": recovery["id"]}
         return {"verified": True, "path": str(path), "sha256": artifact["sha256"]}
