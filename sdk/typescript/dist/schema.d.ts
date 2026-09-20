@@ -408,8 +408,9 @@ export interface paths {
          * Resolve Attention
          * @description Place an unresolved name, or dismiss the item.
          *
-         *     Linking does two things at once on purpose: it attributes the memory to the
-         *     person and teaches the alias, so the same name resolves by itself next time.
+         *     Linking attributes the memory to a visible entity. It also teaches the
+         *     alias when the caller can edit that entity; `alias_taught` reports that
+         *     additional change explicitly.
          */
         post: operations["resolve_attention_v1_attention__item_id__resolve_post"];
         delete?: never;

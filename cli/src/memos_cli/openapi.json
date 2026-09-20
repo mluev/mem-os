@@ -6890,7 +6890,7 @@
     },
     "/v1/attention/{item_id}/resolve": {
       "post": {
-        "description": "Place an unresolved name, or dismiss the item.\n\nLinking does two things at once on purpose: it attributes the memory to the\nperson and teaches the alias, so the same name resolves by itself next time.",
+        "description": "Place an unresolved name, or dismiss the item.\n\nLinking attributes the memory to a visible entity. It also teaches the\nalias when the caller can edit that entity; `alias_taught` reports that\nadditional change explicitly.",
         "operationId": "resolve_attention_v1_attention__item_id__resolve_post",
         "parameters": [
           {

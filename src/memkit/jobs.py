@@ -12,6 +12,7 @@ from datetime import timedelta
 from typing import Any
 
 import psycopg
+from psycopg.conninfo import make_conninfo
 from psycopg.types.json import Jsonb
 
 from .db import ConnectionPool, Row, advisory_lock, connect, transaction, utcnow
@@ -168,7 +169,9 @@ def heartbeat(
 
     def renew_once() -> bool:
         if pool is None:
-            with connect(conn.info.dsn) as beat_conn:
+            # libpq omits passwords from info.dsn. Preserve the credential for
+            # standalone CLI operations that do not have a pool to borrow.
+            with connect(make_conninfo(conn.info.dsn, password=conn.info.password)) as beat_conn:
                 return renew(beat_conn, job_id, holder=holder, lease_seconds=lease_seconds)
         with pool.borrow() as beat_conn:
             return renew(beat_conn, job_id, holder=holder, lease_seconds=lease_seconds)

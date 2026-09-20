@@ -58,6 +58,22 @@ def test_expired_holder_cannot_renew(clean_database):
     assert jobs.renew(conn, job_id, holder="old") is False
 
 
+def test_standalone_heartbeat_reconnects_with_original_database_credentials(clean_database):
+    conn = clean_database
+    job_id = jobs.create(conn, kind="test")
+    claimed = jobs.claim(conn, job_id, holder="standalone", lease_seconds=2)
+    with jobs.heartbeat(
+        conn, job_id, holder="standalone", interval_seconds=0.01, lease_seconds=60
+    ) as lost:
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline and not lost.wait(0.01):
+            current = jobs.get(conn, job_id)
+            if current["lease_expires_at"] > claimed["lease_expires_at"]:
+                break
+        assert not lost.is_set()
+        assert jobs.get(conn, job_id)["lease_expires_at"] > claimed["lease_expires_at"]
+
+
 def test_stale_completion_cannot_overwrite_reclaimed_job(clean_database):
     conn = clean_database
     job_id = jobs.create(conn, kind="test")

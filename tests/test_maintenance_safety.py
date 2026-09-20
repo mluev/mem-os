@@ -269,7 +269,7 @@ def _postgres_tools_on_path(monkeypatch):
     """Use the PostgreSQL installation the isolated test fixture discovered."""
     from tests.conftest import _pg_bin
 
-    binary_dir = _pg_bin()
+    binary_dir = os.environ.get("MEMKIT_TEST_PG_CLIENT_BIN") or _pg_bin()
     if binary_dir:
         monkeypatch.setenv("PATH", binary_dir + os.pathsep + os.environ["PATH"])
 

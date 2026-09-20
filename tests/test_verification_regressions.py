@@ -9,6 +9,7 @@ correction that reported success while writing the wrong revision.
 
 from __future__ import annotations
 
+import os
 import unittest
 from datetime import UTC, datetime, timedelta
 
@@ -178,12 +179,14 @@ class OutboxDeliveryTest(unittest.TestCase):
 class ClaimExclusivityTest(unittest.TestCase):
     def setUp(self) -> None:
         self.conn = make_db()
+        self.addCleanup(self.conn.close)
 
     def test_two_jobs_cannot_claim_the_same_conversation_window(self) -> None:
         """A window is one provider call, so a double claim is a double bill."""
         add_messages(self.conn, n=1, content="remember tea")
         first = extract.claim_window(self.conn, session_id="s-1", job_id="job-a")
-        second = extract.claim_window(connect(self.conn.info.dsn), session_id="s-1", job_id="job-b")
+        with connect(os.environ["MEMKIT_DATABASE_URL"]) as other:
+            second = extract.claim_window(other, session_id="s-1", job_id="job-b")
         self.assertEqual(len(first), 1)
         self.assertEqual(second, [])
 
