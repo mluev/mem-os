@@ -50,6 +50,8 @@ jobs:
       - run: uv pip install --python /tmp/memos-client/bin/python ./cli
       - name: Build the server image with visible diagnostics
         run: docker build --progress=plain -t memos-smoke:one .
+      - name: Check cache ownership across fresh containers
+        run: /tmp/memos-client/bin/python tools/smoke_memos_volumes.py --image memos-smoke:one
       - name: Configure disposable SSH target
         run: |
           sudo apt-get update

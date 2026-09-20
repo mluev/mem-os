@@ -104,7 +104,9 @@ def compose_config(image, port, secure):
                 },
                 "ports": [f"127.0.0.1:{port}:8077"],
                 "volumes": [
-                    "models:/models",
+                    # Keep the ownership established below even while empty;
+                    # Docker's copy-up would restore the image's UID (10001).
+                    "models:/models:nocopy",
                     "./backups:/backups",
                     "./exports:/exports",
                     "./imports:/imports:ro",
