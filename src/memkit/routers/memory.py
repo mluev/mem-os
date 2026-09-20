@@ -823,10 +823,12 @@ def review_queue(
         rows = conn.execute(
             """SELECT n.*, m.text AS memory_text FROM needs_attention n
                  LEFT JOIN memories m ON m.id = n.ref_memory_id
+                   AND m.scope_id = ANY(%s)
                 WHERE n.user_id=%s AND n.status='open'
                   AND n.kind = ANY(%s)
                 ORDER BY n.created_at DESC LIMIT %s OFFSET %s""",
             (
+                principal.scopes(),
                 principal.user_id,
                 ["unresolved_mention", "conflict"] if kind is None else [kind],
                 limit,
@@ -871,7 +873,7 @@ def review_queue(
                     "actions": ["dismiss"],
                 }
             )
-    if kind in (None, "budget"):
+    if principal.is_admin and kind in (None, "budget"):
         spend = float(
             (
                 conn.execute(
@@ -960,8 +962,9 @@ def resolve_attention(
 ) -> FlexibleOut:
     """Place an unresolved name, or dismiss the item.
 
-    Linking does two things at once on purpose: it attributes the memory to the
-    person and teaches the alias, so the same name resolves by itself next time.
+    Linking attributes the memory to a visible entity. It also teaches the
+    alias when the caller can edit that entity; `alias_taught` reports that
+    additional change explicitly.
     """
     row = conn.execute(
         "SELECT * FROM needs_attention WHERE id=%s AND user_id=%s AND status='open'",
@@ -980,6 +983,7 @@ def resolve_attention(
         if body.action == "link_entity":
             if not body.entity:
                 raise HTTPException(422, "link_entity requires an entity")
+            principal_module.resolve_subject(conn, principal, body.entity)
             target = entities.by_slug(conn, body.entity)
             if target is None:
                 raise HTTPException(404, "unknown entity")
@@ -1008,7 +1012,7 @@ def resolve_attention(
                         # name resolved at extraction time.
                         scope_id=str(team["id"]) if team and target["kind"] == "user" else None,
                     )
-            if name:
+            if name and (principal.may_write(str(target["id"])) or principal.is_admin):
                 entities.add_aliases(conn, entity_id=str(target["id"]), aliases=[name])
                 resolution["alias_taught"] = name
             resolution["entity_id"] = str(target["id"])

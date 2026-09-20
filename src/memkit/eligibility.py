@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from typing import Any
 
@@ -37,8 +38,12 @@ def filter_sql(expression: dict[str, Any] | None, *, alias: str = "m") -> tuple[
         f"jsonb_build_object('kind',{alias}.kind,'agent_id',{alias}.agent_id,"
         f"'context',{alias}.context,'tags',{alias}.tags,'subject_id',{alias}.subject_id)"
     )
-    value = f"COALESCE({doc} #> %s::text[], 'null'::jsonb)"
-    path = expression["field"].split(".")
+    # Strict object traversal matches filters.matches; #> would also treat a
+    # numeric component as an array index, which the public filter algebra does not.
+    value = (
+        f"COALESCE(jsonb_path_query_first({doc}, %s::jsonpath, '{{}}'::jsonb, true), 'null'::jsonb)"
+    )
+    path = "strict $." + ".".join(json.dumps(part) for part in expression["field"].split("."))
     operation = expression["op"]
     if operation == "exists":
         return f"{value} <> 'null'::jsonb", [path]
@@ -91,8 +96,12 @@ def vector_filters(expression: dict[str, Any] | None, *, raw: bool = False) -> l
         return []
     if key not in {"kind", "agent_id", "subject_id", "tags"} and not key.startswith("context."):
         return []
-    if operation == "eq" and isinstance(value, (str, bool, int)):
+    if operation == "eq" and isinstance(value, (str, bool)):
         return [models.FieldCondition(key=key, match=models.MatchValue(value=value))]
+    # Server integer MatchValue excludes 1.0, although JSON numeric equality
+    # accepts it. Range preserves numeric equality without matching booleans.
+    if operation == "eq" and isinstance(value, int) and abs(value) <= 2**53:
+        return [models.FieldCondition(key=key, range=models.Range(gte=value, lte=value))]
     if operation == "in" and value and all(isinstance(item, str) for item in value):
         return [vectors.keyword(key, value)]
     return []

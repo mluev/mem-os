@@ -294,6 +294,9 @@ class CoreReadinessTest(unittest.TestCase):
             {"field": "unknown", "op": "eq", "value": None},
             {"field": "context.nested.count", "op": "in", "value": [1, 3]},
             {"field": "tags", "op": "in", "value": []},
+            {"field": "context.nested.items.0", "op": "eq", "value": True},
+            {"field": "context.nested.items.0", "op": "absent"},
+            {"field": "tags.0", "op": "eq", "value": "alpha"},
         ]
         for expression in expressions:
             with self.subTest(expression=expression):
@@ -312,7 +315,7 @@ class CoreReadinessTest(unittest.TestCase):
             vectors.ensure_collections(client)
             wanted = self.add(
                 "Durable package preference",
-                context={"project": "wanted"},
+                context={"project": "wanted", "priority": 1.0},
                 subject_id=self.team.scope_of("bob"),
             )
             for index in range(65):
@@ -329,6 +332,7 @@ class CoreReadinessTest(unittest.TestCase):
                     "all": [
                         {"field": "subject_id", "op": "eq", "value": self.team.scope_of("bob")},
                         {"field": "context.project", "op": "eq", "value": "wanted"},
+                        {"field": "context.priority", "op": "eq", "value": 1},
                     ]
                 },
             )

@@ -25,12 +25,16 @@ from tempfile import TemporaryDirectory
 from typing import ClassVar
 from unittest.mock import patch
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 PLUGIN = ROOT / "integrations" / "hermes" / "memkit"
 
 
 def _load_plugin():
     """Import the provider with Hermes's two touchpoints stubbed out."""
+    names = ("agent", "agent.memory_provider", "tools", "tools.registry")
+    previous = {name: sys.modules.get(name) for name in names}
     if "agent.memory_provider" not in sys.modules:
         agent = types.ModuleType("agent")
         provider_mod = types.ModuleType("agent.memory_provider")
@@ -43,14 +47,6 @@ def _load_plugin():
         sys.modules["agent"] = agent
         sys.modules["agent.memory_provider"] = provider_mod
 
-    if "tools.registry" not in sys.modules:
-        tools = types.ModuleType("tools")
-        registry = types.ModuleType("tools.registry")
-        registry.tool_error = lambda message, **extra: json.dumps({"error": str(message), **extra})
-        tools.registry = registry
-        sys.modules["tools"] = tools
-        sys.modules["tools.registry"] = registry
-
     package = "memkit_hermes_plugin"
     spec = importlib.util.spec_from_file_location(
         package,
@@ -59,11 +55,27 @@ def _load_plugin():
     )
     module = importlib.util.module_from_spec(spec)
     sys.modules[package] = module
-    spec.loader.exec_module(module)
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        # Hermes stubs must not replace the repository's tools namespace during
+        # collection of unrelated SDK/contract tests.
+        for name, original in previous.items():
+            if original is None:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = original
     return module
 
 
 plugin = _load_plugin()
+
+
+@pytest.fixture(autouse=True)
+def hermes_tool_registry(monkeypatch):
+    registry = types.ModuleType("tools.registry")
+    registry.tool_error = lambda message, **extra: json.dumps({"error": str(message), **extra})
+    monkeypatch.setitem(sys.modules, "tools.registry", registry)
 
 
 class FakeClient:

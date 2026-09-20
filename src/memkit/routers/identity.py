@@ -546,7 +546,7 @@ def resolve_entity(
     row = entities.resolve_alias(conn, body.name)
     if row is None:
         return {"entity": None}
-    return {"entity": _entity_row(conn, row, principal)}
+    return {"entity": _entity_row(conn, _load_entity(conn, principal, row["slug"]), principal)}
 
 
 @router.get("/v1/entities/{slug}/profile")
