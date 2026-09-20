@@ -11,6 +11,7 @@ there is how a monitoring page becomes the slowest screen in the product.
 
 from __future__ import annotations
 
+import math
 import uuid
 from collections.abc import Sequence
 from datetime import UTC, date, datetime, timedelta
@@ -261,7 +262,9 @@ def retrieval(
     for day, durations in sorted(per_day.items()):
         ordered = sorted(durations)
         series.append({"date": day, "key": "p50", "value": round(median(ordered), 1)})
-        index = max(0, int(len(ordered) * 0.95) - 1)
+        # Nearest-rank, matching telemetry.metrics; flooring hides the slow
+        # request in small samples and can even place p95 below the median.
+        index = max(0, math.ceil(len(ordered) * 0.95) - 1)
         series.append({"date": day, "key": "p95", "value": round(ordered[index], 1)})
         series.append({"date": day, "key": "searches", "value": len(ordered)})
         series.append(
@@ -297,7 +300,7 @@ def retrieval(
         {
             "searches": len(everything),
             "p50_ms": round(median(everything), 1) if everything else None,
-            "p95_ms": round(everything[max(0, int(len(everything) * 0.95) - 1)], 1)
+            "p95_ms": round(everything[max(0, math.ceil(len(everything) * 0.95) - 1)], 1)
             if everything
             else None,
             "abstention_rate": round(sum(abstained.values()) / len(everything), 4)

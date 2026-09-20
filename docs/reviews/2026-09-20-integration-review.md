@@ -20,6 +20,9 @@ actual default branch is `master`; there is no `main` branch.
   identity can enter. Browser coverage reproduces the previous cross-user reuse.
 - Operations calls the current report-only extraction endpoint and user-specific
   erasure endpoint. Removed replay/evaluation screens are no longer browser tests.
+- Dashboard statistics have real Postgres coverage for empty data, scope isolation,
+  reporting windows and the latency tail. P95 now uses nearest rank, matching the
+  telemetry endpoint instead of hiding slow requests in small samples.
 - Docker copies the dashboard from the actual Vite output path. SDK packaging
   checks use the generated package name rather than an obsolete version.
 - Pull requests exercise CLI deployment against an isolated SSH target on the
