@@ -29,7 +29,7 @@ from typing import Annotated, Any, Literal
 import psycopg
 from fastapi import Cookie, Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.security import APIKeyHeader
 from fastapi.staticfiles import StaticFiles
 from psycopg.types.json import Jsonb
@@ -378,6 +378,7 @@ class ProfileOut(StrictModel):
     budget_tokens: int
     generated_at: str
     policy_id: str
+    scope: dict[str, Any] | None = None
 
 
 class SessionOut(StrictModel):
@@ -810,6 +811,9 @@ def _run_export(job_id: str) -> None:
                 private_scope_id=data["private_scope_id"],
                 authored_scopes=data.get("authored_scopes"),
             )
+            # The local exporter returns a Path for operator callers; durable
+            # job results are JSON and need the corresponding string.
+            result["path"] = str(result["path"])
             jobs.finish(conn, job_id, status="complete", result=result)
     except Exception as exc:
         logger.exception("export job %s failed", job_id)
@@ -1521,7 +1525,13 @@ def post_message(
     conn: psycopg.Connection = Depends(get_conn),
     settings: Settings = Depends(get_settings),
 ) -> MessageOut:
-    scope_id = principal_module.resolve_scope(conn, principal, body.scope, write=True)
+    scope_id = (
+        principal_module.resolve_scope(conn, principal, body.scope, write=True)
+        if body.scope
+        else principal_module.scope_for_workspace(
+            conn, principal, str(body.context.get("source_workspace") or "")
+        )
+    )
     try:
         with conn.transaction():
             message_id, deduplicated, redacted = store.add_message(
@@ -1587,7 +1597,13 @@ def post_evidence_batch(
     try:
         with conn.transaction():
             for event in body.events:
-                scope_id = principal_module.resolve_scope(conn, principal, event.scope, write=True)
+                scope_id = (
+                    principal_module.resolve_scope(conn, principal, event.scope, write=True)
+                    if event.scope
+                    else principal_module.scope_for_workspace(
+                        conn, principal, str(event.context.get("source_workspace") or "")
+                    )
+                )
                 message_id, duplicate, redacted = store.add_message(
                     conn,
                     session_id=event.session_id,
@@ -1801,10 +1817,15 @@ def patch_memory(
 @app.delete("/v1/memories/{memory_id}")
 def delete_memory(
     memory_id: str,
+    expected_revision: int | None = Query(None, ge=1),
     principal: Principal = Depends(get_principal),
     conn: psycopg.Connection = Depends(get_conn),
 ) -> EntityOut:
-    """Archive a memory. Reversible, because a mistaken delete is common."""
+    """Archive a memory. Reversible, because a mistaken delete is common.
+
+    The precondition is optional here and required on a patch: archiving is
+    reversible, so a lost race costs an undo rather than someone's wording.
+    """
     memory_id = _memory_id(memory_id)
     try:
         with conn.transaction():
@@ -1813,6 +1834,7 @@ def delete_memory(
                 memory_id=memory_id,
                 scopes=sorted(principal.writable_scope_ids),
                 status="archived",
+                expected_revision=expected_revision,
             )
     except KeyError as exc:
         raise HTTPException(404, "unknown memory") from exc
@@ -1825,6 +1847,7 @@ def delete_memory(
 @app.post("/v1/memories/{memory_id}/restore")
 def restore_memory(
     memory_id: str,
+    expected_revision: int | None = Query(None, ge=1),
     principal: Principal = Depends(get_principal),
     conn: psycopg.Connection = Depends(get_conn),
 ) -> EntityOut:
@@ -1836,6 +1859,7 @@ def restore_memory(
                 memory_id=memory_id,
                 scopes=sorted(principal.writable_scope_ids),
                 status="active",
+                expected_revision=expected_revision,
             )
     except KeyError as exc:
         raise HTTPException(404, "unknown memory") from exc
@@ -2498,7 +2522,7 @@ def render_profile(
         # map to an entity should still get the rest of the profile.
         with suppress(ScopeForbidden, UnknownScope):
             project_scope_id = principal_module.resolve_scope(conn, principal, body.workspace)
-    return profiles.render(
+    rendered = profiles.render(
         conn,
         own_scope_id=principal.own_entity_id,
         team_scope_id=principal.team_entity_id,
@@ -2509,6 +2533,22 @@ def render_profile(
         blocks=body.blocks,
         include_untrusted=body.include_untrusted,
     )
+    # What the workspace resolved to, named here rather than inferred from the
+    # project block: that block is empty exactly when a scope is new, which is
+    # when a client most needs to tell the user where their words are going.
+    scope = (
+        conn.execute(
+            "SELECT slug,name FROM entities WHERE id=%s",
+            (project_scope_id or principal.own_entity_id,),
+        ).fetchone()
+        or {}
+    )
+    rendered["scope"] = {
+        "slug": scope.get("slug"),
+        "name": scope.get("name"),
+        "shared": bool(project_scope_id) and project_scope_id != principal.own_entity_id,
+    }
+    return rendered
 
 
 # ---------------------------------------------------------------------------
@@ -2713,6 +2753,45 @@ def list_jobs(
             for row in rows
         ]
     }
+
+
+@app.get(
+    "/v1/jobs/{job_id}/download",
+    response_class=FileResponse,
+    responses={
+        200: {"content": {"application/json": {"schema": {"type": "string", "format": "binary"}}}}
+    },
+)
+def download_export(
+    job_id: str,
+    principal: Principal = Depends(get_principal),
+    conn: psycopg.Connection = Depends(get_conn),
+    settings: Settings = Depends(get_settings),
+) -> FileResponse:
+    """Download an export owned by this caller, never an arbitrary server path."""
+    try:
+        row = jobs.get(conn, job_id)
+    except KeyError as exc:
+        raise HTTPException(404, "unknown export") from exc
+    # Even administrators cannot download another person's private export.
+    if row["kind"] != "export" or str(row["user_id"]) != principal.user_id:
+        raise HTTPException(404, "unknown export")
+    if row["status"] != "complete":
+        raise HTTPException(409, "export is not complete")
+    result = row.get("result") or {}
+    raw_path = result.get("path")
+    if not isinstance(raw_path, str):
+        raise HTTPException(404, "export artifact unavailable")
+    path = Path(raw_path).resolve()
+    root = settings.export_dir.expanduser().resolve()
+    if not path.is_relative_to(root) or not path.is_file():
+        raise HTTPException(404, "export artifact unavailable")
+    return FileResponse(
+        path,
+        media_type="application/json",
+        filename=f"memos-export-{job_id}.json",
+        headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"},
+    )
 
 
 @app.get("/v1/jobs/{job_id}")

@@ -3,19 +3,73 @@
 Stdlib `urllib` on purpose. Hermes pins httpx, but a plugin dropped into someone
 else's environment should not care what that environment installs, and this is a
 handful of small JSON posts to loopback. Nothing here is hot enough to need more.
+
+`resolve_config` duplicates `memkit.remote.resolve_config` rather than importing
+it. That is deliberate and it is the only duplication in this file: the plugin is
+copied into `$HERMES_HOME/plugins/memkit` and runs under Hermes's interpreter,
+which has no reason to have memkit installed at all. The two copies are held
+together by tests/test_hermes_provider.py, which asserts the same precedence.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_BASE_URL = "http://127.0.0.1:8077"
+CLIENT_ENV = Path("~/.config/memkit/client.env").expanduser()
+LEGACY_ENV = Path("~/.memkit").expanduser()
+
+# The blocks /v1/profiles/render answers with, in the order it spends the budget.
+PROFILE_BLOCKS = ("about", "style", "team", "project", "recent")
+
+
+def _read_env_file(path: Path) -> dict[str, str]:
+    values: dict[str, str] = {}
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return values
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        name, _, value = line.partition("=")
+        values[name.strip()] = value.strip().strip("'\"")
+    return values
+
+
+def resolve_config() -> tuple[str, str]:
+    """The service URL and *this person's* key, by falling precedence.
+
+    There is no instance-wide key any more: the key names the user, so a plugin
+    that reads a stale file does not get a degraded answer, it writes into the
+    wrong person's memory or none at all. Hence the same order everything else
+    uses -- environment, ~/.config/memkit/client.env, then the deprecated
+    ~/.memkit.
+    """
+    base = os.environ.get("MEMKIT_BASE_URL", "").strip()
+    key = os.environ.get("MEMKIT_API_KEY", "").strip()
+    for path in (CLIENT_ENV, LEGACY_ENV):
+        if base and key:
+            break
+        values = _read_env_file(path)
+        if not base:
+            base = values.get("MEMKIT_BASE_URL", "")
+        if not key:
+            key = values.get("MEMKIT_API_KEY", "")
+        if key and path is LEGACY_ENV:
+            logger.warning("memkit: %s is deprecated; move the key to %s", path, CLIENT_ENV)
+    return (base or DEFAULT_BASE_URL).rstrip("/"), key
 
 
 class Breaker:
@@ -166,6 +220,29 @@ class Client:
             or {}
         )
 
+    def render_profile(
+        self,
+        *,
+        blocks: list[str] | None = None,
+        workspace: str | None = None,
+        budget_tokens: int = 800,
+        timeout: float | None = None,
+    ) -> dict[str, list[dict[str, Any]]]:
+        """The five profile blocks, flattened by the caller.
+
+        Replaces the old `{stable, dynamic}` response, which is gone: the stable
+        half was selected by `kind` and dropped identity facts entirely once they
+        aged out of the dynamic window.
+        """
+        body: dict[str, Any] = {
+            "blocks": list(blocks or PROFILE_BLOCKS),
+            "budget_tokens": budget_tokens,
+        }
+        if workspace:
+            body["workspace"] = workspace
+        result = self._request("POST", "/v1/profiles/render", body, timeout=timeout) or {}
+        return dict(result.get("blocks") or {})
+
     def add_events(self, payloads: list[dict[str, Any]]) -> dict[str, Any]:
         return self._request("POST", "/v1/evidence/events:batch", {"events": payloads}) or {}
 
@@ -177,6 +254,8 @@ class Client:
         importance: float = 0.9,
         context: dict[str, Any] | None = None,
         source_role: str = "assistant",
+        scope: str | None = None,
+        subject: str | None = None,
     ) -> dict[str, Any]:
         """Write a fact directly, bypassing the judge.
 
@@ -190,24 +269,26 @@ class Client:
         write. Measured on one real session: eight new facts, seven of them from
         this path at importance 0.8-0.95, including the same claim stored four
         times in slightly different words.
+
+        `scope` and `subject` are omitted unless set, because omitting `scope` is
+        what makes a write private: a fact that should have been shared can be
+        moved later, and one that should not have been cannot be unshared.
         """
-        return (
-            self._request(
-                "POST",
-                "/v1/memories",
-                {
-                    "text": text,
-                    "kind": kind,
-                    "context": context or {},
-                    "tags": [],
-                    "importance": importance,
-                    "confidence": 0.9,
-                    "agent_id": "hermes",
-                    "source_role": source_role,
-                },
-            )
-            or {}
-        )
+        body: dict[str, Any] = {
+            "text": text,
+            "kind": kind,
+            "context": context or {},
+            "tags": [],
+            "importance": importance,
+            "confidence": 0.9,
+            "agent_id": "hermes",
+            "source_role": source_role,
+        }
+        if scope:
+            body["scope"] = scope
+        if subject:
+            body["subject"] = subject
+        return self._request("POST", "/v1/memories", body) or {}
 
     def close_session(self, session_id: str, *, timeout: float = 30.0) -> dict[str, Any]:
         return self._request("POST", f"/v1/sessions/{session_id}/close", {}, timeout=timeout) or {}

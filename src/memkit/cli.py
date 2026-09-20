@@ -554,15 +554,25 @@ def cmd_install_claude_code(args: argparse.Namespace) -> int:
     # classifies transcripts server-side; a mismatch there silently changes
     # what counts as a user turn.
     command = f"{sys.executable} {hook_target}"
+    # SessionStart matchers are an exact string or a `|`-separated list of the
+    # session sources, so `fork` has to be named too or a forked session starts
+    # with no memory. PreCompact flushes the transcript tail before compaction
+    # replaces it; its stdout cannot add context, which is why the profile is
+    # re-injected through SessionStart's `compact` source instead.
+    # UserPromptSubmit takes no matcher and fires on every prompt, so recall
+    # does its own abstaining and stays off unless a repository opts in.
     snippet = {
         "hooks": {
             "SessionStart": [
                 {
-                    "matcher": "startup|resume|clear|compact",
+                    "matcher": "startup|resume|clear|compact|fork",
                     "hooks": [
                         {"type": "command", "command": f"{command} session-start", "timeout": 5}
                     ],
                 }
+            ],
+            "UserPromptSubmit": [
+                {"hooks": [{"type": "command", "command": f"{command} recall", "timeout": 5}]}
             ],
             "PreCompact": [
                 {"hooks": [{"type": "command", "command": f"{command} capture", "timeout": 30}]}
@@ -583,7 +593,12 @@ def cmd_install_claude_code(args: argparse.Namespace) -> int:
         f"\nthen create a key with `memkit api-keys create --user <handle>` and put it in\n"
         f"{DEFAULT_CONFIG_DIR / 'client.env'} as:\n"
         f"  MEMKIT_BASE_URL=http://{settings.host}:{settings.port}\n"
-        f"  MEMKIT_API_KEY=<your key>"
+        f"  MEMKIT_API_KEY=<your key>\n"
+        "\nfacts from a repository go to that person's own memory unless the repository\n"
+        "says otherwise. To file them in a shared scope, add a .memkit.toml at its root:\n"
+        "\n  [memkit]\n"
+        '  entity = "<entity slug>"   # from `memkit entities list`\n'
+        "  recall = false            # true asks memory a question on each prompt"
     )
     return 0
 

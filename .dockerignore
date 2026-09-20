@@ -3,7 +3,6 @@
 data
 dist
 docs
-eval
 tests
 web/node_modules
 sdk
@@ -12,3 +11,8 @@ sdk
 .pytest_cache
 .ruff_cache
 .coverage
+.env
+.env.*
+!.env.example
+cli/.venv
+cli/dist

@@ -761,6 +761,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/jobs/{job_id}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download Export
+         * @description Download an export owned by this caller, never an arbitrary server path.
+         */
+        get: operations["download_export_v1_jobs__job_id__download_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/memories": {
         parameters: {
             query?: never;
@@ -831,6 +851,9 @@ export interface paths {
         /**
          * Delete Memory
          * @description Archive a memory. Reversible, because a mistaken delete is common.
+         *
+         *     The precondition is optional here and required on a patch: archiving is
+         *     reversible, so a lost race costs an undo rather than someone's wording.
          */
         delete: operations["delete_memory_v1_memories__memory_id__delete"];
         options?: never;
@@ -1616,6 +1639,10 @@ export interface components {
             generated_at: string;
             /** Policy Id */
             policy_id: string;
+            /** Scope */
+            scope?: {
+                [key: string]: unknown;
+            } | null;
             /** Used Tokens */
             used_tokens: number;
         };
@@ -3315,6 +3342,41 @@ export interface operations {
             };
         };
     };
+    download_export_v1_jobs__job_id__download_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-requested-with"?: string | null;
+            };
+            path: {
+                job_id: string;
+            };
+            cookie?: {
+                memkit_session?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": string;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_memories_v1_memories_get: {
         parameters: {
             query?: {
@@ -3475,7 +3537,9 @@ export interface operations {
     };
     delete_memory_v1_memories__memory_id__delete: {
         parameters: {
-            query?: never;
+            query?: {
+                expected_revision?: number | null;
+            };
             header?: {
                 "x-requested-with"?: string | null;
             };
@@ -3584,7 +3648,9 @@ export interface operations {
     };
     restore_memory_v1_memories__memory_id__restore_post: {
         parameters: {
-            query?: never;
+            query?: {
+                expected_revision?: number | null;
+            };
             header?: {
                 "x-requested-with"?: string | null;
             };
