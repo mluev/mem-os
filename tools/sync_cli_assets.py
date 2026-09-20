@@ -15,6 +15,8 @@ def outputs():
     """Copy canonical sources verbatim; runtime wrappers select the transport."""
     snapshots = {
         "openapi.json": "openapi.json",
+        "assets/SKILL.md": "integrations/claude-code/skills/mem-os/SKILL.md",
+        "assets/HTTP.md": "integrations/claude-code/skills/mem-os/HTTP.md",
         "claude_classifier.py": "src/memkit/claude_classifier.py",
         "limits.py": "src/memkit/limits.py",
         "claude_hooks.py": "integrations/claude-code/hooks/memkit_hooks.py",

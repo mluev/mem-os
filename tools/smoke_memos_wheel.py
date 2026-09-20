@@ -7,6 +7,7 @@ import json
 import os
 import subprocess
 import sys
+from importlib import resources
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -59,7 +60,10 @@ with TemporaryDirectory() as directory:
         home = root / target
         install([target], home=str(home))
         install([target], home=str(home))
-        assert (home / "skills/mem-os/SKILL.md").is_file()
+        for name in ("SKILL.md", "HTTP.md"):
+            assert (home / "skills/mem-os" / name).read_text() == (
+                resources.files("memos_cli").joinpath(f"assets/{name}").read_text()
+            )
         if target == "hermes":
             assert (home / "plugins/memkit/bridge.json").is_file()
     assert cursor.read_text() == "123"

@@ -105,16 +105,21 @@ def agent_settings(directory, target):
 def install(targets, skills_dir=None, home=None):
     if home and len(targets) != 1:
         raise ClientError("--home requires exactly one agent target")
-    skill = files("memos_cli").joinpath("assets/SKILL.md").read_text()
+    guides = {
+        name: files("memos_cli").joinpath(f"assets/{name}").read_text()
+        for name in ("SKILL.md", "HTTP.md")
+    }
     result = []
     command = shlex.join([sys.executable, "-m", "memos_cli"])
     if skills_dir:
-        replace_owned(Path(skills_dir).expanduser() / "mem-os/SKILL.md", skill)
+        for name, content in guides.items():
+            replace_owned(Path(skills_dir).expanduser() / "mem-os" / name, content)
         result.append({"target": "custom", "skill": str(Path(skills_dir).expanduser())})
     for target in targets:
         directory = Path(home).expanduser() if home else root(target)
         settings = agent_settings(directory, target) if target in {"claude", "hermes"} else {}
-        replace_owned(directory / "skills/mem-os/SKILL.md", skill)
+        for name, content in guides.items():
+            replace_owned(directory / "skills/mem-os" / name, content)
         if target == "claude":
             path = directory / "settings.json"
             hooks = settings.setdefault("hooks", {})

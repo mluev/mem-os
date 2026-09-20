@@ -673,3 +673,37 @@ def test_backup_catalog_survives_database_failure(tmp_path, monkeypatch):
 
     monkeypatch.setattr(worker, "run", unavailable)
     assert worker.perform({"action": "backup-list", "directory": str(tmp_path)}) == [artifact]
+
+
+@pytest.mark.parametrize("target", ["claude", "hermes", "codex", "custom"])
+def test_common_guide_installs_with_http_fallback(tmp_path, target):
+    from importlib.resources import files
+
+    from memos_cli.agents import install
+
+    home = tmp_path / target
+    if target == "custom":
+        install([], skills_dir=str(home))
+        directory = home / "mem-os"
+    else:
+        install([target], home=str(home))
+        directory = home / "skills/mem-os"
+    for name in ("SKILL.md", "HTTP.md"):
+        assert (directory / name).read_text() == files("memos_cli").joinpath(
+            f"assets/{name}"
+        ).read_text()
+
+
+def test_common_guide_commands_parse_against_the_installed_cli(monkeypatch, capsys):
+    import re
+    import shlex
+    from importlib.resources import files
+
+    guide = files("memos_cli").joinpath("assets/SKILL.md").read_text()
+    commands = re.findall(r"`memos ([^`]+)`", guide)
+    assert len(commands) >= 15
+    monkeypatch.setattr(cli, "dispatch", lambda args, options: {"parsed": True})
+    for command in commands:
+        argv = ["3" if token == "N" else token for token in shlex.split(command)]
+        result = cli.main(argv)
+        assert result == 0, (command, capsys.readouterr())
