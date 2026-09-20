@@ -6,7 +6,7 @@ import httpx
 from ... import errors
 from ...client import AuthenticatedClient, Client
 from ...models.http_validation_error import HTTPValidationError
-from ...models.offset_page_out import OffsetPageOut
+from ...models.sessions_out import SessionsOut
 from ...types import UNSET, Response, Unset
 
 
@@ -46,9 +46,9 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> HTTPValidationError | OffsetPageOut | None:
+) -> HTTPValidationError | SessionsOut | None:
     if response.status_code == 200:
-        response_200 = OffsetPageOut.from_dict(response.json())
+        response_200 = SessionsOut.from_dict(response.json())
 
         return response_200
 
@@ -65,7 +65,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[HTTPValidationError | OffsetPageOut]:
+) -> Response[HTTPValidationError | SessionsOut]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -81,7 +81,7 @@ def sync_detailed(
     offset: int | Unset = 0,
     x_requested_with: None | str | Unset = UNSET,
     memkit_session: None | str | Unset = UNSET,
-) -> Response[HTTPValidationError | OffsetPageOut]:
+) -> Response[HTTPValidationError | SessionsOut]:
     """List Sessions
 
      Conversations, with what each one produced.
@@ -100,7 +100,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | OffsetPageOut]
+        Response[HTTPValidationError | SessionsOut]
     """
 
     kwargs = _get_kwargs(
@@ -124,7 +124,7 @@ def sync(
     offset: int | Unset = 0,
     x_requested_with: None | str | Unset = UNSET,
     memkit_session: None | str | Unset = UNSET,
-) -> HTTPValidationError | OffsetPageOut | None:
+) -> HTTPValidationError | SessionsOut | None:
     """List Sessions
 
      Conversations, with what each one produced.
@@ -143,7 +143,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | OffsetPageOut
+        HTTPValidationError | SessionsOut
     """
 
     return sync_detailed(
@@ -162,7 +162,7 @@ async def asyncio_detailed(
     offset: int | Unset = 0,
     x_requested_with: None | str | Unset = UNSET,
     memkit_session: None | str | Unset = UNSET,
-) -> Response[HTTPValidationError | OffsetPageOut]:
+) -> Response[HTTPValidationError | SessionsOut]:
     """List Sessions
 
      Conversations, with what each one produced.
@@ -181,7 +181,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | OffsetPageOut]
+        Response[HTTPValidationError | SessionsOut]
     """
 
     kwargs = _get_kwargs(
@@ -203,7 +203,7 @@ async def asyncio(
     offset: int | Unset = 0,
     x_requested_with: None | str | Unset = UNSET,
     memkit_session: None | str | Unset = UNSET,
-) -> HTTPValidationError | OffsetPageOut | None:
+) -> HTTPValidationError | SessionsOut | None:
     """List Sessions
 
      Conversations, with what each one produced.
@@ -222,7 +222,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | OffsetPageOut
+        HTTPValidationError | SessionsOut
     """
 
     return (

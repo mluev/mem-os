@@ -65,14 +65,21 @@ curl -fsS localhost:8077/v1/memories/search -H "X-API-Key: $MEMKIT_API_KEY" \
 
 The search returns the fact with its scope, subject, review status, and per-arm scores. Sign in to the dashboard at `/ui/` with the same handle and password; the compose file sets `MEMKIT_COOKIE_SECURE=true` for a TLS-terminating proxy, so on a laptop reaching it over plain http, set it false or the session cookie is never stored.
 
-To let Claude Code write memory by itself, install the CLI on the laptop that runs the agent and let it place the skill and hooks; it prints a `settings.json` snippet rather than editing `~/.claude/settings.json` for you:
+Install the lightweight client on each machine running an agent, then install
+its memory integration. Claude and Hermes capture conversation evidence;
+Codex and other agents use the portable skill and complete CLI:
 
 ```bash
-uv tool install ./dist/memkit-0.3.0-py3-none-any.whl   # or `uv run memkit` in a checkout
-memkit install-claude-code
+uv tool install ./cli
+memos setup --url https://your-memory-server
+memos agents install claude hermes codex
 ```
 
-From then on the session-start hook injects the profile, the stop hook posts the transcript delta as evidence, and extraction happens server-side.
+The [agent guide](cli/src/memos_cli/assets/SKILL.md) explains recall, explicit
+saves, corrections, scopes and complete command discovery. Extraction happens
+server-side. Existing `memkit install-claude-code` and `memkit install-hermes`
+installations remain supported without requiring `memos`; their environment-file
+credentials, legacy cursor locations and opt-in Claude recall remain unchanged.
 
 Add the rest of the team with `memkit users create`, and give shared work a scope of its own with `memkit entities create "Shop" --kind project --alias магазин`. Aliases are what let a name in conversation route to an entity.
 
@@ -105,20 +112,17 @@ memkit install-claude-code
 memkit eval --compare                 # repository checkout only
 ```
 
-Long API operations return a durable `job_id`; inspect or cancel them through `/v1/jobs/{id}`. The worker recovers expired job, message, outbox, and budget leases at startup. Reindex builds a validated generation and switches aliases only once the exact Postgres id set is present; the previous generation stays for seven days.
+Long API operations return a durable `job_id`; inspect or cancel them through `/v1/jobs/{id}`. The worker recovers expired job, message, outbox, and budget leases periodically, including while Qdrant is unavailable. Reindex builds a validated generation and switches aliases only once the exact Postgres id set is present; the previous generation stays for seven days.
 
 ## Backup and restore
 
-`memkit backup create` runs `pg_dump --format=custom`, checksums the archive, and verifies it with `pg_restore --list`, which parses every object header — so a truncated dump fails at backup time rather than half-way through a recovery. Artifacts are registered in the database with their checksum and protection state; `prune` keeps seven daily and four weekly and never touches a protected one.
+`memkit backup create` runs `pg_dump --format=custom`, checksums the archive, and fully decodes it with `pg_restore` to detect corrupted table bodies as well as invalid headers. Artifacts are registered with their checksum and protection state; `prune` keeps seven daily and four weekly and never touches a protected backup. Compose persists `/backups` and `/exports` across container replacement.
 
-Restore is deliberately manual. `pg_restore --clean` drops and recreates every object in the archive, nothing else may hold a connection while it does, and the service cannot promise that about itself — its pool reconnects on demand and the worker runs on a timer. So `memkit backup restore` verifies the archive and hands you the command:
+`memkit backup restore-drill <archive>` restores into a disposable database, applies the latest erasure receipts, verifies schema and constraints, and removes the temporary database. It requires database-creation privileges. This is separate from restoring the running service.
 
-```bash
-docker compose stop app
-pg_restore --clean --if-exists --no-owner --no-privileges --dbname="$MEMKIT_DATABASE_URL" <archive>
-docker compose start app
-docker compose exec app memkit reindex   # Qdrant is derived; rebuild it from the restore
-```
+For a real recovery, stop every service instance, retain the latest external `/backups/erasures` directory, restore the verified archive, run `memkit backup replay-erasures` while offline, discard the previous derived Qdrant data and managed exports, then rebuild with `memkit reindex`. Reopen traffic only after these steps succeed. `memkit backup restore <artifact-id>` prints the procedure and refuses to perform an in-place restore.
+
+Before upgrading an existing installation, copy its previous backup/export directories into the persistent volumes. Existing backups require an explicitly audited erasure baseline: `memkit backup init-erasure-manifest --confirm BASELINE [--receipts receipts.json]`. Missing erasure history is an error, not permission to assume nobody was erased. See the [upgrade and recovery runbook](docs/09-operations.md).
 
 The tested pair is Qdrant server `1.18.2` with `qdrant-client==1.18.0`, and the BGE-M3 commit is pinned in configuration. Changing the embedding model or its width means a reindex, because the stored vectors are in the old model's space. `pg_dump` must match the server's major version, which is why the image installs `postgresql-client-16` rather than vendoring one.
 

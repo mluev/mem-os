@@ -32,7 +32,7 @@ import {
 import { toast } from "sonner";
 import { z } from "zod";
 import { ApiError, api } from "../api/client";
-import type { TeamMemory } from "../api/types";
+import type { MemoryDetail, TeamMemory } from "../api/types";
 import { relativeTime } from "../lib/format";
 import { Field, LifecycleBadge, RatioField, ReviewBadge, ValueSelect } from "./MemoryFields";
 import { DiffText, EvidenceTab, HistoryTab, RelationsTab } from "./MemoryTabs";
@@ -63,10 +63,6 @@ import {
   TabsTrigger,
   Textarea,
 } from "./ui";
-
-interface MemoryDetail {
-  memory: TeamMemory;
-}
 
 const schema = z.object({
   text: z.string().trim().min(1, "A memory needs something to remember").max(2000),
@@ -205,7 +201,7 @@ function DrawerBody({
 
   const save = useMutation({
     mutationFn: (patch: Record<string, unknown>) =>
-      api<{ revision: number }>(`/v1/memories/${encodeURIComponent(memoryId)}`, {
+      api(`/v1/memories/${encodeURIComponent(memoryId)}`, {
         method: "PATCH",
         body: JSON.stringify({ ...patch, expected_revision: memory?.revision }),
       }),

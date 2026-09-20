@@ -8,7 +8,6 @@ No new storage or generated summaries are introduced.
 from __future__ import annotations
 
 import re
-import uuid
 from collections.abc import Callable, Sequence
 from dataclasses import replace
 from typing import Any
@@ -16,12 +15,49 @@ from typing import Any
 import psycopg
 from qdrant_client import QdrantClient
 
-from . import filters, retrieval, vectors
+from . import retrieval, store
 from .db import iso
 from .retrieval import Scored
 
 MAX_PASSAGE_CHARS = 1200
 MAX_CANDIDATES = 60
+
+
+def pack_context(
+    baseline: retrieval.Explain,
+    raw: list[dict[str, Any]] | None,
+    excerpts: dict[str, list[dict[str, Any]]],
+    *,
+    budget_tokens: int,
+    limit: int,
+) -> tuple[retrieval.Explain, list[dict[str, Any]], dict[str, list[dict[str, Any]]]]:
+    """Enforce one context budget, independent of optional model selection.
+
+    Facts and historical quotations alternate so either representation can
+    contribute. Supplemental citations spend only the remaining allowance.
+    Text is never truncated into a quotation that changes its meaning.
+    """
+    facts, passages_out, sources = [], [], {}
+    used = 0
+    raw = raw or []
+    for index in range(max(len(baseline.chosen), len(raw))):
+        for rows, target in ((baseline.chosen, facts), (raw, passages_out)):
+            if index >= len(rows) or len(facts) + len(passages_out) >= limit:
+                continue
+            row = rows[index]
+            text = row.text if isinstance(row, Scored) else str(row["text"])
+            cost = retrieval._token_count(text) + 6
+            if used + cost <= budget_tokens:
+                target.append(row)
+                used += cost
+    for row in facts:
+        sources[row.id] = []
+        for source in excerpts.get(row.id, []):
+            cost = retrieval._token_count(str(source["excerpt"])) + 6
+            if used + cost <= budget_tokens:
+                sources[row.id].append(source)
+                used += cost
+    return replace(baseline, chosen=facts, used_tokens=used), passages_out, sources
 
 
 def passages(text: str) -> list[tuple[int, int]]:
@@ -56,44 +92,19 @@ def raw_candidates(
     expression: dict[str, Any] | None = None,
     kinds: list[str] | None = None,
 ) -> tuple[list[Scored], dict[str, dict[str, Any]]]:
-    if not scope_ids or (kinds and "evidence" not in kinds):
-        return [], {}
-    hits = vectors.search(
+    rows = store.raw_search_rows(
+        conn,
         client,
-        vectors.RAW,
-        vector,
+        vector=vector,
+        scope_ids=scope_ids,
         limit=MAX_CANDIDATES,
-        must=[vectors.keyword("scope_id", list(scope_ids)), vectors.keyword("role", "user")],
+        expression=expression,
+        kinds=kinds,
     )
-    scores = {}
-    for hit in hits:
-        try:
-            mid = int(hit.id)
-        except (TypeError, ValueError):
-            continue
-        scores[mid] = max(0.0, float(hit.score))
-    if not scores:
-        return [], {}
-    rows = conn.execute(
-        """SELECT m.*,s.scope_id,s.agent_id,sc.name AS scope_name,sc.slug AS scope_slug
-             FROM messages m JOIN sessions s ON s.id=m.session_id
-             JOIN entities sc ON sc.id=s.scope_id
-             WHERE m.id=ANY(%s) AND s.scope_id=ANY(%s) AND m.role='user'""",
-        (list(scores), [uuid.UUID(str(s)) for s in scope_ids]),
-    ).fetchall()
     candidates, references = [], {}
     # Round-robin passages prevents one long turn from filling the candidate cap.
     grouped = []
-    for row in sorted(rows, key=lambda r: (-scores[int(r["id"])], int(r["id"]))):
-        document = {
-            "kind": "evidence",
-            "context": dict(row["context"] or {}),
-            "tags": [],
-            "agent_id": row["agent_id"],
-            "subject_id": None,
-        }
-        if not filters.matches(document, expression):
-            continue
+    for row in rows:
         text = str(row["content"])
         grouped.append((row, text, passages(text)))
     for position in range(8):
@@ -114,7 +125,7 @@ def raw_candidates(
                 "session_id": row["session_id"],
                 "created_at": iso(row["created_at"]),
                 "context": dict(row["context"] or {}),
-                "similarity": scores[mid],
+                "similarity": max(0.0, float(row["similarity"])),
             }
             candidates.append(
                 Scored(
@@ -124,12 +135,12 @@ def raw_candidates(
                     context=dict(row["context"] or {}),
                     tags=[],
                     source_role="user",
-                    similarity=scores[mid],
+                    similarity=max(0.0, float(row["similarity"])),
                     lexical=0,
                     entity=0,
                     importance=0,
                     recency=0,
-                    score=scores[mid],
+                    score=max(0.0, float(row["similarity"])),
                     updated_at=iso(row["created_at"]) or "",
                     scope=str(row["scope_name"]),
                     scope_slug=str(row["scope_slug"]),

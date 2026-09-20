@@ -22,7 +22,7 @@ from typing import Any, Protocol
 import psycopg
 from qdrant_client import QdrantClient
 
-from . import filters, vectors
+from . import eligibility, filters, vectors
 from .db import Row, as_datetime, iso
 from .embed import Embedder
 from .store import memory_active
@@ -161,7 +161,12 @@ def _terms(text: str) -> list[str]:
 
 
 def _lexical_candidates(
-    conn: psycopg.Connection, *, query: str, scope_ids: Sequence[str], limit: int
+    conn: psycopg.Connection,
+    *,
+    query: str,
+    scope_ids: Sequence[str],
+    limit: int,
+    criteria: tuple[str, list] | None = None,
 ) -> dict[str, float]:
     """A bounded, normalised full-text candidate set.
 
@@ -181,15 +186,17 @@ def _lexical_candidates(
         return {}
     # One placeholder per term, OR'd with tsquery's `||`.
     tsquery = " || ".join(["plainto_tsquery('russian', %s)"] * len(terms))
+    predicate, parameters = criteria or ("TRUE", [])
     rows = conn.execute(
         f"""WITH q AS (SELECT {tsquery} AS query)
             SELECT m.id, ts_rank_cd(m.search_tsv, q.query) AS rank
               FROM memories m, q
              WHERE m.scope_id = ANY(%s) AND m.status='active'
+               AND ({predicate})
                AND m.search_tsv @@ q.query
              ORDER BY rank DESC, m.id
              LIMIT %s""",
-        (*terms, [uuid.UUID(str(scope)) for scope in scope_ids], limit),
+        (*terms, [uuid.UUID(str(scope)) for scope in scope_ids], *parameters, limit),
     ).fetchall()
     if not rows:
         return {}
@@ -199,7 +206,12 @@ def _lexical_candidates(
 
 
 def _entity_candidates(
-    conn: psycopg.Connection, *, query: str, scope_ids: Sequence[str], limit: int
+    conn: psycopg.Connection,
+    *,
+    query: str,
+    scope_ids: Sequence[str],
+    limit: int,
+    criteria: tuple[str, list] | None = None,
 ) -> dict[str, float]:
     """Exact identifier matches: ticket numbers, error codes, repo names.
 
@@ -226,13 +238,15 @@ def _entity_candidates(
         "%" + token.lower().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
         for token in tokens
     ]
+    predicate, parameters = criteria or ("TRUE", [])
     rows = conn.execute(
-        """SELECT id FROM memories
-            WHERE scope_id = ANY(%s) AND status='active'
-              AND text_folded LIKE ANY(%s)
-            ORDER BY updated_at DESC, id
+        f"""SELECT m.id FROM memories m
+            WHERE m.scope_id = ANY(%s) AND m.status='active'
+              AND ({predicate})
+              AND m.text_folded LIKE ANY(%s)
+            ORDER BY m.updated_at DESC, m.id
             LIMIT %s""",
-        ([uuid.UUID(str(scope)) for scope in scope_ids], patterns, limit),
+        ([uuid.UUID(str(scope)) for scope in scope_ids], *parameters, patterns, limit),
     ).fetchall()
     return {str(row["id"]): 1.0 for row in rows}
 
@@ -281,10 +295,14 @@ def _token_count(text: str) -> int:
         return max(1, len(re.findall(r"\w+|[^\w\s]", text, re.UNICODE)))
 
 
-def _fill_budget(rows: list[Scored], budget_tokens: int) -> tuple[list[Scored], int]:
+def _fill_budget(
+    rows: list[Scored], budget_tokens: int, limit: int | None = None
+) -> tuple[list[Scored], int]:
     chosen: list[Scored] = []
     used = 0
     for row in rows:
+        if limit is not None and len(chosen) >= limit:
+            break
         cost = _token_count(row.text)
         if used + cost > budget_tokens:
             continue
@@ -314,28 +332,62 @@ def explain(
     filters.validate(expression)
     policy = policy or RetrievalPolicy()
     now = now or datetime.now(UTC)
+    allowed_roles = None if include_untrusted else policy.allowed_source_roles
+    criteria = eligibility.memory_sql(
+        expression=expression, kinds=kinds, allowed_roles=allowed_roles, now=now
+    )
     embed_started = time.perf_counter()
     dense_vector = embedder.encode_one(query)
     embed_ms = (time.perf_counter() - embed_started) * 1000
     dense_started = time.perf_counter()
-    dense_hits = vectors.search(
-        client,
-        memory_collection,
-        dense_vector,
-        limit=max(50, limit * 3),
-        must=[
-            vectors.keyword("scope_id", list(scope_ids)),
-            vectors.keyword("status", "active"),
-        ],
-    )
+    candidate_limit = max(50, limit * 3)
+    dense_hits, seen = [], set()
+    must = [
+        vectors.keyword("scope_id", list(scope_ids)),
+        vectors.keyword("status", "active"),
+        *eligibility.memory_vectors(
+            expression=expression, kinds=kinds, allowed_roles=allowed_roles, now=now
+        ),
+    ]
+    eligible_count = 0
+    # Derived payloads may lag, and complex JSON predicates cannot be exactly
+    # expressed by Qdrant. Refill after the authoritative check, with a fixed
+    # ceiling so pathological filters cannot cause an unbounded index scan.
+    for _ in range(4):
+        hits = vectors.search(
+            client,
+            memory_collection,
+            dense_vector,
+            limit=candidate_limit,
+            must=must,
+            exclude_ids=list(seen) or None,
+        )
+        fresh = [hit for hit in hits if str(hit.id) not in seen]
+        if not fresh:
+            break
+        seen.update(str(hit.id) for hit in fresh)
+        dense_hits.extend(fresh)
+        rows = _candidate_rows(conn, scope_ids=scope_ids, candidate_ids={str(h.id) for h in fresh})
+        eligible_count += sum(
+            memory_active(row, now=now)
+            and (allowed_roles is None or row["source_role"] in allowed_roles)
+            and (not kinds or row["kind"] in kinds)
+            and filters.matches(eligibility.document(row), expression)
+            for row in rows.values()
+        )
+        if len(hits) < candidate_limit or eligible_count >= candidate_limit:
+            break
     dense_ms = (time.perf_counter() - dense_started) * 1000
     dense = {str(hit.id): max(0.0, float(hit.score)) for hit in dense_hits}
-    candidate_limit = max(50, limit * 3)
     lexical_started = time.perf_counter()
-    lexical = _lexical_candidates(conn, query=query, scope_ids=scope_ids, limit=candidate_limit)
+    lexical = _lexical_candidates(
+        conn, query=query, scope_ids=scope_ids, limit=candidate_limit, criteria=criteria
+    )
     lexical_ms = (time.perf_counter() - lexical_started) * 1000
     entity_started = time.perf_counter()
-    entity = _entity_candidates(conn, query=query, scope_ids=scope_ids, limit=candidate_limit)
+    entity = _entity_candidates(
+        conn, query=query, scope_ids=scope_ids, limit=candidate_limit, criteria=criteria
+    )
     entity_ms = (time.perf_counter() - entity_started) * 1000
     candidate_ids = set(dense) | set(lexical) | set(entity)
     fetch_started = time.perf_counter()
@@ -363,12 +415,7 @@ def explain(
             continue
         context = dict(row["context"] or {})
         tags = list(row["tags"] or [])
-        document = {
-            "kind": row["kind"],
-            "agent_id": row["agent_id"],
-            "context": context,
-            "tags": tags,
-        }
+        document = eligibility.document(row)
         if not filters.matches(document, expression):
             dropped_filter.append(memory_id)
             continue
@@ -414,7 +461,7 @@ def explain(
         )
     scored.sort(key=lambda item: (-item.score, item.id))
     scored = (reranker or IdentityReranker()).rerank(query, scored)
-    chosen, used = _fill_budget(scored[:limit], budget_tokens)
+    chosen, used = _fill_budget(scored, budget_tokens, limit=limit)
     scoring_ms = (time.perf_counter() - scoring_started) * 1000
     total_ms = (time.perf_counter() - total_started) * 1000
     return Explain(

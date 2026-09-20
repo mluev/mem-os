@@ -10,6 +10,7 @@ forgetting to pass an owner: with no scopes, nothing is writable.
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import uuid
 from collections.abc import Sequence
@@ -20,12 +21,32 @@ import psycopg
 from psycopg.types.json import Jsonb
 from qdrant_client import QdrantClient
 
-from . import filters, outbox, provenance, security, vectors
-from .db import Row, as_datetime, iso, utcnow
+from . import eligibility, entities, filters, maintenance, outbox, provenance, security, vectors
+from .db import Row, advisory_lock, as_datetime, iso, utcnow
 from .embed import Embedder
 from .limits import MAX_MEMORY_CHARS, MAX_MESSAGE_CHARS, MIN_INDEX_CHARS
+from .principal import ScopeForbidden
 
 REVIEW_STATUSES = frozenset({"pending", "confirmed", "declined"})
+
+
+class _Unchanged:
+    pass
+
+
+_UNCHANGED = _Unchanged()
+
+
+def memory_identity(row: Row | dict[str, Any]) -> tuple:
+    """Fields that must agree before two claims can share an identity."""
+    return (
+        str(row["scope_id"]),
+        str(row["subject_id"]) if row.get("subject_id") else None,
+        str(row["kind"]),
+        json.dumps(row.get("context") or {}, sort_keys=True),
+        iso(row.get("valid_until")),
+        str(row["source_role"]),
+    )
 
 
 class SessionNotAvailable(LookupError):
@@ -35,6 +56,30 @@ class SessionNotAvailable(LookupError):
     different answer for a session that exists would let anyone enumerate other
     people's conversation ids.
     """
+
+
+def require_scope_write(conn: psycopg.Connection, *, user_id: str, scope_id: str) -> None:
+    """Reauthorize delayed/session writes and hold permission through commit.
+
+    Call inside the write transaction. Shared row locks make concurrent disable,
+    archive, membership removal or downgrade wait until this write completes.
+    """
+    scope = conn.execute(
+        """SELECT e.user_id FROM entities e JOIN users u ON u.id=%s
+             WHERE e.id=%s AND e.archived_at IS NULL AND u.disabled_at IS NULL
+             FOR SHARE OF e,u""",
+        (user_id, scope_id),
+    ).fetchone()
+    if scope is None:
+        raise ScopeForbidden(scope_id)
+    if str(scope["user_id"]) == user_id:
+        return
+    membership = conn.execute(
+        """SELECT role FROM memberships WHERE entity_id=%s AND user_id=%s FOR SHARE""",
+        (scope_id, user_id),
+    ).fetchone()
+    if membership is None or membership["role"] not in entities.WRITER_ROLES:
+        raise ScopeForbidden(scope_id)
 
 
 def content_hash(text: str) -> str:
@@ -67,6 +112,7 @@ def _session(
     agent_id: str,
     started_at: datetime,
     context: dict[str, Any] | None,
+    strict_scope: bool = False,
 ) -> Row:
     """Create the session on first sight; never move it afterwards.
 
@@ -82,6 +128,7 @@ def _session(
         (session_id, user_id, scope_id, agent_id, started_at, Jsonb(context or {})),
     ).fetchone()
     if row is not None:
+        require_scope_write(conn, user_id=user_id, scope_id=str(row["scope_id"]))
         return row
     existing = conn.execute("SELECT * FROM sessions WHERE id=%s", (session_id,)).fetchone()
     if existing is None:  # pragma: no cover - only under concurrent deletion
@@ -90,9 +137,13 @@ def _session(
         raise SessionNotAvailable(session_id)
     if existing["agent_id"] != agent_id:
         raise ValueError("session belongs to another agent")
+    require_scope_write(conn, user_id=user_id, scope_id=str(existing["scope_id"]))
+    if strict_scope and str(existing["scope_id"]) != scope_id:
+        raise ValueError("session belongs to another scope")
     return existing
 
 
+@maintenance.write_transaction
 def add_message(
     conn: psycopg.Connection,
     *,
@@ -106,6 +157,7 @@ def add_message(
     external_source: str | None = None,
     external_id: str | None = None,
     context: dict[str, Any] | None = None,
+    strict_scope: bool = False,
 ) -> tuple[int, bool, bool]:
     """Persist redacted evidence and enqueue raw indexing in one transaction."""
     content = content.strip()
@@ -126,6 +178,7 @@ def add_message(
         agent_id=agent_id,
         started_at=now,
         context=context,
+        strict_scope=strict_scope,
     )
 
     if external_id is not None:
@@ -198,6 +251,7 @@ def raw_payload(row: Row | dict[str, Any]) -> dict[str, Any]:
     }
 
 
+@maintenance.write_transaction
 def ensure_raw_outbox(conn: psycopg.Connection, message_ids: list[int]) -> int:
     if not message_ids:
         return 0
@@ -218,6 +272,68 @@ def ensure_raw_outbox(conn: psycopg.Connection, message_ids: list[int]) -> int:
     return len(rows)
 
 
+def raw_search_rows(
+    conn: psycopg.Connection,
+    client: QdrantClient,
+    *,
+    vector: list[float],
+    scope_ids: Sequence[str],
+    limit: int,
+    expression: dict[str, Any] | None = None,
+    kinds: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Resolve raw index proposals to currently authorized evidence rows."""
+    filters.validate(expression)
+    if not scope_ids or (kinds and "evidence" not in kinds):
+        return []
+    predicate, parameters = eligibility.filter_sql(expression)
+    scores: dict[int, float] = {}
+    selected: dict[int, dict[str, Any]] = {}
+    candidate_limit = max(50, limit * 3)
+    for _ in range(4):
+        hits = vectors.search(
+            client,
+            vectors.RAW,
+            vector,
+            limit=candidate_limit,
+            must=[
+                vectors.keyword("scope_id", list(scope_ids)),
+                vectors.keyword("role", "user"),
+                *eligibility.vector_filters(expression, raw=True),
+            ],
+            exclude_ids=list(scores) or None,
+        )
+        fresh = {}
+        for hit in hits:
+            try:
+                message_id = int(hit.id)
+            except (TypeError, ValueError):
+                continue
+            if message_id not in scores:
+                fresh[message_id] = float(hit.score)
+        if not fresh:
+            break
+        scores.update(fresh)
+        rows = conn.execute(
+            f"""SELECT * FROM (
+                SELECT evidence.*,session.scope_id,session.agent_id,
+                       scope.name AS scope_name,scope.slug AS scope_slug,
+                       'evidence'::text AS kind,'[]'::jsonb AS tags,NULL::uuid AS subject_id
+                  FROM messages evidence JOIN sessions session ON session.id=evidence.session_id
+                  JOIN entities scope ON scope.id=session.scope_id
+                 WHERE evidence.id=ANY(%s) AND session.scope_id=ANY(%s)
+                   AND evidence.role='user'
+            ) m WHERE {predicate}""",
+            (list(fresh), [uuid.UUID(str(scope)) for scope in scope_ids], *parameters),
+        ).fetchall()
+        selected.update(
+            (int(row["id"]), {**row, "similarity": scores[int(row["id"])]}) for row in rows
+        )
+        if len(hits) < candidate_limit or len(selected) >= limit:
+            break
+    return sorted(selected.values(), key=lambda row: (-row["similarity"], int(row["id"])))[:limit]
+
+
 def search_raw(
     conn: psycopg.Connection,
     client: QdrantClient,
@@ -233,53 +349,70 @@ def search_raw(
     """Semantic search over retained user turns, within the caller's scopes."""
     if not scope_ids or (kinds and "evidence" not in kinds):
         return []
-    # The memory search on the same request already embedded this query; pass
-    # its vector rather than paying for the identical encode twice.
     vector = vector if vector is not None else embedder.encode_one(query)
-    hits = vectors.search(
-        client,
-        vectors.RAW,
-        vector,
-        limit=limit,
-        must=[vectors.keyword("scope_id", list(scope_ids)), vectors.keyword("role", "user")],
-    )
-    scores = {}
-    for hit in hits:
-        try:
-            scores[int(hit.id)] = round(float(hit.score), 4)
-        except (TypeError, ValueError):
-            continue
-    if not scores:
-        return []
-    # An outbox backlog can leave stale ownership or text in the index.
-    # Only the current Postgres row can authorize or supply a quotation.
-    rows = conn.execute(
-        """SELECT m.*,s.agent_id FROM messages m JOIN sessions s ON s.id=m.session_id
-           WHERE m.id=ANY(%s) AND s.scope_id=ANY(%s) AND m.role='user'""",
-        (list(scores), [uuid.UUID(str(scope)) for scope in scope_ids]),
-    ).fetchall()
     return [
         {
             "message_id": int(row["id"]),
             "text": row["content"],
-            "similarity": scores[int(row["id"])],
+            "similarity": round(row["similarity"], 4),
             "context": dict(row["context"] or {}),
             "session_id": row["session_id"],
             "created_at": iso(row["created_at"]),
             "source_role": "user",
+            "scope": row["scope_name"],
         }
-        for row in sorted(rows, key=lambda r: (-scores[int(r["id"])], int(r["id"])))
-        if filters.matches(
-            {
-                "kind": "evidence",
-                "context": dict(row["context"] or {}),
-                "tags": [],
-                "agent_id": row["agent_id"],
-                "subject_id": None,
-            },
-            expression,
+        for row in raw_search_rows(
+            conn,
+            client,
+            vector=vector,
+            scope_ids=scope_ids,
+            limit=limit,
+            expression=expression,
+            kinds=kinds,
         )
     ]
+
+
+def evidence_rows(
+    conn: psycopg.Connection,
+    memory_ids: list[str],
+    *,
+    scope_ids: Sequence[str] | None = None,
+) -> list[Row]:
+    """Load citation lineage once for current context and historical inspection.
+
+    Legacy spans remain unversioned. They can accompany unchanged legacy claims,
+    but are never assigned to new wording after a correction.
+    """
+    return conn.execute(
+        """SELECT e.memory_id,e.message_id,e.start_char,e.end_char,e.excerpt_sha256,
+                  m.content,m.role,m.created_at, linked.revision,
+                  ARRAY(SELECT lineage.revision FROM memory_revision_evidence lineage
+                         WHERE lineage.memory_id=e.memory_id AND lineage.message_id=e.message_id
+                           AND lineage.start_char=e.start_char AND lineage.end_char=e.end_char
+                         ORDER BY lineage.revision) AS supported_revisions,
+                  (linked.revision IS NOT NULL OR (
+                      NOT EXISTS (SELECT 1 FROM memory_revision_evidence lineage
+                                   WHERE lineage.memory_id=e.memory_id)
+                      AND NOT EXISTS (SELECT 1 FROM memory_revisions old
+                                       WHERE old.memory_id=e.memory_id AND old.text<>current.text)
+                  )) AS current_evidence
+             FROM memory_evidence e JOIN messages m ON m.id=e.message_id
+             JOIN sessions s ON s.id=m.session_id
+             JOIN memories current ON current.id=e.memory_id
+             LEFT JOIN memory_revision_evidence linked
+               ON linked.memory_id=e.memory_id AND linked.revision=current.revision
+              AND linked.message_id=e.message_id AND linked.start_char=e.start_char
+              AND linked.end_char=e.end_char
+            WHERE e.memory_id = ANY(%s)
+              AND (%s::uuid[] IS NULL OR s.scope_id=ANY(%s::uuid[]))
+            ORDER BY e.memory_id,e.message_id DESC,e.start_char""",
+        (
+            [uuid.UUID(str(mid)) for mid in memory_ids],
+            [uuid.UUID(str(s)) for s in scope_ids] if scope_ids is not None else None,
+            [uuid.UUID(str(s)) for s in scope_ids] if scope_ids is not None else None,
+        ),
+    ).fetchall()
 
 
 def evidence_excerpts(
@@ -299,22 +432,11 @@ def evidence_excerpts(
     """
     if not memory_ids:
         return {}
-    rows = conn.execute(
-        """SELECT e.memory_id,e.message_id,e.start_char,e.end_char,e.excerpt_sha256,
-                  m.content,m.role,m.created_at
-             FROM memory_evidence e JOIN messages m ON m.id=e.message_id
-             JOIN sessions s ON s.id=m.session_id
-            WHERE e.memory_id = ANY(%s)
-              AND (%s::uuid[] IS NULL OR s.scope_id=ANY(%s::uuid[]))
-            ORDER BY e.memory_id,e.message_id,e.start_char""",
-        (
-            [uuid.UUID(str(mid)) for mid in memory_ids],
-            [uuid.UUID(str(s)) for s in scope_ids] if scope_ids is not None else None,
-            [uuid.UUID(str(s)) for s in scope_ids] if scope_ids is not None else None,
-        ),
-    ).fetchall()
+    rows = evidence_rows(conn, memory_ids, scope_ids=scope_ids)
     excerpts: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
+        if not row["current_evidence"]:
+            continue
         bucket = excerpts.setdefault(str(row["memory_id"]), [])
         if len(bucket) >= per_memory:
             continue
@@ -327,6 +449,8 @@ def evidence_excerpts(
                 "excerpt": excerpt,
                 "role": row["role"],
                 "created_at": iso(row["created_at"]),
+                "revision": row["revision"],
+                "evidence_status": "current" if row["revision"] else "legacy_unversioned",
             }
         )
     return excerpts
@@ -357,6 +481,7 @@ def record_feedback(
     )
 
 
+@maintenance.write_transaction
 def find_duplicate(
     conn: psycopg.Connection,
     *,
@@ -364,21 +489,54 @@ def find_duplicate(
     text: str,
     kind: str,
     context: dict[str, Any] | None = None,
+    subject_id: str | None = None,
+    valid_until: datetime | str | None = None,
+    source_role: str = provenance.DEFAULT_ROLE,
 ) -> Row | None:
     """An active memory in this scope that already says exactly this.
 
     Exact identity only, and scoped: the same sentence in two scopes is two
     facts, because one may be shared and the other private.
     """
+    cleaned_context = security.redact_value(context or {})[0]
+    hashed = content_hash(security.redact(text).text)
+    identity = memory_identity(
+        {
+            "scope_id": scope_id,
+            "subject_id": subject_id,
+            "kind": kind.strip(),
+            "context": cleaned_context,
+            "valid_until": valid_until,
+            "source_role": source_role,
+        }
+    )
+    advisory_lock(
+        conn,
+        "memory-identity:"
+        + hashlib.sha256(json.dumps([identity, hashed], sort_keys=True).encode()).hexdigest(),
+    )
     return conn.execute(
         """SELECT * FROM memories
             WHERE scope_id=%s AND status='active' AND content_hash=%s
               AND kind=%s AND context=%s
+              AND subject_id IS NOT DISTINCT FROM %s::uuid
+              AND valid_until IS NOT DISTINCT FROM %s::timestamptz
+              AND (valid_until IS NULL OR valid_until > now())
+              AND source_role=%s
             ORDER BY created_at LIMIT 1""",
-        (scope_id, content_hash(text), kind.strip(), Jsonb(context or {})),
+        (
+            scope_id,
+            hashed,
+            kind.strip(),
+            Jsonb(cleaned_context),
+            subject_id,
+            as_datetime(valid_until),
+            source_role,
+        ),
     ).fetchone()
 
 
+@maintenance.write_transaction
 def add_memory(
     conn: psycopg.Connection,
     *,
@@ -495,6 +653,20 @@ def append_memory_revision(conn: psycopg.Connection, row: Row) -> None:
             row["updated_at"],
         ),
     )
+    # Metadata-only revisions retain the evidence of the unchanged wording.
+    # A rewritten claim must receive its own supporting citations.
+    if int(row["revision"]) > 1:
+        conn.execute(
+            """INSERT INTO memory_revision_evidence
+               (memory_id,revision,message_id,start_char,end_char)
+               SELECT e.memory_id,%s,e.message_id,e.start_char,e.end_char
+                 FROM memory_revision_evidence e
+                 JOIN memory_revisions previous
+                   ON previous.memory_id=e.memory_id AND previous.revision=e.revision
+                WHERE e.memory_id=%s AND e.revision=%s AND previous.text=%s
+               ON CONFLICT DO NOTHING""",
+            (row["revision"], row["id"], int(row["revision"]) - 1, row["text"]),
+        )
 
 
 def _load_for_write(conn: psycopg.Connection, *, memory_id: str, scopes: Sequence[str]) -> Row:
@@ -514,6 +686,7 @@ def _load_for_write(conn: psycopg.Connection, *, memory_id: str, scopes: Sequenc
     return row
 
 
+@maintenance.write_transaction
 def update_memory(
     conn: psycopg.Connection,
     *,
@@ -527,7 +700,7 @@ def update_memory(
     importance: float,
     confidence: float,
     valid_until: datetime | str | None,
-    subject_id: str | None = None,
+    subject_id: str | object | None = _UNCHANGED,
     scope_id: str | None = None,
     extraction_version: str | None = None,
     judge_run_id: int | None = None,
@@ -570,7 +743,7 @@ def update_memory(
             next_source_role,
             review_status or current["review_status"],
             content_hash(cleaned.text),
-            subject_id if subject_id is not None else current["subject_id"],
+            current["subject_id"] if subject_id is _UNCHANGED else subject_id,
             scope_id or current["scope_id"],
             bool(
                 cleaned.redacted
@@ -599,6 +772,7 @@ def update_memory(
     return saved
 
 
+@maintenance.write_transaction
 def set_memory_status(
     conn: psycopg.Connection,
     *,
@@ -636,6 +810,7 @@ def set_memory_status(
     return saved
 
 
+@maintenance.write_transaction
 def set_review_status(
     conn: psycopg.Connection,
     *,

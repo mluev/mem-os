@@ -8,9 +8,9 @@ from attrs import define as _attrs_define
 from ..types import UNSET, Unset
 
 if TYPE_CHECKING:
-    from ..models.memory_search_out_memories_item import MemorySearchOutMemoriesItem
     from ..models.memory_search_out_raw_item import MemorySearchOutRawItem
     from ..models.memory_search_out_timings import MemorySearchOutTimings
+    from ..models.search_memory import SearchMemory
 
 
 T = TypeVar("T", bound="MemorySearchOut")
@@ -25,7 +25,7 @@ class MemorySearchOut:
         dropped_trust (list[str]):
         dropped_validity (list[str]):
         embed_ms (float):
-        memories (list[MemorySearchOutMemoriesItem]):
+        memories (list[SearchMemory]):
         policy_id (str):
         timings (MemorySearchOutTimings):
         used_tokens (int):
@@ -38,7 +38,7 @@ class MemorySearchOut:
     dropped_trust: list[str]
     dropped_validity: list[str]
     embed_ms: float
-    memories: list[MemorySearchOutMemoriesItem]
+    memories: list[SearchMemory]
     policy_id: str
     timings: MemorySearchOutTimings
     used_tokens: int
@@ -104,9 +104,9 @@ class MemorySearchOut:
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
-        from ..models.memory_search_out_memories_item import MemorySearchOutMemoriesItem
         from ..models.memory_search_out_raw_item import MemorySearchOutRawItem
         from ..models.memory_search_out_timings import MemorySearchOutTimings
+        from ..models.search_memory import SearchMemory
 
         d = dict(src_dict)
         dropped_filter = cast(list[str], d.pop("dropped_filter"))
@@ -122,7 +122,7 @@ class MemorySearchOut:
         memories = []
         _memories = d.pop("memories")
         for memories_item_data in _memories:
-            memories_item = MemorySearchOutMemoriesItem.from_dict(memories_item_data)
+            memories_item = SearchMemory.from_dict(memories_item_data)
 
             memories.append(memories_item)
 

@@ -1,47 +1,9 @@
-"""memkit — Hermes MemoryProvider backed by the local memkit service.
+"""Hermes memory provider for Mem OS, installed by either supported CLI.
 
-Everything inside memkit (Qdrant, BGE-M3 on MPS, the extraction judge) is invisible
-from here: this plugin only speaks HTTP to 127.0.0.1.
-
-Install with `memkit install-hermes`, which copies this package to
-`$HERMES_HOME/plugins/memkit` — the directory Hermes scans for user-installed
-providers. Then in `$HERMES_HOME/config.yaml`:
-
-    memory:
-      provider: memkit
-    plugins:
-      memkit:
-        base_url: http://127.0.0.1:8077
-        budget_tokens: 800
-        send_tool_results: false
-        scope: ""
-
-The key comes from the environment, or from `~/.config/memkit/client.env`. It is
-now a *per-person* key minted by `memkit api-keys create --user <handle>`: it is
-the identity on every request, so the wrong key does not degrade the answer, it
-reads and writes as the wrong person. `scope` is empty by default, which keeps
-every write private -- a fact that should have been shared can be moved later,
-and one that should not have been cannot be unshared.
-
-Corrections to docs/07-hermes-adapter.md, which was written before the real ABC
-was read. Each of these would have stopped the plugin loading or working:
-
-* The ABC has **four** abstract members, not two: `name` (a property),
-  `is_available()`, `initialize()` and `get_tool_schemas()`. A class missing any
-  of them cannot be instantiated.
-* User plugins live in `$HERMES_HOME/plugins/<name>/`. The `plugins/memory/<name>/`
-  path in the doc is where *bundled* providers live, inside the hermes-agent
-  package.
-* Tool schemas use a `parameters` key, not `input_schema`. All four shipped
-  providers do it this way.
-* `prefetch(query, *, session_id="")`, and `on_session_end(messages)` takes the
-  message list. The doc gives both no arguments.
-* There is no `POST /v1/sessions`. Sessions are created implicitly by the first
-  message, via `ensure_session`.
-* `queue_prefetch`, `get_config_schema`, `save_config` and `backup_paths` exist and
-  matter; the doc does not mention them. `backup_paths` especially: memkit's SQLite
-  and Qdrant data live outside HERMES_HOME, so without declaring them
-  `hermes backup` silently captures nothing of this provider's state.
+The provider speaks HTTP directly for legacy installations or uses the saved
+memos connection through bridge.json. Both packages ship this source unchanged.
+Writes are private unless a scope is configured. Non-primary agent contexts do
+not write; tool output is excluded by default; session close waits for evidence.
 """
 
 from __future__ import annotations
@@ -51,6 +13,7 @@ import logging
 import os
 import re
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -60,6 +23,7 @@ from .client import PROFILE_BLOCKS, Client, MemkitError, resolve_config
 from .scrub import scrub
 
 logger = logging.getLogger(__name__)
+SESSION_CLOSE_TIMEOUT = 30.0
 
 _LAST = "__last__"
 _HELPFUL_MEMORY = re.compile(
@@ -133,6 +97,8 @@ class MemkitProvider(MemoryProvider):
         self._cache: dict[str, list[dict[str, Any]]] = {}
         self._last_retrieval: dict[str, Any] | None = None
         self._threads: list[threading.Thread] = []
+        self._session_writes: dict[str, list[threading.Thread]] = {}
+        self._failed_sessions: set[str] = set()
         self._lock = threading.Lock()
         self._budget = int(self._config.get("budget_tokens", 800) or 800)
         self._send_tool_results = bool(self._config.get("send_tool_results", False))
@@ -212,11 +178,13 @@ class MemkitProvider(MemoryProvider):
         self._spawn(self._warm, "")
 
     def shutdown(self) -> None:
+        deadline = time.monotonic() + 5.0
         for thread in list(self._threads):
-            thread.join(timeout=5.0)
-        self._threads.clear()
+            thread.join(timeout=max(0.0, deadline - time.monotonic()))
+        with self._lock:
+            self._threads = [thread for thread in self._threads if thread.is_alive()]
 
-    def _spawn(self, target: Any, *args: Any) -> None:
+    def _spawn(self, target: Any, *args: Any, session_id: str | None = None) -> None:
         """Run a write off the turn's critical path.
 
         Daemon threads so a hung request cannot keep the agent alive, but tracked so
@@ -224,10 +192,15 @@ class MemkitProvider(MemoryProvider):
         interpreter exit. Finished threads are reaped here rather than accumulating
         over a long gateway session.
         """
-        self._threads = [t for t in self._threads if t.is_alive()]
         thread = threading.Thread(target=target, args=args, daemon=True)
-        thread.start()
-        self._threads.append(thread)
+        with self._lock:
+            self._threads = [t for t in self._threads if t.is_alive()]
+            self._threads.append(thread)
+            if session_id is not None:
+                pending = self._session_writes.setdefault(session_id, [])
+                pending[:] = [t for t in pending if t.is_alive()]
+                pending.append(thread)
+            thread.start()
 
     # -- read path ---------------------------------------------------------
 
@@ -397,7 +370,7 @@ class MemkitProvider(MemoryProvider):
                 if p
             ]
         if payloads:
-            self._spawn(self._post_all, payloads)
+            self._spawn(self._post_all, payloads, session_id=sid)
 
     def _message(self, role: str, content: str, session_id: str) -> dict[str, Any] | None:
         body = scrub(content or "").strip()
@@ -426,10 +399,10 @@ class MemkitProvider(MemoryProvider):
     def _post_all(self, payloads: list[dict[str, Any]]) -> None:
         try:
             self._client.add_events(payloads)
-        except MemkitError as exc:
-            logger.debug("memkit: evidence not stored (%s)", exc)
         except Exception:
-            logger.debug("memkit: evidence not stored", exc_info=True)
+            with self._lock:
+                self._failed_sessions.update(str(payload["session_id"]) for payload in payloads)
+            logger.warning("memkit: evidence was not stored; session will remain open")
 
     def on_memory_write(
         self,
@@ -463,8 +436,23 @@ class MemkitProvider(MemoryProvider):
         """
         if not self._client or self._read_only or not self._session_id:
             return
+        session_id = self._session_id
+        deadline = time.monotonic() + SESSION_CLOSE_TIMEOUT
+        with self._lock:
+            pending = list(self._session_writes.get(session_id, []))
+        for thread in pending:
+            thread.join(timeout=max(0.0, deadline - time.monotonic()))
+        with self._lock:
+            incomplete = any(thread.is_alive() for thread in pending)
+            failed = session_id in self._failed_sessions
+            if not incomplete:
+                self._session_writes.pop(session_id, None)
+        remaining = deadline - time.monotonic()
+        if incomplete or failed or remaining <= 0:
+            logger.warning("memkit: session close skipped because evidence delivery is incomplete")
+            return
         try:
-            result = self._client.close_session(self._session_id)
+            result = self._client.close_session(session_id, timeout=remaining)
             logger.info("memkit: session closed, %s", result)
         except Exception:
             logger.debug("memkit: close failed", exc_info=True)

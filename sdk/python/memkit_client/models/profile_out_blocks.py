@@ -7,7 +7,7 @@ from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
 if TYPE_CHECKING:
-    from ..models.profile_out_blocks_additional_property_item import ProfileOutBlocksAdditionalPropertyItem
+    from ..models.profile_memory import ProfileMemory
 
 
 T = TypeVar("T", bound="ProfileOutBlocks")
@@ -17,9 +17,7 @@ T = TypeVar("T", bound="ProfileOutBlocks")
 class ProfileOutBlocks:
     """ """
 
-    additional_properties: dict[str, list[ProfileOutBlocksAdditionalPropertyItem]] = _attrs_field(
-        init=False, factory=dict
-    )
+    additional_properties: dict[str, list[ProfileMemory]] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
 
@@ -34,7 +32,7 @@ class ProfileOutBlocks:
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
-        from ..models.profile_out_blocks_additional_property_item import ProfileOutBlocksAdditionalPropertyItem
+        from ..models.profile_memory import ProfileMemory
 
         d = dict(src_dict)
         profile_out_blocks = cls()
@@ -44,9 +42,7 @@ class ProfileOutBlocks:
             additional_property = []
             _additional_property = prop_dict
             for additional_property_item_data in _additional_property:
-                additional_property_item = ProfileOutBlocksAdditionalPropertyItem.from_dict(
-                    additional_property_item_data
-                )
+                additional_property_item = ProfileMemory.from_dict(additional_property_item_data)
 
                 additional_property.append(additional_property_item)
 
@@ -59,10 +55,10 @@ class ProfileOutBlocks:
     def additional_keys(self) -> list[str]:
         return list(self.additional_properties.keys())
 
-    def __getitem__(self, key: str) -> list[ProfileOutBlocksAdditionalPropertyItem]:
+    def __getitem__(self, key: str) -> list[ProfileMemory]:
         return self.additional_properties[key]
 
-    def __setitem__(self, key: str, value: list[ProfileOutBlocksAdditionalPropertyItem]) -> None:
+    def __setitem__(self, key: str, value: list[ProfileMemory]) -> None:
         self.additional_properties[key] = value
 
     def __delitem__(self, key: str) -> None:

@@ -127,16 +127,19 @@ class BackupTest(OperationsCase):
         self.assertFalse(Path(first["path"]).exists())
 
     def test_restore_hands_over_the_command_instead_of_running_it(self) -> None:
-        """`pg_restore --clean` drops and recreates every object the archive
-        holds, and this service cannot promise nothing else is connected --
-        its own pool reconnects on demand. A half-replaced schema has no way
-        back, so the archive is verified and the command is printed.
+        """Offline recovery targets an empty replacement database, preserving
+        the original. A v1 archive cannot clean v2-only objects safely; restore
+        guidance must not invite replacing a live schema in place.
         """
         created = operations.create_backup(self.settings, kind="daily")
         with self.assertRaises(NotImplementedError) as raised:
             operations.restore_backup(self.settings, artifact_id=created["id"], confirm="RESTORE")
         message = str(raised.exception)
-        self.assertIn("pg_restore --clean --if-exists", message)
+        self.assertIn("empty replacement PostgreSQL database", message)
+        self.assertIn("pg_restore --exit-on-error --no-owner --no-privileges", message)
+        self.assertIn('"$MEMKIT_RESTORE_DATABASE_URL"', message)
+        self.assertNotIn("--clean", message)
+        self.assertIn("memkit backup replay-erasures", message)
         self.assertIn(created["path"], message)
         self.assertIn("memkit reindex", message)
 

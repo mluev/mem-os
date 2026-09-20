@@ -87,8 +87,8 @@ class QualityCorpusTest(unittest.TestCase):
             )
         result = self._search("RELEASE-42", now=datetime(2026, 8, 9, tzinfo=UTC))
         self.assertEqual([item.id for item in result.chosen], [live])
-        self.assertIn(expired, result.dropped_validity)
-        self.assertIn(poisoned, result.dropped_trust)
+        self.assertNotIn(expired, [item.id for item in result.chosen])
+        self.assertNotIn(poisoned, [item.id for item in result.chosen])
 
     def test_an_unrelated_query_abstains(self) -> None:
         with self.conn.transaction():

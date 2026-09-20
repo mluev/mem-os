@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import subprocess
 import time
 import urllib.error
 import urllib.parse
@@ -57,6 +58,9 @@ def resolve_config() -> tuple[str, str]:
     uses -- environment, ~/.config/memkit/client.env, then the deprecated
     ~/.memkit.
     """
+    if Path(__file__).with_name("bridge.json").is_file():
+        # The installed bridge resolves the selected CLI connection on each call.
+        return "https://memos-managed.invalid", "memos-managed-identity"
     base = os.environ.get("MEMKIT_BASE_URL", "").strip()
     key = os.environ.get("MEMKIT_API_KEY", "").strip()
     for path in (CLIENT_ENV, LEGACY_ENV):
@@ -136,6 +140,9 @@ class Client:
     ) -> Any:
         if not self.breaker.allow():
             raise MemkitError("circuit open")
+        bridge = Path(__file__).with_name("bridge.json")
+        if bridge.is_file():
+            return self._bridge_request(bridge, method, path, body, timeout=timeout)
         url = f"{self.base_url}{path}"
         data = json.dumps(body).encode() if body is not None else None
         req = urllib.request.Request(url, data=data, method=method)  # noqa: S310 -- scheme validated in __init__
@@ -156,6 +163,40 @@ class Client:
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
             self.breaker.fail()
             raise MemkitError(str(exc)) from exc
+
+    def _bridge_request(self, bridge, method, path, body, *, timeout):
+        seconds = timeout or self.timeout
+        try:
+            command = json.loads(bridge.read_text())["command"]
+            if (
+                not isinstance(command, list)
+                or not command
+                or not all(isinstance(part, str) and part for part in command)
+            ):
+                raise ValueError("invalid bridge command")
+            process = subprocess.run(  # noqa: S603 -- installed interpreter and module, no shell
+                [*command, "internal", "request", "--json", "--timeout", str(seconds)],
+                input=json.dumps({"method": method, "path": path, "body": body}),
+                text=True,
+                capture_output=True,
+                timeout=seconds + 1,
+            )
+            result = json.loads(process.stdout)
+            if not isinstance(result, dict):
+                raise ValueError("invalid bridge response")
+            if not result.get("ok"):
+                error = result.get("error", {})
+                if not isinstance(error, dict):
+                    raise ValueError("invalid bridge error")
+                status = error.get("status")
+                if status is None or status >= 500:
+                    self.breaker.fail()
+                raise MemkitError(error.get("message", "Mem OS unavailable"), status=status)
+            self.breaker.ok()
+            return result["data"]
+        except (OSError, ValueError, KeyError, TypeError, subprocess.TimeoutExpired) as exc:
+            self.breaker.fail()
+            raise MemkitError("Mem OS CLI unavailable") from exc
 
     # -- endpoints ---------------------------------------------------------
 

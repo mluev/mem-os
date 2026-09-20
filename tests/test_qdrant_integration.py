@@ -15,7 +15,7 @@ import os
 
 import pytest
 
-from memkit import outbox, reindex, store, vectors
+from memkit import eligibility, outbox, reindex, store, vectors
 from tests.fixtures import StubEmbedder, make_db, seed_team
 
 pytestmark = pytest.mark.skipif(
@@ -98,5 +98,36 @@ def test_a_scope_filter_excludes_another_persons_points() -> None:
         must=[vectors.keyword("scope_id", [team.scope_of("alice")])],
     )
     assert {str(hit.id) for hit in hits} == {mine}
+    client.close()
+    conn.close()
+
+
+def test_integer_context_filter_includes_equivalent_float_but_not_boolean() -> None:
+    conn = make_db(seed=False)
+    team = seed_team(conn)
+    client = _clean_client()
+    embedder = StubEmbedder()
+    expected = set()
+    for index, number in enumerate((1.0, 1, True)):
+        memory_id = store.add_memory(
+            conn,
+            scope_id=team.scope_of("alice"),
+            author_id=team.alice_id,
+            text=f"Numeric filter fixture {index}",
+            kind="fact",
+            source_role="user",
+            context={"number": number},
+        )
+        if type(number) is not bool:
+            expected.add(memory_id)
+    outbox.drain(conn, client, embedder, limit=10)
+    hits = vectors.search(
+        client,
+        vectors.MEMORIES,
+        embedder.encode_one("number"),
+        limit=10,
+        must=eligibility.vector_filters({"field": "context.number", "op": "eq", "value": 1}),
+    )
+    assert {str(hit.id) for hit in hits} == expected
     client.close()
     conn.close()

@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from collections.abc import Callable
 
 from qdrant_client import QdrantClient
 
-from . import jobs, outbox, vectors
+from . import jobs, maintenance, outbox, vectors
 from .db import ConnectionPool
 from .embed import Embedder
 
@@ -45,9 +46,10 @@ class Worker:
         # once when it begins and once when it ends -- not as a thirty-line
         # traceback every second for as long as Qdrant happens to be down.
         self._outage: str | None = None
+        self._provisioned = False
+        self._last_prune = 0.0
 
     def start(self) -> None:
-        jobs.recover_stale(self.db())
         self._thread.start()
 
     def wake(self) -> None:
@@ -59,14 +61,27 @@ class Worker:
         self._thread.join(timeout=10)
 
     def _run(self) -> None:
-        # `self.db()` is this thread's pooled connection: the same one every
-        # iteration, so the drain and the queue read do not pay a Postgres
-        # handshake per poll. It goes back to the pool when the application
-        # closes it, which is also the only thing that may close it.
         while not self._stop.is_set():
             wait = self.poll_seconds
             try:
-                vectors.ensure_collections(self.client)
+                # Recovery is independent of index availability and runs after
+                # leases expire, even if the process restarted before expiry.
+                with self.db.borrow() as conn:
+                    jobs.recover_stale(conn)
+            except Exception:
+                logger.exception("durable recovery failed")
+            ready = False
+            try:
+                if self._provisioned:
+                    names = {row.name for row in self.client.get_collections().collections}
+                    self._provisioned = all(
+                        any(name == logical or name.startswith(f"{logical}__g") for name in names)
+                        for logical in (vectors.MEMORIES, vectors.RAW)
+                    )
+                if not self._provisioned:
+                    vectors.ensure_collections(self.client)
+                    self._provisioned = True
+                ready = True
             except Exception as exc:
                 # Degraded, by design: authoritative writes continue and the
                 # outbox holds their index updates until this succeeds again.
@@ -74,22 +89,30 @@ class Worker:
                 if self._outage is None:
                     logger.warning("vector index unavailable; deliveries are queued: %s", exc)
                 self._outage = str(exc)
-                # No point asking a down service once a second.
-                self._wake.wait(max(wait, DEGRADED_POLL_SECONDS))
-                self._wake.clear()
-                continue
-            if self._outage is not None:
+                self._provisioned = False
+                wait = max(wait, DEGRADED_POLL_SECONDS)
+            if ready and self._outage is not None:
                 logger.info("vector index reachable again; draining queued deliveries")
                 self._outage = None
-            self.dependency_status(True, None)
+            if ready:
+                self.dependency_status(True, None)
             try:
-                conn = self.db()
-                outbox.drain(conn, self.client, self.embedder, limit=100)
-                # A peek, not a claim: the handler that `dispatch` picks is the
-                # one that claims the job, and it must find it still queued.
-                row = conn.execute(
-                    "SELECT id,kind FROM jobs WHERE status='queued' ORDER BY created_at,id LIMIT 1"
-                ).fetchone()
+                with self.db.borrow() as conn:
+                    if ready:
+                        outbox.drain(conn, self.client, self.embedder, limit=100)
+                        if time.monotonic() - self._last_prune >= 3600:
+                            try:
+                                with maintenance.exclusive(conn):
+                                    vectors.prune_retired_generations(self.client)
+                                self._last_prune = time.monotonic()
+                            except maintenance.MaintenanceBusy:
+                                pass
+                    row = conn.execute(
+                        """SELECT id,kind FROM jobs WHERE status='queued' AND available_at<=now()
+                             AND (%s OR kind NOT IN ('extraction','consolidation','reindex'))
+                           ORDER BY available_at,created_at,id LIMIT 1""",
+                        (ready,),
+                    ).fetchone()
                 if row is not None:
                     self.dispatch(str(row["id"]), str(row["kind"]))
                     continue

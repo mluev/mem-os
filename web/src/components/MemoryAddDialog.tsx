@@ -16,7 +16,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 import { toast } from "sonner";
 import { api } from "../api/client";
-import type { Memory } from "../api/types";
+import type { MemoryCreated, Memory } from "../api/types";
 import { SOURCE_ROLES } from "./MemoryTableState";
 import { entityOptions, plainOptions, scopeOptions, useMemoryOptions } from "./MemoryOptions";
 import { Field, RatioField, ValueSelect } from "./MemoryFields";
@@ -85,7 +85,7 @@ export function MemoryAddDialog({
 
   const create = useMutation({
     mutationFn: (input: Values) =>
-      api<{ id: string; review_status?: string; deduplicated?: boolean }>("/v1/memories", {
+      api<MemoryCreated>("/v1/memories", {
         method: "POST",
         body: JSON.stringify({
           text: input.text.trim(),

@@ -6,8 +6,8 @@ from typing import TYPE_CHECKING, Any, TypeVar
 from attrs import define as _attrs_define
 
 if TYPE_CHECKING:
-    from ..models.session_messages_out_items_item import SessionMessagesOutItemsItem
-    from ..models.session_messages_out_session import SessionMessagesOutSession
+    from ..models.message_view import MessageView
+    from ..models.session_detail import SessionDetail
 
 
 T = TypeVar("T", bound="SessionMessagesOut")
@@ -17,17 +17,17 @@ T = TypeVar("T", bound="SessionMessagesOut")
 class SessionMessagesOut:
     """
     Attributes:
-        items (list[SessionMessagesOutItemsItem]):
+        items (list[MessageView]):
         limit (int):
         offset (int):
-        session (SessionMessagesOutSession):
+        session (SessionDetail):
         total (int):
     """
 
-    items: list[SessionMessagesOutItemsItem]
+    items: list[MessageView]
     limit: int
     offset: int
-    session: SessionMessagesOutSession
+    session: SessionDetail
     total: int
 
     def to_dict(self) -> dict[str, Any]:
@@ -60,14 +60,14 @@ class SessionMessagesOut:
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
-        from ..models.session_messages_out_items_item import SessionMessagesOutItemsItem
-        from ..models.session_messages_out_session import SessionMessagesOutSession
+        from ..models.message_view import MessageView
+        from ..models.session_detail import SessionDetail
 
         d = dict(src_dict)
         items = []
         _items = d.pop("items")
         for items_item_data in _items:
-            items_item = SessionMessagesOutItemsItem.from_dict(items_item_data)
+            items_item = MessageView.from_dict(items_item_data)
 
             items.append(items_item)
 
@@ -75,7 +75,7 @@ class SessionMessagesOut:
 
         offset = d.pop("offset")
 
-        session = SessionMessagesOutSession.from_dict(d.pop("session"))
+        session = SessionDetail.from_dict(d.pop("session"))
 
         total = d.pop("total")
 

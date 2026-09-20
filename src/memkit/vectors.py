@@ -321,6 +321,25 @@ def exact_ids(client: QdrantClient, collection: str) -> set[str]:
     return ids
 
 
+def exact_payloads(client: QdrantClient, collection: str) -> dict[str, dict[str, Any]]:
+    """Read the content as well as IDs when validating a rebuilt generation."""
+    if hasattr(client, "_store"):
+        return {str(key): dict(value) for key, value in client._store.get(collection, {}).items()}
+    payloads: dict[str, dict[str, Any]] = {}
+    offset = None
+    while True:
+        points, offset = client.scroll(
+            collection_name=collection,
+            limit=256,
+            offset=offset,
+            with_payload=True,
+            with_vectors=False,
+        )
+        payloads.update((str(point.id), dict(point.payload or {})) for point in points)
+        if offset is None:
+            return payloads
+
+
 def swap_aliases(client: QdrantClient, generations: dict[str, str]) -> None:
     aliases = _aliases(client)
     operations: list[Any] = []
@@ -336,3 +355,20 @@ def swap_aliases(client: QdrantClient, generations: dict[str, str]) -> None:
             )
         )
     client.update_collection_aliases(change_aliases_operations=operations)
+
+
+def erase_user_indices(client: QdrantClient, *, user_id: str, private_scope_id: str) -> None:
+    """Erase actual collections, including retired generations hidden by aliases."""
+    for item in client.get_collections().collections:
+        name = str(item.name)
+        if re.fullmatch(r"memories(?:__g\d+)?", name):
+            condition = keyword("scope_id", private_scope_id)
+        elif re.fullmatch(r"raw(?:__g\d+)?", name):
+            condition = keyword("user_id", user_id)
+        else:
+            continue
+        client.delete(
+            collection_name=name,
+            points_selector=models.FilterSelector(filter=models.Filter(must=[condition])),
+            wait=True,
+        )

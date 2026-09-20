@@ -13,24 +13,11 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { ExternalLink } from "lucide-react";
 import { api } from "../api/client";
-import type { MemoryEvidence, MemoryRevision, TeamMemory } from "../api/types";
+import type { MemorySources, MemoryHistory, TeamMemory } from "../api/types";
 import { dateTime, integer, relativeTime } from "../lib/format";
 import { isUnchanged, wordDiff } from "./MemoryDiff";
 import { verifySpans, type VerifiedSpan } from "./MemoryEvidence";
 import { ErrorState, Loading } from "./ui";
-
-interface SourcesPayload {
-  memory: TeamMemory;
-  source_role: string;
-  evidence: MemoryEvidence[];
-}
-
-interface HistoryPayload {
-  memory: TeamMemory;
-  revisions: MemoryRevision[];
-  predecessors: TeamMemory[];
-  successor: TeamMemory | null;
-}
 
 const DIFF_STYLE: Record<string, CSSProperties> = {
   added: {
@@ -86,10 +73,14 @@ export function EvidenceTab({ memoryId, active }: { memoryId: string; active: bo
     queryKey: ["memory", memoryId, "sources"],
     enabled: active,
     queryFn: async () => {
-      const payload = await api<SourcesPayload>(
+      const payload = await api<MemorySources>(
         `/v1/memories/${encodeURIComponent(memoryId)}/sources`,
       );
-      return { sourceRole: payload.source_role, spans: await verifySpans(payload.evidence) };
+      const [spans, historicalSpans] = await Promise.all([
+        verifySpans(payload.evidence),
+        verifySpans(payload.historical_evidence ?? []),
+      ]);
+      return { sourceRole: payload.source_role, spans, historicalSpans };
     },
   });
   if (sources.isLoading) return <Loading label="Checking spans" />;
@@ -105,8 +96,7 @@ export function EvidenceTab({ memoryId, active }: { memoryId: string; active: bo
       </p>
       {!spans.length ? (
         <p className="quiet-empty">
-          No spans are recorded. A fact written straight through the API — by a person or by a
-          model — has no transcript to cite, which is exactly why it starts pending.
+          No source spans support the current wording.
         </p>
       ) : (
         <>
@@ -121,6 +111,11 @@ export function EvidenceTab({ memoryId, active }: { memoryId: string; active: bo
           </div>
         </>
       )}
+      {sources.data?.historicalSpans.length ? <section>
+        <h3>Historical evidence</h3>
+        <p className="subtle">These spans belong to earlier wording. They do not support the current revision.</p>
+        <div className="message-list">{sources.data.historicalSpans.map((span) => <EvidenceSpan key={span.key} span={span} />)}</div>
+      </section> : null}
     </>
   );
 }
@@ -135,6 +130,8 @@ function EvidenceSpan({ span }: { span: VerifiedSpan }) {
         {span.createdAt ? dateTime(span.createdAt) : "—"}
       </span>
       <div>
+        {span.evidenceStatus === "legacy_unversioned" ? <p className="subtle">Legacy citation; revision support is unknown.</p> : null}
+        {span.supportedRevisions?.length ? <p className="subtle">Supports revision{span.supportedRevisions.length === 1 ? "" : "s"} {span.supportedRevisions.join(", ")}</p> : null}
         {span.state === "unverified" ? (
           <p className="form-error" role="alert" style={{ margin: 0 }}>
             This span no longer matches the stored message, so it is not quoted here. The message
@@ -172,7 +169,7 @@ export function HistoryTab({
   const history = useQuery({
     queryKey: ["memory", memory.id, "history"],
     enabled: active,
-    queryFn: () => api<HistoryPayload>(`/v1/memories/${encodeURIComponent(memory.id)}/history`),
+    queryFn: () => api<MemoryHistory>(`/v1/memories/${encodeURIComponent(memory.id)}/history`),
   });
   if (history.isLoading) return <Loading label="Loading history" />;
   if (history.error) return <ErrorState error={history.error} retry={() => void history.refetch()} />;

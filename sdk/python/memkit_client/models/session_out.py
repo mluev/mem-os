@@ -8,7 +8,7 @@ from attrs import define as _attrs_define
 from ..types import UNSET, Unset
 
 if TYPE_CHECKING:
-    from ..models.session_out_user import SessionOutUser
+    from ..models.principal_view import PrincipalView
 
 
 T = TypeVar("T", bound="SessionOut")
@@ -18,11 +18,11 @@ T = TypeVar("T", bound="SessionOut")
 class SessionOut:
     """
     Attributes:
-        user (SessionOutUser):
+        user (PrincipalView):
         csrf_required_header (str | Unset):  Default: 'X-Requested-With'.
     """
 
-    user: SessionOutUser
+    user: PrincipalView
     csrf_required_header: str | Unset = "X-Requested-With"
 
     def to_dict(self) -> dict[str, Any]:
@@ -44,10 +44,10 @@ class SessionOut:
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
-        from ..models.session_out_user import SessionOutUser
+        from ..models.principal_view import PrincipalView
 
         d = dict(src_dict)
-        user = SessionOutUser.from_dict(d.pop("user"))
+        user = PrincipalView.from_dict(d.pop("user"))
 
         csrf_required_header = d.pop("csrf_required_header", UNSET)
 

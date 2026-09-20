@@ -85,8 +85,9 @@ def sync_detailed(
 
      Place an unresolved name, or dismiss the item.
 
-    Linking does two things at once on purpose: it attributes the memory to the
-    person and teaches the alias, so the same name resolves by itself next time.
+    Linking attributes the memory to a visible entity. It also teaches the
+    alias when the caller can edit that entity; `alias_taught` reports that
+    additional change explicitly.
 
     Args:
         item_id (str):
@@ -128,8 +129,9 @@ def sync(
 
      Place an unresolved name, or dismiss the item.
 
-    Linking does two things at once on purpose: it attributes the memory to the
-    person and teaches the alias, so the same name resolves by itself next time.
+    Linking attributes the memory to a visible entity. It also teaches the
+    alias when the caller can edit that entity; `alias_taught` reports that
+    additional change explicitly.
 
     Args:
         item_id (str):
@@ -166,8 +168,9 @@ async def asyncio_detailed(
 
      Place an unresolved name, or dismiss the item.
 
-    Linking does two things at once on purpose: it attributes the memory to the
-    person and teaches the alias, so the same name resolves by itself next time.
+    Linking attributes the memory to a visible entity. It also teaches the
+    alias when the caller can edit that entity; `alias_taught` reports that
+    additional change explicitly.
 
     Args:
         item_id (str):
@@ -207,8 +210,9 @@ async def asyncio(
 
      Place an unresolved name, or dismiss the item.
 
-    Linking does two things at once on purpose: it attributes the memory to the
-    person and teaches the alias, so the same name resolves by itself next time.
+    Linking attributes the memory to a visible entity. It also teaches the
+    alias when the caller can edit that entity; `alias_taught` reports that
+    additional change explicitly.
 
     Args:
         item_id (str):

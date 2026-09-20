@@ -13,8 +13,8 @@ import psycopg
 from psycopg.types.json import Jsonb
 from qdrant_client import QdrantClient
 
-from . import vectors
-from .db import Row, advisory_lock, as_datetime, utcnow
+from . import maintenance, vectors
+from .db import Row, advisory_lock, utcnow
 from .embed import Embedder
 
 logger = logging.getLogger(__name__)
@@ -133,40 +133,24 @@ def _claim_next(
     return row
 
 
-def _authoritative_upsert_exists(
-    conn: psycopg.Connection,
-    *,
-    collection: str,
-    entity_id: str,
-    scope_id: str,
-) -> bool:
-    """Is the row this delivery describes still the truth?
+def _authoritative_payload(
+    conn: psycopg.Connection, collection: str, entity_id: str
+) -> dict[str, Any] | None:
+    from . import store
+    from .limits import MIN_INDEX_CHARS
 
-    Delivery happens after commit and can be retried much later, so the store
-    is rechecked immediately before the external write. Without this, a delete
-    that raced ahead of a queued upsert would be undone by it.
-    """
     if collection == vectors.MEMORIES:
-        row = conn.execute(
-            "SELECT * FROM memories WHERE id=%s AND scope_id=%s",
-            (entity_id, scope_id),
-        ).fetchone()
-        return bool(row and store_memory_active(row))
+        current = conn.execute("SELECT * FROM memories WHERE id=%s", (entity_id,)).fetchone()
+        return store.mem_payload(current) if current and store.memory_active(current) else None
     if collection == vectors.RAW:
-        row = conn.execute(
-            """SELECT 1 FROM messages m JOIN sessions s ON s.id=m.session_id
-                 WHERE m.id=%s AND s.scope_id=%s""",
-            (int(entity_id), scope_id),
+        current = conn.execute(
+            """SELECT m.*,s.scope_id,s.agent_id FROM messages m
+               JOIN sessions s ON s.id=m.session_id
+               WHERE m.id=%s AND m.role='user' AND length(m.content)>=%s""",
+            (int(entity_id), MIN_INDEX_CHARS),
         ).fetchone()
-        return row is not None
-    return True
-
-
-def store_memory_active(row: Row) -> bool:
-    if row["status"] != "active":
-        return False
-    expiry = as_datetime(row["valid_until"])
-    return expiry is None or expiry > utcnow()
+        return store.raw_payload(current) if current else None
+    raise ValueError(f"unknown index collection: {collection}")
 
 
 def ensure_pending(
@@ -231,25 +215,52 @@ def _deliver(
         payload = dict(row["payload"] or {})
         scope_id = str(payload.get("scope_id") or "")
         barrier = scope_barrier(conn, scope_id) if scope_id else nullcontext()
-        with barrier:
-            point_id: str | int = (
-                int(row["entity_id"]) if row["collection"] == vectors.RAW else row["entity_id"]
-            )
-            if row["operation"] == "delete":
-                vectors.delete_points(client, row["collection"], [point_id])
-            elif scope_id and not _authoritative_upsert_exists(
-                conn,
-                collection=row["collection"],
-                entity_id=str(row["entity_id"]),
-                scope_id=scope_id,
-            ):
-                logger.info("skipping obsolete index delivery %s", row["id"])
-            else:
-                text = str(payload.get("text") or "")
-                if not text:
+        with conn.transaction():
+            maintenance.require_write(conn)
+            with barrier:
+                # Fence before an external side effect, and keep the row locked
+                # until it finishes so a reclaimer cannot steal this delivery.
+                claim = conn.execute(
+                    """SELECT 1 FROM index_outbox WHERE id=%s AND status='processing'
+                       AND claim_token=%s AND lease_expires_at>now() FOR UPDATE""",
+                    (row["id"], token),
+                ).fetchone()
+                if claim is None:
+                    return False
+                point_id: str | int = (
+                    int(row["entity_id"]) if row["collection"] == vectors.RAW else row["entity_id"]
+                )
+                current = (
+                    _authoritative_payload(conn, row["collection"], str(row["entity_id"]))
+                    if scope_id
+                    else payload
+                )
+                if current is not None and row["operation"] == "upsert" and not payload.get("text"):
                     raise ValueError("outbox upsert payload has no text")
-                point_vector = vector if vector is not None else embedder.encode_one(text)
-                vectors.upsert(client, row["collection"], [(point_id, point_vector, payload)])
+                if current is None or (not scope_id and row["operation"] == "delete"):
+                    vectors.delete_points(client, row["collection"], [point_id])
+                elif row["operation"] == "delete" or current != payload:
+                    # A newer transaction owns the next event. In particular an
+                    # old archive event cannot delete a now-restored memory.
+                    logger.info("skipping obsolete index delivery %s", row["id"])
+                else:
+                    text = str(payload.get("text") or "")
+                    if not text:
+                        raise ValueError("outbox upsert payload has no text")
+                    point_vector = vector if vector is not None else embedder.encode_one(text)
+                    vectors.upsert(client, row["collection"], [(point_id, point_vector, payload)])
+                conn.execute(
+                    """UPDATE index_outbox SET status='done',last_error=NULL,updated_at=%s,
+                       claim_token=NULL,lease_expires_at=NULL WHERE id=%s AND claim_token=%s""",
+                    (utcnow(), row["id"], token),
+                )
+    except maintenance.MaintenanceBusy:
+        conn.execute(
+            """UPDATE index_outbox SET status='pending',claim_token=NULL,lease_expires_at=NULL
+               WHERE id=%s AND status='processing' AND claim_token=%s""",
+            (row["id"], token),
+        )
+        raise
     except Exception as exc:  # delivery must survive transient Qdrant failures
         attempts = int(row["attempts"]) + 1
         terminal = attempts >= max_attempts
@@ -271,13 +282,6 @@ def _deliver(
         )
         logger.warning("index delivery %s failed: %s", row["id"], exc)
         return False
-    conn.execute(
-        """UPDATE index_outbox
-              SET status='done',last_error=NULL,updated_at=%s,claim_token=NULL,
-                  lease_expires_at=NULL
-            WHERE id=%s AND status='processing' AND claim_token=%s""",
-        (utcnow(), row["id"], token),
-    )
     return True
 
 

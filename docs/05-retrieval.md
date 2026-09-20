@@ -63,3 +63,13 @@ at most 12 candidates and the same 0.70 floor for a separate redundancy judgment
 Only surviving earlier items may justify omitting a later one. Outages preserve
 the input ordering; compaction failure preserves the relevance-ranked list.
 See [decision 0073](decisions/0073-contribution-and-budgeted-source-context.md).
+
+## Eligibility, revisions, and final packing
+
+Scope, subject, kind, provenance, expiry, and compatible request predicates are applied before bounded lexical/identifier selection. Dense and raw candidates are reloaded from PostgreSQL and checked again; stale index entries never supply authoritative text. Dense refill is bounded to four batches, so pathological index drift or highly selective residual JSON filters can still underfill a result. Rebuild a drifting index instead of treating this as exhaustive search.
+
+Exact deduplication and consolidation share conservative identity: scope, subject, kind, context, source role, and validity end must agree. Model-generated merges recheck the input revisions after inference and return generated wording to review. A concurrent correction is preserved.
+
+New evidence links identify the revision they support. Current search citations never silently use a predecessor's wording. `/sources` separates `evidence` from `historical_evidence`; legacy spans carry `legacy_unversioned` and no invented revision assignment.
+
+One final packer covers facts, raw passages, and source quotations in every mode, including provider failure. `limit` bounds facts plus raw passages; supplemental source quotations share the same text budget. `used_tokens` counts content tokens plus six wrapper tokens per item, not the full JSON response or arbitrary metadata. Oversized text is omitted rather than truncated through an exception or negation.

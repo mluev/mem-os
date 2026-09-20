@@ -32,6 +32,8 @@ ENV UV_COMPILE_BYTECODE=1 \
     # The embedding model is ~2 GB; a volume here keeps it across redeploys.
     HF_HOME=/models \
     MEMKIT_HOST=0.0.0.0 \
+    MEMKIT_BACKUP_DIR=/backups \
+    MEMKIT_EXPORT_DIR=/exports \
     MEMKIT_EMBED_DEVICE=cpu \
     PATH=/app/.venv/bin:$PATH
 

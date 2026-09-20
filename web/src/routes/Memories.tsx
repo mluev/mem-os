@@ -34,7 +34,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { ApiError, api, queryString } from "../api/client";
-import type { OffsetPage, TeamMemory } from "../api/types";
+import type { MemoryPage, TeamMemory } from "../api/types";
 import { MemoryAddDialog } from "../components/MemoryAddDialog";
 import { MemoryDrawer } from "../components/MemoryDrawer";
 import { FilterSelect, LifecycleBadge, ReviewBadge, ValueSelect } from "../components/MemoryFields";
@@ -147,7 +147,7 @@ export function Memories() {
   const query = useMemo(() => queryString(listParams(search)), [search]);
   const page = useQuery({
     queryKey: ["memories", "list", query],
-    queryFn: () => api<OffsetPage<TeamMemory>>(`/v1/memories${query}`),
+    queryFn: () => api<MemoryPage>(`/v1/memories${query}`),
     placeholderData: keepPreviousData,
   });
 

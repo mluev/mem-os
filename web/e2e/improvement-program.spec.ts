@@ -1,10 +1,8 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
-import type { TeamMemory } from "../src/api/types";
+import type { components } from "../src/api/schema";
+import { backups, health, judge, me, memory, metrics, reviewStats, searchResult, session } from "./fixtures";
 
-const health = { database: { schema_version: 1 }, qdrant: { available: true, memories: 1, raw: 1 }, embedder: { ready: true, device: "cpu", revision: "revision" }, outbox: { pending: 0 }, jobs: {} };
-const scope = { id: "alice-space", slug: "alice", name: "Alice", kind: "user", writable: true };
-const me = { id: "alice-id", user_id: "alice-id", handle: "alice", display_name: "Alice", role: "admin", own_entity_id: scope.id, scopes: [scope] };
-const memory: TeamMemory = { id: "m1", text: "Use pnpm for this project", kind: "preference", context: {}, tags: [], source_role: "user", status: "active", review_status: "pending", importance: 0.6, confidence: 0.9, revision: 1, scope: "Alice", scope_slug: "alice", subject: null, subject_slug: null, author: "Alice", created_at: "2026-09-20T00:00:00Z", updated_at: "2026-09-20T00:00:00Z", valid_until: null, writable: true };
+type Schema = components["schemas"];
 
 async function mockApi(page: Page, handler: (route: Route, path: string) => Promise<boolean>) {
   await page.route("**/v1/**", async (route) => {
@@ -12,11 +10,11 @@ async function mockApi(page: Page, handler: (route: Route, path: string) => Prom
     if (await handler(route, path)) return;
     if (path === "/v1/auth/me") return route.fulfill({ json: me });
     if (path === "/v1/admin/health") return route.fulfill({ json: health });
-    if (path.startsWith("/v1/admin/stats/")) return route.fulfill({ json: { start: "2026-09-01", end: "2026-09-20", totals: { pending: 0 }, series: [] } });
+    if (path === "/v1/admin/stats/review") return route.fulfill({ json: reviewStats });
     if (path === "/v1/memories") return route.fulfill({ json: { items: [memory], total: 1, limit: 50, offset: 0 } });
     if (path === "/v1/memories/m1") return route.fulfill({ json: { memory } });
     if (path === "/v1/entities") return route.fulfill({ json: { items: [] } });
-    if (path === "/v1/jobs") return route.fulfill({ json: { items: [], next_cursor: null } });
+    if (path === "/v1/jobs") return route.fulfill({ json: { items: [] } satisfies Schema["JobsOut"] });
     await route.fulfill({ status: 500, json: { detail: `Unmocked endpoint: ${path}` } });
   });
 }
@@ -25,7 +23,7 @@ test("records useful search feedback", async ({ page }) => {
   let feedback: unknown;
   await mockApi(page, async (route, path) => {
     if (path === "/v1/memories/search") {
-      await route.fulfill({ json: { retrieval_id: "run-1", memories: [{ ...memory, score: 0.9, similarity: 0.8, lexical: 1 }], raw: [], used_tokens: 5, policy_id: "neutral-v1", timings: { total_ms: 12 }, took_ms: 12 } });
+      await route.fulfill({ json: searchResult });
       return true;
     }
     if (path === "/v1/retrieval-runs/run-1/feedback") {
@@ -39,6 +37,7 @@ test("records useful search feedback", async ({ page }) => {
   await page.goto("/ui/search");
   await page.getByLabel("Query").fill("package manager");
   await page.getByRole("button", { name: "Search", exact: true }).click();
+  await expect(page.getByText("5 tokens · neutral-v1 · 12 ms")).toBeVisible();
   await page.getByRole("button", { name: "Useful" }).click();
   await expect.poll(() => feedback).toEqual({ memory_id: "m1", useful: true, correct: true });
 });
@@ -69,7 +68,7 @@ test("retains my wording after a conflict and saves against the fresh revision",
         await route.fulfill({ status: 409, json: { detail: "revision conflict" } });
       } else {
         current = { ...current, text: patch.text, revision: 3 };
-        await route.fulfill({ json: { revision: 3 } });
+        await route.fulfill({ json: { id: "m1", revision: 3, status: "active" } satisfies Schema["EntityOut"] });
       }
     } else await route.fulfill({ json: { memory: current } });
     return true;
@@ -94,7 +93,7 @@ test("does not reuse one person's memory cache after another person signs in", a
       await route.fulfill({ status: 204 });
     } else if (path === "/v1/auth/login") {
       who = route.request().postDataJSON().handle;
-      await route.fulfill({ json: {} });
+      await route.fulfill({ json: { user: { ...me, handle: who, display_name: who }, csrf_required_header: "X-Requested-With" } satisfies Schema["SessionOut"] });
     } else if (path === "/v1/memories") {
       reads += 1;
       await route.fulfill({ json: { items: [{ ...memory, text: `${who} private memory` }], total: 1, limit: 50, offset: 0 } });
@@ -116,7 +115,7 @@ test("restores a review item when its revision changed", async ({ page }) => {
   let decision: unknown;
   await mockApi(page, async (route, path) => {
     if (path === "/v1/review") {
-      await route.fulfill({ json: { items: [{ id: "m1", kind: "memory", title: memory.text, memory, actions: ["confirm", "decline"] }] } });
+      await route.fulfill({ json: { items: [{ id: "m1", kind: "memory", title: memory.text, memory, created_at: memory.created_at, actions: ["confirm", "decline"] }] } });
     } else if (path === "/v1/memories/m1/review") {
       decision = route.request().postDataJSON();
       await route.fulfill({ status: 409, json: { detail: "The memory changed before review" } });
@@ -135,9 +134,9 @@ test("shows protected backups and only offers the supported re-extraction report
   let body: string | null | undefined;
   await mockApi(page, async (route, path) => {
     if (path === "/v1/admin/metrics") {
-      await route.fulfill({ json: { month_spend_usd: 0, month_reserved_usd: 0, feedback_labels: 0, search_latency_ms: { p95: 20 }, index_parity: { matches: true }, backup_freshness_seconds: 60 } });
+      await route.fulfill({ json: metrics });
     } else if (path === "/v1/admin/backups") {
-      await route.fulfill({ json: { items: [{ id: "b1", kind: "daily", verified_at: memory.created_at, protected: true }] } });
+      await route.fulfill({ json: backups });
     } else if (path === "/v1/admin/reextract") {
       body = route.request().postData();
       await route.fulfill({ status: 202, json: { job_id: "report-1", status: "queued" } });
@@ -147,8 +146,80 @@ test("shows protected backups and only offers the supported re-extraction report
   await page.goto("/ui/ops");
   await expect(page.getByRole("heading", { name: "Verified backups" })).toBeVisible();
   await expect(page.getByText("protected", { exact: true })).toBeVisible();
+  await expect(page.getByText("Counts match", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Start v7 review batch" })).not.toBeAttached();
   await page.getByRole("button", { name: "Re-extraction report" }).click();
   await expect.poll(() => body).toBeNull();
   await expect(page.getByText("Job report-1 queued")).toBeVisible();
+});
+
+test("shows model audit input and output as JSON objects", async ({ page }) => {
+  await mockApi(page, async (route, path) => {
+    if (path !== "/v1/admin/judge-runs/1") return false;
+    await route.fulfill({ json: judge });
+    return true;
+  });
+  await page.goto("/ui/judge-runs/1");
+  await expect(page.locator("pre").first()).toContainText('"messages"');
+  await expect(page.locator("pre").last()).toContainText('"memories"');
+});
+
+test("shows the server's session message and extracted memory counts", async ({ page }) => {
+  await mockApi(page, async (route, path) => {
+    if (path !== "/v1/admin/sessions") return false;
+    await route.fulfill({ json: { items: [session], total: 1, limit: 100, offset: 0 } satisfies Schema["SessionsOut"] });
+    return true;
+  });
+  await page.goto("/ui/sessions");
+  await expect(page.getByText("7 messages", { exact: true })).toBeVisible();
+  await expect(page.getByText("3 extracted memories", { exact: true })).toBeVisible();
+});
+
+test("compares actual index counts and reports cancellation accurately", async ({ page }) => {
+  await mockApi(page, async (route, path) => {
+    if (path === "/v1/admin/metrics") await route.fulfill({ json: { ...metrics, index_parity: { database_active: 2, qdrant_active: 1 } } satisfies Schema["MetricsOut"] });
+    else if (path === "/v1/admin/backups") await route.fulfill({ json: { items: [] } satisfies Schema["BackupsOut"] });
+    else if (path === "/v1/jobs") await route.fulfill({ json: { items: [{ id: "job-1", kind: "export", status: "running", result: null, error: null, error_code: null, created_at: memory.created_at, finished_at: null }] } satisfies Schema["JobsOut"] });
+    else if (path === "/v1/jobs/job-1/cancel") await route.fulfill({ json: { job_id: "job-1", status: "cancel_requested" } satisfies Schema["JobQueuedOut"] });
+    else return false;
+    return true;
+  });
+  await page.goto("/ui/ops");
+  await expect(page.getByText("Counts differ", { exact: true })).toBeVisible();
+  await expect(page.getByText("2 / 1", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(page.getByText("Cancellation requested", { exact: true })).toBeVisible();
+});
+
+test("members see their usage without fetching administrator diagnostics", async ({ page }) => {
+  const forbidden: string[] = [];
+  await mockApi(page, async (route, path) => {
+    if (path === "/v1/auth/me") await route.fulfill({ json: { ...me, role: "member" } satisfies Schema["PrincipalView"] });
+    else if (path === "/v1/admin/health" || path === "/v1/admin/backups") {
+      forbidden.push(path);
+      await route.fulfill({ status: 403, json: { detail: "administrator required" } });
+    } else if (path === "/v1/admin/metrics") await route.fulfill({ json: { ...metrics, outbox_pending: null, month_limit_usd: null, outbox_oldest_age_seconds: null, outbox_retries: null, index_parity: { database_active: 1, qdrant_active: null }, backup_freshness_seconds: null } satisfies Schema["MetricsOut"] });
+    else return false;
+    return true;
+  });
+  await page.goto("/ui/ops");
+  await expect(page.getByRole("heading", { name: "Your usage", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Recent jobs", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Reindex", exact: true })).not.toBeAttached();
+  await expect(page.getByText("No backup", { exact: true })).not.toBeAttached();
+  await page.getByRole("button", { name: "Refresh", exact: true }).click();
+  expect(forbidden).toEqual([]);
+});
+
+test("keeps historical evidence separate from current support", async ({ page }) => {
+  await mockApi(page, async (route, path) => {
+    if (path !== "/v1/memories/m1/sources") return false;
+    await route.fulfill({ json: { memory, source_role: "user", evidence: [], historical_evidence: [{ message_id: 1, start_char: 0, end_char: 7, excerpt: "Use npm", verified: true, role: "user", created_at: memory.created_at, supported_revisions: [1], evidence_status: "historical" }] } satisfies Schema["MemorySourcesOut"] });
+    return true;
+  });
+  await page.goto("/ui/memories?memory=m1");
+  await page.getByRole("tab", { name: "Evidence", exact: true }).click();
+  await expect(page.getByText("No source spans support the current wording.")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Historical evidence", exact: true })).toBeVisible();
+  await expect(page.getByText("Supports revision 1", { exact: true })).toBeVisible();
 });

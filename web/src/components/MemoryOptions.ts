@@ -12,7 +12,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
-import type { Entity, Me, Scope, Stats } from "../api/types";
+import type { Entity, Entities, Me, Scope, MemoryStats } from "../api/types";
 
 export interface Option {
   value: string;
@@ -53,13 +53,13 @@ export function useMemoryOptions(extraKinds: readonly string[] = []): MemoryOpti
   const me = useQuery({ queryKey: ["me"], queryFn: () => api<Me>("/v1/auth/me") });
   const entities = useQuery({
     queryKey: ["entities", "all"],
-    queryFn: () => api<{ items: Entity[] }>("/v1/entities"),
+    queryFn: () => api<Entities>("/v1/entities"),
     staleTime: 60_000,
   });
   const kinds = useQuery({
     queryKey: ["stats", "memories", "kind"],
     queryFn: () =>
-      api<Stats>("/v1/admin/stats/memories?days=365&group_by=kind"),
+      api<MemoryStats>("/v1/admin/stats/memories?days=365&group_by=kind"),
     staleTime: 60_000,
   });
 

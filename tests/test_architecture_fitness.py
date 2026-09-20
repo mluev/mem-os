@@ -248,9 +248,9 @@ def test_every_handler_touching_a_scoped_table_names_the_principal() -> None:
     or a `principal.user_id` predicate; a query that mentions neither is either
     a leak or a handler that forgot which team it was serving.
     """
-    tree = ast.parse((PACKAGE / "api.py").read_text())
+    trees = [ast.parse(path.read_text()) for path in (PACKAGE / "routers").glob("*.py")]
     offenders: list[str] = []
-    for node in tree.body:
+    for node in (node for tree in trees for node in tree.body):
         if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
             continue
         touches = any(
@@ -271,7 +271,8 @@ def test_every_handler_touching_a_scoped_table_names_the_principal() -> None:
 def test_the_scope_helper_allowance_has_no_stale_entries() -> None:
     defined = {
         node.name
-        for node in ast.parse((PACKAGE / "api.py").read_text()).body
+        for path in (PACKAGE / "routers").glob("*.py")
+        for node in ast.parse(path.read_text()).body
         if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
     }
     assert set(SCOPE_ARGUMENT_HELPERS) <= defined, set(SCOPE_ARGUMENT_HELPERS) - defined

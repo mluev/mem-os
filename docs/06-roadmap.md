@@ -1,8 +1,8 @@
 # Delivery status
 
-The team migration is implemented: Postgres as the source of truth on a fresh schema v1, per-user credentials and dashboard sessions, entities and memberships as the scope model, subject attribution, a review queue, and routing in extractor prompt v9. Qdrant remains the derived index, so the transactional outbox, the durable worker, and generation reindex with alias swap survive the substrate change unaltered in shape.
+The team migration is implemented: Postgres as the source of truth with additive schema v2, per-user credentials and dashboard sessions, entities and memberships as the scope model, subject attribution, a review queue, and routing in extractor prompt v9. Qdrant remains the derived index, so the transactional outbox, the durable worker, and generation reindex with alias swap survive the substrate change unaltered in shape.
 
-Deployment is Docker Compose on Coolify — app, `postgres:16`, `qdrant:v1.18.2` — with CPU embeddings and `pg_dump` backups verified by `pg_restore --list`. Restore is a documented operator procedure, not an API call: nothing may hold a connection while `pg_restore --clean` runs, and the service cannot promise that about itself. An existing single-owner database is moved in once with `memkit import-sqlite`.
+Deployment is Docker Compose on Coolify — app, `postgres:16`, `qdrant:v1.18.2` — with CPU embeddings, persistent backup/export volumes, full archive decoding, and an isolated restore drill. Restore is an offline operator procedure into an empty replacement database, followed by current erasure receipt replay and index rebuilding; see [upgrade and recovery](09-operations.md). An existing single-owner database is moved in once with `memkit import-sqlite`.
 
 Multiple owners and team scopes are no longer out of scope; they are the product. What remains out of scope: connectors, multimodal ingestion, multi-region operation, and a graph database. Entities and aliases cover the relationships a memory service needs, and a second store would have to be kept consistent with the first for a question nobody has asked yet.
 

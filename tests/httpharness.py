@@ -154,6 +154,8 @@ class ApiTestCase(unittest.TestCase):
         seeder.close()
         self.enterContext(patch.object(api.app.router, "lifespan_context", stub_lifespan))
         self.client = self.enterContext(TestClient(api.app))
+        self._test_connection = connect(settings.database_url)
+        self.addCleanup(self._test_connection.close)
         # `auth` stays the default caller so existing single-user assertions
         # read unchanged; `as_bob` is the other side of every isolation claim.
         self.auth = {"X-API-Key": self.team.alice_key}
@@ -163,7 +165,7 @@ class ApiTestCase(unittest.TestCase):
 
     @property
     def db(self):
-        return api.app.state.db()
+        return self._test_connection
 
     @property
     def qdrant(self) -> StubQdrant:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import threading
 import uuid
 from collections.abc import Iterator
@@ -11,9 +12,16 @@ from datetime import timedelta
 from typing import Any
 
 import psycopg
+from psycopg.conninfo import make_conninfo
 from psycopg.types.json import Jsonb
 
-from .db import ConnectionPool, Row, advisory_lock, transaction, utcnow
+from .db import ConnectionPool, Row, advisory_lock, connect, transaction, utcnow
+
+logger = logging.getLogger(__name__)
+
+
+class LeaseLost(RuntimeError):
+    """The operation no longer owns a live job lease."""
 
 
 class BudgetExceeded(RuntimeError):
@@ -107,10 +115,10 @@ def claim(
     row = conn.execute(
         """UPDATE jobs SET status='running',started_at=COALESCE(started_at,%s),updated_at=%s,
                            holder=%s,lease_expires_at=%s,attempts=attempts+1
-            WHERE id = (SELECT id FROM jobs WHERE id=%s AND status='queued'
+            WHERE id = (SELECT id FROM jobs WHERE id=%s AND status='queued' AND available_at<=%s
                           FOR UPDATE SKIP LOCKED)
          RETURNING *""",
-        (now, now, holder, expires, job_id),
+        (now, now, holder, expires, job_id, now),
     ).fetchone()
     if row is None:
         raise RuntimeError("job is not queued")
@@ -131,8 +139,8 @@ def renew(
     now = utcnow()
     changed = conn.execute(
         """UPDATE jobs SET lease_expires_at=%s,updated_at=%s
-             WHERE id=%s AND status='running' AND holder=%s""",
-        (now + timedelta(seconds=lease_seconds), now, job_id, holder),
+             WHERE id=%s AND status='running' AND holder=%s AND lease_expires_at>%s""",
+        (now + timedelta(seconds=lease_seconds), now, job_id, holder, now),
     ).rowcount
     return bool(changed)
 
@@ -146,33 +154,43 @@ def heartbeat(
     interval_seconds: int = 30,
     lease_seconds: int = 120,
     pool: ConnectionPool | None = None,
-) -> Iterator[None]:
+) -> Iterator[threading.Event]:
     """Renew a running job lease from a connection of its own.
 
     The renewal must not share the connection running the job: that one may be
     inside a transaction for minutes, and a lease extended from within it
     would be undone by a rollback -- besides serialising the beat behind the
     work. With a pool the beat borrows a connection per renewal and returns it
-    at once; without one it falls back to the caller's connection, which is
-    what a single-connection setup has and what tests use.
+    at once; without one it opens a separate connection to the same database.
+    A failed or expired renewal signals the caller to discard its result.
     """
     stop = threading.Event()
+    lost = threading.Event()
 
     def renew_once() -> bool:
         if pool is None:
-            return renew(conn, job_id, holder=holder, lease_seconds=lease_seconds)
+            # libpq omits passwords from info.dsn. Preserve the credential for
+            # standalone CLI operations that do not have a pool to borrow.
+            with connect(make_conninfo(conn.info.dsn, password=conn.info.password)) as beat_conn:
+                return renew(beat_conn, job_id, holder=holder, lease_seconds=lease_seconds)
         with pool.borrow() as beat_conn:
             return renew(beat_conn, job_id, holder=holder, lease_seconds=lease_seconds)
 
     def beat() -> None:
         while not stop.wait(interval_seconds):
-            if not renew_once():
+            try:
+                renewed = renew_once()
+            except Exception:
+                logger.exception("job lease renewal failed: %s", job_id)
+                renewed = False
+            if not renewed:
+                lost.set()
                 return
 
     thread = threading.Thread(target=beat, name=f"memkit-heartbeat-{job_id[:8]}", daemon=True)
     thread.start()
     try:
-        yield
+        yield lost
     finally:
         stop.set()
         thread.join(timeout=2)
@@ -181,6 +199,15 @@ def heartbeat(
 def request_cancel(conn: psycopg.Connection, job_id: str) -> None:
     now = utcnow()
     with transaction(conn):
+        current = conn.execute(
+            "SELECT kind,input FROM jobs WHERE id=%s FOR UPDATE", (job_id,)
+        ).fetchone()
+        if (
+            current
+            and current["kind"] == "erase"
+            and (current["input"] or {}).get("erasure", {}).get("accepted")
+        ):
+            raise RuntimeError("accepted erasure must finish cleanup and cannot be cancelled")
         changed = conn.execute(
             """UPDATE jobs SET cancel_requested=true,updated_at=%s
                 WHERE id=%s AND status IN ('queued','running')""",
@@ -199,10 +226,45 @@ def cancel_requested(conn: psycopg.Connection, job_id: str) -> bool:
     return bool(get(conn, job_id)["cancel_requested"])
 
 
+def require_current(conn: psycopg.Connection, job_id: str, holder: str) -> None:
+    """Fence a write within its transaction, before any domain mutation."""
+    row = conn.execute(
+        """SELECT id FROM jobs WHERE id=%s AND holder=%s AND status='running'
+             AND lease_expires_at>%s FOR UPDATE""",
+        (job_id, holder, utcnow()),
+    ).fetchone()
+    if row is None:
+        raise LeaseLost(f"job lease lost: {job_id}")
+
+
+def defer(
+    conn: psycopg.Connection,
+    job_id: str,
+    *,
+    holder: str,
+    error: str,
+    delay_seconds: float = 5,
+) -> None:
+    """Retry recoverable maintenance/cleanup work without a tight polling loop."""
+    now = utcnow()
+    with transaction(conn):
+        require_current(conn, job_id, holder)
+        conn.execute(
+            """UPDATE jobs SET status='queued',holder=NULL,lease_expires_at=NULL,
+                   available_at=%s,updated_at=%s,error=%s WHERE id=%s""",
+            (now + timedelta(seconds=delay_seconds), now, error, job_id),
+        )
+        conn.execute(
+            "INSERT INTO job_events(job_id,status,detail,created_at) VALUES (%s,'deferred',%s,%s)",
+            (job_id, Jsonb({"reason": error}), now),
+        )
+
+
 def finish(
     conn: psycopg.Connection,
     job_id: str,
     *,
+    holder: str,
     status: str,
     result: dict[str, Any] | None = None,
     error_code: str | None = None,
@@ -212,10 +274,10 @@ def finish(
         raise ValueError("invalid terminal job status")
     now = utcnow()
     with transaction(conn):
-        conn.execute(
+        changed = conn.execute(
             """UPDATE jobs SET status=%s,result=%s,error_code=%s,error=%s,
                               finished_at=%s,updated_at=%s,holder=NULL,lease_expires_at=NULL
-                 WHERE id=%s""",
+                 WHERE id=%s AND status='running' AND holder=%s AND lease_expires_at>%s""",
             (
                 status,
                 Jsonb(result) if result is not None else None,
@@ -224,8 +286,12 @@ def finish(
                 now,
                 now,
                 job_id,
+                holder,
+                now,
             ),
-        )
+        ).rowcount
+        if not changed:
+            raise LeaseLost(f"job lease lost: {job_id}")
         conn.execute(
             """INSERT INTO job_events(job_id,status,detail,created_at)
                VALUES (%s,%s,%s,%s)""",

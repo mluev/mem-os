@@ -6,7 +6,7 @@ import httpx
 from ... import errors
 from ...client import AuthenticatedClient, Client
 from ...models.http_validation_error import HTTPValidationError
-from ...models.items_out import ItemsOut
+from ...models.jobs_out import JobsOut
 from ...types import UNSET, Response, Unset
 
 
@@ -59,9 +59,9 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> HTTPValidationError | ItemsOut | None:
+) -> HTTPValidationError | JobsOut | None:
     if response.status_code == 200:
-        response_200 = ItemsOut.from_dict(response.json())
+        response_200 = JobsOut.from_dict(response.json())
 
         return response_200
 
@@ -78,7 +78,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[HTTPValidationError | ItemsOut]:
+) -> Response[HTTPValidationError | JobsOut]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -95,7 +95,7 @@ def sync_detailed(
     limit: int | Unset = 50,
     x_requested_with: None | str | Unset = UNSET,
     memkit_session: None | str | Unset = UNSET,
-) -> Response[HTTPValidationError | ItemsOut]:
+) -> Response[HTTPValidationError | JobsOut]:
     """List Jobs
 
     Args:
@@ -110,7 +110,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | ItemsOut]
+        Response[HTTPValidationError | JobsOut]
     """
 
     kwargs = _get_kwargs(
@@ -136,7 +136,7 @@ def sync(
     limit: int | Unset = 50,
     x_requested_with: None | str | Unset = UNSET,
     memkit_session: None | str | Unset = UNSET,
-) -> HTTPValidationError | ItemsOut | None:
+) -> HTTPValidationError | JobsOut | None:
     """List Jobs
 
     Args:
@@ -151,7 +151,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | ItemsOut
+        HTTPValidationError | JobsOut
     """
 
     return sync_detailed(
@@ -172,7 +172,7 @@ async def asyncio_detailed(
     limit: int | Unset = 50,
     x_requested_with: None | str | Unset = UNSET,
     memkit_session: None | str | Unset = UNSET,
-) -> Response[HTTPValidationError | ItemsOut]:
+) -> Response[HTTPValidationError | JobsOut]:
     """List Jobs
 
     Args:
@@ -187,7 +187,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | ItemsOut]
+        Response[HTTPValidationError | JobsOut]
     """
 
     kwargs = _get_kwargs(
@@ -211,7 +211,7 @@ async def asyncio(
     limit: int | Unset = 50,
     x_requested_with: None | str | Unset = UNSET,
     memkit_session: None | str | Unset = UNSET,
-) -> HTTPValidationError | ItemsOut | None:
+) -> HTTPValidationError | JobsOut | None:
     """List Jobs
 
     Args:
@@ -226,7 +226,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | ItemsOut
+        HTTPValidationError | JobsOut
     """
 
     return (

@@ -7,7 +7,16 @@
  * quote; insecure browsers without hashing report that limitation explicitly.
  */
 
-import type { MemoryEvidence } from "../api/types";
+import type { MemoryEvidence as CurrentEvidence } from "../api/types";
+
+type MemoryEvidence = Pick<CurrentEvidence, "message_id" | "role" | "created_at" | "start_char" | "end_char"> & {
+  excerpt?: string;
+  verified?: boolean;
+  content?: string;
+  excerpt_sha256?: string;
+  evidence_status?: CurrentEvidence["evidence_status"];
+  supported_revisions?: number[];
+};
 
 export type SpanState =
   /** Re-sliced and hashed to the value the extractor recorded. */
@@ -30,6 +39,8 @@ export interface VerifiedSpan {
   createdAt: string | null;
   state: SpanState;
   context: SpanContext | null;
+  evidenceStatus?: CurrentEvidence["evidence_status"];
+  supportedRevisions?: number[];
 }
 
 /** How much of the surrounding message to show on either side of the span. */
@@ -97,6 +108,8 @@ export async function verifySpans(evidence: readonly MemoryEvidence[]): Promise<
         messageId: item.message_id,
         role: item.role,
         createdAt: item.created_at,
+        evidenceStatus: item.evidence_status,
+        supportedRevisions: item.supported_revisions,
       };
       // The retained message: re-slice it and check the hash ourselves.
       if (typeof item.content === "string") {

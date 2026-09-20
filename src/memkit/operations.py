@@ -27,8 +27,10 @@ from pathlib import Path
 from typing import Any, Literal
 
 import psycopg
+from psycopg import sql
+from psycopg.conninfo import make_conninfo
 
-from . import db, entities, judge, outbox, vectors
+from . import db, entities, judge, outbox, privacy, vectors
 from .config import DEFAULT_CONFIG_DIR, Settings
 from .db import connect, init_db, transaction, utcnow
 from .embed import get_embedder
@@ -83,14 +85,7 @@ def _sha256(path: Path) -> str:
 
 
 def verify_backup(path: Path, *, expected_sha256: str | None = None) -> dict[str, Any]:
-    """Checksum the archive and read its table of contents.
-
-    `pg_restore --list` parses every object header in the dump, so a truncated
-    or corrupted archive fails here rather than half-way through a restore. It
-    is the closest available equivalent to the `PRAGMA quick_check` this
-    replaces, which could inspect page structure only because a SQLite backup
-    *was* a database.
-    """
+    """Checksum and fully decode an archive; database restore is a separate drill."""
     path = path.expanduser().resolve()
     if not path.is_file():
         raise FileNotFoundError(path)
@@ -103,6 +98,9 @@ def verify_backup(path: Path, *, expected_sha256: str | None = None) -> dict[str
     ]
     if not entries:
         raise RuntimeError("backup archive lists no restorable entries")
+    # Listing the TOC does not read compressed table bodies. Consume the full
+    # archive without executing SQL, so truncation/corruption is caught too.
+    _run([_tool("pg_restore"), "--file", os.devnull, str(path)])
     return {
         "path": str(path),
         "sha256": checksum,
@@ -125,12 +123,18 @@ def create_backup(
     database to restore into.
     """
     dsn = _dsn(settings)
-    init_db(dsn)
     if kind == "auto":
         kind = "weekly" if datetime.now(UTC).weekday() == 6 else "daily"
     backup_dir = settings.backup_dir.expanduser().resolve()
     backup_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     os.chmod(backup_dir, 0o700)
+    with connect(dsn) as conn:
+        existing = bool(
+            conn.execute("SELECT EXISTS(SELECT 1 FROM backup_artifacts) AS present").fetchone()[
+                "present"
+            ]
+        )
+    privacy.ensure_erasure_manifest(backup_dir, existing_backups=existing)
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     path = backup_dir / f"memkit-{kind}-{stamp}-{uuid.uuid4().hex[:8]}.dump"
     temporary = path.with_suffix(".dump.tmp")
@@ -235,12 +239,100 @@ def restore_backup(settings: Settings, *, artifact_id: str, confirm: str = "") -
         raise LookupError("unknown backup artifact")
     path = Path(str(artifact["path"]))
     verify_backup(path, expected_sha256=str(artifact["sha256"]))
+    privacy.erasure_manifest(settings.backup_dir)
     raise NotImplementedError(
-        "restore is deliberately manual. Stop every memkit process, then run:\n"
-        f"  pg_restore --clean --if-exists --no-owner --no-privileges "
-        f"--dbname={_redacted(_dsn(settings))} {path}\n"
-        "then run `memkit reindex` to rebuild Qdrant from the restored database."
+        "restore is deliberately manual. Stop every memkit process and create an empty "
+        "replacement PostgreSQL database. Set MEMKIT_RESTORE_DATABASE_URL to it, then run:\n"
+        f"  pg_restore --exit-on-error --no-owner --no-privileges "
+        f'--dbname="$MEMKIT_RESTORE_DATABASE_URL" {path}\n'
+        "Keep the former database intact, and point MEMKIT_DATABASE_URL at the restored database. "
+        "Keep the latest /backups/erasures manifest outside the restored database. "
+        "Run `memkit backup replay-erasures` while offline, discard old Qdrant storage "
+        "and managed exports, then run `memkit reindex`. Reopen only after these succeed."
     )
+
+
+def initialize_erasure_manifest(
+    settings: Settings, *, confirm: str, receipts: list[dict[str, str]] | None = None
+) -> dict[str, Any]:
+    """Explicit operator baseline after auditing/importing historical erasures."""
+    if confirm != "BASELINE":
+        raise ValueError(
+            "audit prior erasures and confirm BASELINE before initializing the manifest"
+        )
+    with connect(_dsn(settings)) as conn:
+        from .maintenance import exclusive
+
+        with exclusive(conn):
+            root = privacy.initialize_erasure_manifest(settings.backup_dir, receipts or [])
+    return {"path": str(root), "receipts": len(privacy.erasure_manifest(settings.backup_dir))}
+
+
+def replay_erasures(settings: Settings) -> dict[str, int]:
+    """Operator-only step after an offline restore, before reopening service."""
+    privacy.erasure_manifest(settings.backup_dir)
+    db.init_db(_dsn(settings))
+    with connect(_dsn(settings)) as conn:
+        return privacy.replay_erasure_manifest(conn, settings.backup_dir)
+
+
+def restore_drill(settings: Settings, path: Path) -> dict[str, Any]:
+    """Restore into a uniquely named disposable database, then always drop it.
+
+    Never targets the configured authoritative database. Requires CREATE DATABASE
+    privilege and the latest external erasure manifest. No provider/index calls.
+    """
+    verified = verify_backup(path)
+    privacy.erasure_manifest(settings.backup_dir)
+    temporary = f"memkit_restore_{uuid.uuid4().hex}"
+    target = make_conninfo(_dsn(settings), dbname=temporary)
+    with connect(_dsn(settings)) as admin:
+        admin.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(temporary)))
+        try:
+            _run(
+                [
+                    _tool("pg_restore"),
+                    "--exit-on-error",
+                    "--no-owner",
+                    "--no-privileges",
+                    f"--dbname={target}",
+                    str(path.expanduser().resolve()),
+                ]
+            )
+            db.init_db(target)
+            with connect(target) as restored:
+                db._verify_migration_history(restored)
+                erasures = privacy.replay_erasure_manifest(restored, settings.backup_dir)
+                counts = {
+                    table: int(
+                        restored.execute(
+                            sql.SQL("SELECT count(*) AS n FROM {}").format(sql.Identifier(table))
+                        ).fetchone()["n"]
+                    )
+                    for table in (
+                        "users",
+                        "memories",
+                        "memory_revisions",
+                        "messages",
+                        "memory_sources",
+                        "memory_evidence",
+                    )
+                }
+                unvalidated = restored.execute(
+                    "SELECT count(*) AS n FROM pg_constraint WHERE connamespace='public'::regnamespace AND NOT convalidated"
+                ).fetchone()["n"]
+                if unvalidated:
+                    raise RuntimeError("restored database has unvalidated constraints")
+                return {
+                    "verified": True,
+                    "sha256": verified["sha256"],
+                    "counts": counts,
+                    "erasures": erasures,
+                }
+        finally:
+            admin.execute(
+                sql.SQL("DROP DATABASE {} WITH (FORCE)").format(sql.Identifier(temporary))
+            )
 
 
 def _check(name: str, fn: Any) -> dict[str, Any]:

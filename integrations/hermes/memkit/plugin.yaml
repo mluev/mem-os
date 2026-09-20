@@ -1,6 +1,6 @@
 name: memkit
-version: 0.1.0
-description: "memkit — local memory service: SQLite source of truth, Qdrant index, BGE-M3 embeddings on MPS, and an LLM extractor. Speaks HTTP to 127.0.0.1 only."
+version: 0.2.0
+description: "Mem OS memory service with private and shared scopes, evidence and retrieval."
 hooks:
   - on_session_end
   - on_session_switch

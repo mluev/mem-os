@@ -3,13 +3,12 @@ LLM-confirmed semantic merge of near-duplicate clusters (decisions/0056)."""
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 import time
 import uuid
 from collections import defaultdict
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -19,7 +18,7 @@ import psycopg
 from psycopg.types.json import Jsonb
 from qdrant_client import QdrantClient
 
-from . import jobs, provenance, store, vectors
+from . import jobs, maintenance, provenance, store, vectors
 from .db import Row, transaction
 from .embed import DIM
 
@@ -50,17 +49,6 @@ def _scope_uuids(scope_ids: Sequence[str]) -> list[uuid.UUID]:
     error rather than filter.
     """
     return [uuid.UUID(str(scope)) for scope in scope_ids]
-
-
-def _canonical(context: dict[str, Any] | None) -> str:
-    """A stable grouping key for a jsonb context.
-
-    The SQLite build grouped on the stored JSON text, which worked only because
-    it stored exactly what the writer serialised. jsonb normalises key order and
-    whitespace on the way in and hands back a dict, so the key is re-derived
-    here with sorted keys: same equality, independent of how it was written.
-    """
-    return json.dumps(context or {}, sort_keys=True, ensure_ascii=False)
 
 
 def _connected_components(ids: list[str], edges: set[tuple[str, str]]) -> list[list[str]]:
@@ -95,6 +83,7 @@ class Outcome:
     oversized_groups: list[list[str]] = field(default_factory=list)
     merged: list[dict[str, Any]] = field(default_factory=list)
     merge_skipped: list[dict[str, Any]] = field(default_factory=list)
+    planned_revisions: dict[str, int] = field(default_factory=dict, repr=False)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -158,19 +147,16 @@ def plan(
     ]
 
     rows = conn.execute(
-        """SELECT id,scope_id,kind,text,context FROM memories
+        """SELECT * FROM memories
             WHERE scope_id = ANY(%s) AND status='active'
+              AND (valid_until IS NULL OR valid_until > now())
             ORDER BY updated_at DESC,id""",
         (scopes,),
     ).fetchall()
-    groups: dict[tuple[str, str, str, str], list[str]] = defaultdict(list)
+    groups: dict[tuple, list[str]] = defaultdict(list)
     for row in rows:
-        key = (
-            str(row["scope_id"]),
-            str(row["kind"]),
-            _canonical(row["context"]),
-            _normalise(str(row["text"])),
-        )
+        outcome.planned_revisions[str(row["id"])] = int(row["revision"])
+        key = (*store.memory_identity(row), _normalise(str(row["text"])))
         groups[key].append(str(row["id"]))
     outcome.candidate_groups = [ids for ids in groups.values() if len(ids) > 1]
 
@@ -270,9 +256,9 @@ def _semantic_groups(
     owns it. Clusters above MAX_CLUSTER_MEMBERS are returned separately and
     never merged.
     """
-    grouped: dict[tuple[str, str], list[Row]] = defaultdict(list)
+    grouped: dict[tuple, list[Row]] = defaultdict(list)
     for row in rows:
-        grouped[(str(row["scope_id"]), _canonical(row["context"]))].append(row)
+        grouped[store.memory_identity(row)].append(row)
     comparable = [row for group in grouped.values() if len(group) > 1 for row in group]
     if not comparable:
         return [], []
@@ -324,6 +310,7 @@ def run(
     # None for a scheduled instance-wide pass, which no user asked for; a
     # dashboard-triggered run attributes its judge spend to the caller.
     user_id: str | None = None,
+    guard: Callable[[], None] | None = None,
 ) -> Outcome:
     outcome = plan(
         conn,
@@ -337,7 +324,17 @@ def run(
     if dry_run:
         return outcome
     with transaction(conn):
+        maintenance.require_write(conn)
+        if guard is not None:
+            guard()
         for memory_id in outcome.expired:
+            current = conn.execute(
+                """SELECT id FROM memories WHERE id=%s AND status='active'
+                   AND valid_until <= now() FOR UPDATE""",
+                (memory_id,),
+            ).fetchone()
+            if current is None:
+                continue
             store.set_memory_status(
                 conn,
                 memory_id=memory_id,
@@ -345,10 +342,16 @@ def run(
                 status="expired",
             )
         for memory_id in outcome.demoted:
-            row = conn.execute("SELECT * FROM memories WHERE id=%s", (memory_id,)).fetchone()
+            row = conn.execute(
+                """SELECT * FROM memories WHERE id=%s AND status='active'
+                   AND importance > %s::real
+                   AND COALESCE(last_retrieved_at,created_at) <= now()-make_interval(days => %s)
+                   AND updated_at <= now()-make_interval(days => %s) FOR UPDATE""",
+                (memory_id, importance_floor, stale_days, stale_days),
+            ).fetchone()
             if row is None:  # pragma: no cover - planned in this transaction
                 continue
-            store.update_memory(
+            saved = store.update_memory(
                 conn,
                 memory_id=memory_id,
                 scopes=scope_ids,
@@ -361,7 +364,12 @@ def run(
                 confidence=float(row["confidence"]),
                 valid_until=row["valid_until"],
             )
+            outcome.planned_revisions[memory_id] = int(saved["revision"])
         for group in outcome.candidate_groups:
+            current = _lock_group(conn, group, scope_ids, outcome.planned_revisions)
+            if current is None or len({_normalise(row["text"]) for row in current}) != 1:
+                outcome.merge_skipped.append({"group": group, "reason": "members_changed"})
+                continue
             survivor, *duplicates = group
             for duplicate in duplicates:
                 store.set_memory_status(
@@ -386,6 +394,7 @@ def run(
             project=project,
             location=location,
             cap=merge_cap,
+            guard=guard,
         )
     return outcome
 
@@ -410,6 +419,32 @@ def _inherit_provenance(conn: psycopg.Connection, survivor: str, member: str) ->
            ON CONFLICT DO NOTHING""",
         (uuid.UUID(survivor), uuid.UUID(member)),
     )
+    conn.execute(
+        """INSERT INTO memory_revision_evidence
+           (memory_id,revision,message_id,start_char,end_char)
+           SELECT destination.id,destination.revision,e.message_id,e.start_char,e.end_char
+             FROM memory_revision_evidence e
+             JOIN memories source ON source.id=e.memory_id AND source.revision=e.revision
+             JOIN memories destination ON destination.id=%s
+            WHERE e.memory_id=%s ON CONFLICT DO NOTHING""",
+        (uuid.UUID(survivor), uuid.UUID(member)),
+    )
+
+
+def _lock_group(
+    conn: psycopg.Connection, group: list[str], scopes: Sequence[str], revisions: dict[str, int]
+) -> list[Row] | None:
+    rows = conn.execute(
+        """SELECT * FROM memories WHERE id=ANY(%s) AND scope_id=ANY(%s)
+           AND status='active' AND (valid_until IS NULL OR valid_until > now())
+           ORDER BY id FOR UPDATE""",
+        (_scope_uuids(group), _scope_uuids(scopes)),
+    ).fetchall()
+    if len(rows) != len(group) or len({store.memory_identity(row) for row in rows}) != 1:
+        return None
+    if any(int(row["revision"]) != revisions[str(row["id"])] for row in rows):
+        return None
+    return rows
 
 
 def _log_merge_run(
@@ -465,6 +500,7 @@ def _apply_merges(
     project: str,
     location: str,
     cap: int,
+    guard: Callable[[], None] | None = None,
 ) -> None:
     """LLM-confirmed merges of the planned semantic clusters.
 
@@ -482,6 +518,9 @@ def _apply_merges(
             {"reason": "merge_cap", "groups_beyond_cap": len(outcome.semantic_groups) - cap}
         )
     for group in outcome.semantic_groups[:cap]:
+        if guard is not None:
+            with transaction(conn):
+                guard()
         rows = conn.execute(
             """SELECT * FROM memories
                 WHERE id = ANY(%s) AND scope_id = ANY(%s) AND status='active'""",
@@ -490,6 +529,13 @@ def _apply_merges(
         rows.sort(key=lambda row: group.index(str(row["id"])))  # newest first, as planned
         if len(rows) < 2:
             outcome.merge_skipped.append({"group": group, "reason": "members_no_longer_active"})
+            continue
+        if len(rows) != len(group) or len({store.memory_identity(row) for row in rows}) != 1:
+            outcome.merge_skipped.append({"group": group, "reason": "members_changed"})
+            continue
+        revisions = {str(row["id"]): int(row["revision"]) for row in rows}
+        if any(revisions[key] != outcome.planned_revisions.get(key) for key in revisions):
+            outcome.merge_skipped.append({"group": group, "reason": "members_changed"})
             continue
         facts = [
             {
@@ -559,8 +605,13 @@ def _apply_merges(
             importance = max(float(row["importance"]) for row in rows)
         # A merge of unreviewed facts is itself unreviewed: confirmation means a
         # human read the wording, and the survivor's wording is new.
-        reviewed = all(str(row["review_status"]) == "confirmed" for row in rows)
         with transaction(conn):
+            maintenance.require_write(conn)
+            if guard is not None:
+                guard()
+            if _lock_group(conn, group, scope_ids, revisions) is None:
+                outcome.merge_skipped.append({"group": group, "reason": "members_changed"})
+                continue
             survivor = store.add_memory(
                 conn,
                 # The cluster never crosses a scope, so the newest member's
@@ -578,12 +629,13 @@ def _apply_merges(
                 agent_id=newest["agent_id"],
                 importance=importance,
                 confidence=min(float(row["confidence"]) for row in rows),
+                valid_until=newest["valid_until"],
                 extraction_version=f"consolidate-{prompts.CONSOLIDATE_VERSION}",
                 judge_run_id=run_id,
                 # A merge is no better sourced than its worst input; anything
                 # else would launder assistant text into a user-sourced fact.
                 source_role=provenance.weakest(roles),
-                review_status="confirmed" if reviewed else "pending",
+                review_status="pending",
             )
             for row in rows:
                 member_id = str(row["id"])
@@ -594,6 +646,7 @@ def _apply_merges(
                     scopes=scope_ids,
                     status="superseded",
                     superseded_by=survivor,
+                    expected_revision=int(row["revision"]),
                 )
                 outcome.superseded.append(member_id)
         outcome.merged.append({"survivor": survivor, "members": [str(row["id"]) for row in rows]})

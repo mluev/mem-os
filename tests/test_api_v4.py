@@ -190,6 +190,8 @@ class TestMemoryContract(ApiTestCase):
                     "excerpt": span,
                     "role": "user",
                     "created_at": memory["sources"][0]["created_at"],
+                    "revision": None,
+                    "evidence_status": "legacy_unversioned",
                 }
             ],
         )

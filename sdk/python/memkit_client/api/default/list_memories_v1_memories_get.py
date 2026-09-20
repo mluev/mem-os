@@ -7,7 +7,7 @@ import httpx
 from ... import errors
 from ...client import AuthenticatedClient, Client
 from ...models.http_validation_error import HTTPValidationError
-from ...models.offset_page_out import OffsetPageOut
+from ...models.memory_page_out import MemoryPageOut
 from ...types import UNSET, Response, Unset
 
 
@@ -140,9 +140,9 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> HTTPValidationError | OffsetPageOut | None:
+) -> HTTPValidationError | MemoryPageOut | None:
     if response.status_code == 200:
-        response_200 = OffsetPageOut.from_dict(response.json())
+        response_200 = MemoryPageOut.from_dict(response.json())
 
         return response_200
 
@@ -159,7 +159,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[HTTPValidationError | OffsetPageOut]:
+) -> Response[HTTPValidationError | MemoryPageOut]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -188,7 +188,7 @@ def sync_detailed(
     offset: int | Unset = 0,
     x_requested_with: None | str | Unset = UNSET,
     memkit_session: None | str | Unset = UNSET,
-) -> Response[HTTPValidationError | OffsetPageOut]:
+) -> Response[HTTPValidationError | MemoryPageOut]:
     r"""List Memories
 
      Filterable, sortable listing with a real total.
@@ -221,7 +221,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | OffsetPageOut]
+        Response[HTTPValidationError | MemoryPageOut]
     """
 
     kwargs = _get_kwargs(
@@ -271,7 +271,7 @@ def sync(
     offset: int | Unset = 0,
     x_requested_with: None | str | Unset = UNSET,
     memkit_session: None | str | Unset = UNSET,
-) -> HTTPValidationError | OffsetPageOut | None:
+) -> HTTPValidationError | MemoryPageOut | None:
     r"""List Memories
 
      Filterable, sortable listing with a real total.
@@ -304,7 +304,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | OffsetPageOut
+        HTTPValidationError | MemoryPageOut
     """
 
     return sync_detailed(
@@ -349,7 +349,7 @@ async def asyncio_detailed(
     offset: int | Unset = 0,
     x_requested_with: None | str | Unset = UNSET,
     memkit_session: None | str | Unset = UNSET,
-) -> Response[HTTPValidationError | OffsetPageOut]:
+) -> Response[HTTPValidationError | MemoryPageOut]:
     r"""List Memories
 
      Filterable, sortable listing with a real total.
@@ -382,7 +382,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | OffsetPageOut]
+        Response[HTTPValidationError | MemoryPageOut]
     """
 
     kwargs = _get_kwargs(
@@ -430,7 +430,7 @@ async def asyncio(
     offset: int | Unset = 0,
     x_requested_with: None | str | Unset = UNSET,
     memkit_session: None | str | Unset = UNSET,
-) -> HTTPValidationError | OffsetPageOut | None:
+) -> HTTPValidationError | MemoryPageOut | None:
     r"""List Memories
 
      Filterable, sortable listing with a real total.
@@ -463,7 +463,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | OffsetPageOut
+        HTTPValidationError | MemoryPageOut
     """
 
     return (

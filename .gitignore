@@ -20,3 +20,6 @@ src/memkit/web_dist/*
 !src/memkit/web_dist/assets/**
 !src/memkit/web_dist/index.html
 .claude/launch.json
+
+# Local release and rollback artifacts.
+/dist/

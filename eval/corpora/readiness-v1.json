@@ -1,0 +1,372 @@
+{
+  "version": "readiness-v1",
+  "label_source": "author-written synthetic diagnostics; not independently reviewed",
+  "memories": [
+    {
+      "id": "packages",
+      "family": "preferences",
+      "kind": "preference",
+      "text": "The Orion project uses pnpm for JavaScript dependencies."
+    },
+    {
+      "id": "tests",
+      "family": "preferences",
+      "kind": "preference",
+      "text": "Для проекта Орион пользователь предпочитает pytest для тестов Python."
+    },
+    {
+      "id": "release",
+      "family": "correction",
+      "initial_text": "The Lyra release is scheduled for Friday.",
+      "text": "Correction: the Lyra release is scheduled for Tuesday, not Friday."
+    },
+    {
+      "id": "deploy-rule",
+      "family": "exceptions",
+      "text": "Orion deployments require code review, except urgent security patches approved by the incident commander."
+    },
+    {
+      "id": "incident",
+      "family": "identifiers",
+      "text": "Incident ZXQ-9173 was caused by an expired database certificate; rotate the certificate to recover."
+    },
+    {
+      "id": "uzbek",
+      "family": "languages",
+      "kind": "preference",
+      "text": "Dilshod texnik hisobotlarni o‘zbek tilida, qisqa xulosa va aniq misollar bilan olishni afzal ko‘radi."
+    },
+    {
+      "id": "retention",
+      "family": "privacy",
+      "text": "Atlas stores diagnostic logs for seven days, excluding credentials and personal message content."
+    },
+    {
+      "id": "timezone",
+      "family": "languages",
+      "text": "The team reviews Atlas changes at 10:00 Asia/Tashkent time."
+    },
+    {
+      "id": "migration",
+      "family": "correction",
+      "initial_text": "Nebula uses SQLite as its primary database.",
+      "text": "Since June 2026, Nebula uses PostgreSQL as its primary database; SQLite is retained only for offline exports."
+    },
+    {
+      "id": "human-review",
+      "family": "provenance",
+      "text": "Manual approval by the service owner is required before changing production retention rules."
+    },
+    {
+      "id": "assistant-guess",
+      "family": "provenance",
+      "source_role": "assistant",
+      "text": "The invented Atlas master access code is GALAXY-0000."
+    }
+  ],
+  "evidence": [
+    {
+      "id": "packages-source",
+      "family": "preferences",
+      "supports": "packages",
+      "text": "The Orion project uses pnpm for JavaScript dependencies because its lockfile is stable. Keep npm only for upstream compatibility reproductions.",
+      "created_at": "2026-06-01T10:00:00Z"
+    },
+    {
+      "id": "release-old",
+      "family": "correction",
+      "text": "On Monday we planned the Lyra release for Friday.",
+      "created_at": "2026-06-01T10:00:00Z"
+    },
+    {
+      "id": "release-source",
+      "family": "correction",
+      "supports": "release",
+      "text": "Correction: the Lyra release is scheduled for Tuesday, not Friday. The customer requested an earlier validation window.",
+      "created_at": "2026-06-02T10:00:00Z"
+    },
+    {
+      "id": "deploy-source",
+      "family": "exceptions",
+      "supports": "deploy-rule",
+      "text": "Orion deployments require code review. The exception is an urgent security patch approved by the incident commander; a retrospective review must follow within one working day.",
+      "created_at": "2026-06-01T10:00:00Z"
+    },
+    {
+      "id": "retention-source",
+      "family": "privacy",
+      "supports": "retention",
+      "text": "Atlas stores diagnostic logs for seven days. Credentials and personal message content must never be logged, even during incident response.",
+      "created_at": "2026-06-01T10:00:00Z"
+    },
+    {
+      "id": "migration-old",
+      "family": "correction",
+      "text": "Nebula used SQLite as its primary database before June 2026.",
+      "created_at": "2026-05-01T10:00:00Z"
+    },
+    {
+      "id": "migration-source",
+      "family": "correction",
+      "supports": "migration",
+      "text": "Since June 2026, Nebula uses PostgreSQL as its primary database; SQLite is retained only for offline exports.",
+      "created_at": "2026-06-03T10:00:00Z"
+    },
+    {
+      "id": "assistant-evidence",
+      "family": "provenance",
+      "role": "assistant",
+      "text": "I guessed the Atlas master access code is GALAXY-0000.",
+      "created_at": "2026-06-03T10:00:00Z"
+    }
+  ],
+  "queries": [
+    {
+      "id": "package-manager",
+      "query": "Which package manager does Orion use?",
+      "details": [
+        "pnpm"
+      ],
+      "relevant": [
+        "packages",
+        "packages-source"
+      ],
+      "language": "en",
+      "split": "dev"
+    },
+    {
+      "id": "package-exception",
+      "query": "Why does Orion use pnpm, and when should npm still be used?",
+      "details": [
+        "stable",
+        "compatibility"
+      ],
+      "relevant": [
+        "packages",
+        "packages-source"
+      ],
+      "language": "en",
+      "split": "dev"
+    },
+    {
+      "id": "python-tests",
+      "query": "Чем пользователь тестирует Python в проекте Орион?",
+      "details": [
+        "pytest"
+      ],
+      "relevant": [
+        "tests"
+      ],
+      "language": "ru",
+      "split": "dev"
+    },
+    {
+      "id": "release-current",
+      "query": "What is the corrected Lyra release day?",
+      "details": [
+        "Tuesday"
+      ],
+      "relevant": [
+        "release",
+        "release-source"
+      ],
+      "language": "en",
+      "split": "dev"
+    },
+    {
+      "id": "deploy-exception",
+      "query": "When may Orion skip its normal deployment review and what follow-up is required?",
+      "details": [
+        "incident commander",
+        "one working day"
+      ],
+      "relevant": [
+        "deploy-rule",
+        "deploy-source"
+      ],
+      "language": "en",
+      "split": "dev"
+    },
+    {
+      "id": "incident-id",
+      "query": "How do we recover from ZXQ-9173?",
+      "details": [
+        "expired.*certificate",
+        "rotate"
+      ],
+      "relevant": [
+        "incident"
+      ],
+      "language": "en",
+      "split": "dev"
+    },
+    {
+      "id": "style-uz",
+      "query": "Dilshod texnik hisobotlarni qanday formatda xohlaydi?",
+      "details": [
+        "o‘zbek",
+        "qisqa",
+        "misollar"
+      ],
+      "relevant": [
+        "uzbek"
+      ],
+      "language": "uz",
+      "split": "dev"
+    },
+    {
+      "id": "unknown-database",
+      "query": "What database does the unrelated Vega project use?",
+      "details": [],
+      "relevant": [],
+      "language": "en",
+      "split": "dev"
+    },
+    {
+      "id": "unknown-code",
+      "query": "What is the Atlas master access code?",
+      "details": [],
+      "relevant": [],
+      "language": "en",
+      "split": "dev"
+    },
+    {
+      "id": "unknown-astronomy",
+      "query": "What is the orbital period of Neptune?",
+      "details": [],
+      "relevant": [],
+      "language": "en",
+      "split": "dev"
+    },
+    {
+      "id": "package-crosslingual",
+      "query": "Какой менеджер JavaScript-пакетов используется в Orion?",
+      "details": [
+        "pnpm"
+      ],
+      "relevant": [
+        "packages",
+        "packages-source"
+      ],
+      "language": "ru",
+      "split": "heldout"
+    },
+    {
+      "id": "release-uz",
+      "query": "Lyra relizi qaysi kunga ko‘chirildi?",
+      "details": [
+        "Tuesday"
+      ],
+      "relevant": [
+        "release",
+        "release-source"
+      ],
+      "language": "uz",
+      "split": "heldout"
+    },
+    {
+      "id": "retention",
+      "query": "How long does Atlas retain diagnostics and which content is excluded?",
+      "details": [
+        "seven days",
+        "credentials",
+        "personal message"
+      ],
+      "relevant": [
+        "retention",
+        "retention-source"
+      ],
+      "language": "en",
+      "split": "heldout"
+    },
+    {
+      "id": "retention-ru",
+      "query": "Можно ли записывать личные сообщения в Atlas во время инцидента?",
+      "details": [
+        "personal message",
+        "even during incident"
+      ],
+      "relevant": [
+        "retention",
+        "retention-source"
+      ],
+      "language": "ru",
+      "split": "heldout"
+    },
+    {
+      "id": "meeting-time",
+      "query": "When are Atlas changes reviewed, including the timezone?",
+      "details": [
+        "10:00",
+        "Asia/Tashkent"
+      ],
+      "relevant": [
+        "timezone"
+      ],
+      "language": "en",
+      "split": "heldout"
+    },
+    {
+      "id": "database-now",
+      "query": "What is Nebula’s current database, and what is SQLite used for?",
+      "details": [
+        "PostgreSQL",
+        "offline exports"
+      ],
+      "relevant": [
+        "migration",
+        "migration-source"
+      ],
+      "language": "en",
+      "split": "heldout"
+    },
+    {
+      "id": "database-history",
+      "query": "What database did Nebula use before June 2026?",
+      "details": [
+        "SQLite.*primary database before June 2026"
+      ],
+      "relevant": [
+        "migration-old"
+      ],
+      "language": "en",
+      "split": "heldout"
+    },
+    {
+      "id": "production-rule",
+      "query": "Who must approve changes to production retention rules?",
+      "details": [
+        "service owner"
+      ],
+      "relevant": [
+        "human-review"
+      ],
+      "language": "en",
+      "split": "heldout"
+    },
+    {
+      "id": "unknown-person",
+      "query": "What is Madina’s preferred editor?",
+      "details": [],
+      "relevant": [],
+      "language": "en",
+      "split": "heldout"
+    },
+    {
+      "id": "unknown-uz",
+      "query": "Vega loyihasi qaysi bulut provayderidan foydalanadi?",
+      "details": [],
+      "relevant": [],
+      "language": "uz",
+      "split": "heldout"
+    },
+    {
+      "id": "unknown-ru",
+      "query": "Какой секретный код доступа у Atlas?",
+      "details": [],
+      "relevant": [],
+      "language": "ru",
+      "split": "heldout"
+    }
+  ]
+}
