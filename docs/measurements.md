@@ -839,3 +839,45 @@ The real two-collection diagnostic retained 37/40 with optional compaction versu
 34/40 without Jev, with irrelevant returns falling from 70 to 0. Source-first
 selection without Jev retained all 40 details but added 74 irrelevant returns.
 These are small authored synthetic fixtures, not production-user measurements.
+
+
+## Correctness and HTTP readiness, 2026-09-20
+
+[Whole-system review](reviews/2026-09-20-production-readiness.md) and
+[frozen HTTP measurements](experiments/http-readiness.md) record the implementation,
+reproduction commands, archive provenance, and limitations.
+
+The final full Python gate on PostgreSQL 16.15 with Qdrant 1.18.2 passed 926 tests
+and 142 subtests with 85.56% backend coverage. Three additional actual-HTTP client
+isolation tests and four subtests then passed on the same database version. These
+are 929 distinct Python tests and 146 subtests. Run with disposable service URLs:
+
+```sh
+MEMKIT_TEST_DATABASE_URL="$DISPOSABLE_TEST_DATABASE_URL" \
+MEMKIT_QDRANT_INTEGRATION=1 \
+MEMKIT_QDRANT_TEST_URL="$DISPOSABLE_TEST_QDRANT_URL" \
+uv run pytest -q --cov=memkit --cov-report=term --cov-fail-under=75
+```
+
+The dashboard passed 79 unit tests and 11 browser tests using `pnpm --dir web test`
+and `pnpm --dir web test:e2e`; lint, type checking and build also passed.
+
+Real HTTP retrieval made 680 requests with pinned BGE-M3 on local MPS, PostgreSQL
+17.4 with fsync on, and Qdrant 1.18.2. No request, content-budget, or combined-result
+limit failures occurred. Facts retained 20/25 unique expected details; including
+raw evidence retained 25/25. All representations returned context for all six
+unanswerable questions: 0/6 strict empty-context abstentions. Heldout p95 latency
+was 65–84 ms at concurrency 1 and 357–411 ms at concurrency 8; throughput plateaued
+around 20–23 requests/s. These short synthetic runs do not establish sustained
+CPU deployment capacity or answer-generation accuracy. No paid calls, ranking
+promotion, or embedding-model change occurred.
+
+```sh
+uv run python -m eval.readiness_http --split dev --output docs/experiments/runs
+uv run python -m eval.readiness_http --split heldout --output docs/experiments/runs
+uv run python -m eval.readiness_http --split dev --budget 32 --limit 1 --concurrency 4 --repeats 1 --output docs/experiments/runs
+```
+
+The heldout set has now been inspected; subsequent ranking changes require fresh
+heldout data. Locally retained release and schema-v2 rollback artifacts have
+checksums and build commands in the [build manifest](releases/2026-09-20-build.json).

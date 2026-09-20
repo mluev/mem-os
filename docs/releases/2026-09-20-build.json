@@ -1,0 +1,52 @@
+{
+  "built_on": "2026-09-20",
+  "application_source_commit": "f1e523d3e9651f47bba4af349981850448a5b21c",
+  "application_schema_version": 2,
+  "purpose": "Local release candidate and schema-v2-compatible application rollback checkpoint; not deployed or published.",
+  "source_note": "All packaged source and generated dashboard/SDK/adapter assets match this commit. Later evaluation, tests and report changes do not alter package inputs.",
+  "verification": [
+    "Clean server environment installed with locked, hashed production requirements; API import, schema v2, bundled dashboard and Hermes installation passed.",
+    "Clean standalone CLI installation passed without server, database or model packages; repeated three-agent installation preserved cursors and canonical guides.",
+    "Clean Python SDK installation preserved API-key authentication and legacy imports.",
+    "Packed TypeScript SDK installed in a clean consumer and compiled successfully."
+  ],
+  "build_commands": [
+    "uv build --wheel --out-dir dist/readiness/schema-v2-rollback",
+    "uv build --project cli --wheel --out-dir dist/readiness/clients",
+    "uv build --project sdk/python --wheel --out-dir dist/readiness/clients",
+    "pnpm --dir sdk/typescript pack --pack-destination ../../dist/readiness/clients",
+    "uv export --locked --no-dev --no-emit-project -o dist/readiness/requirements.txt"
+  ],
+  "files": [
+    {
+      "path": "dist/readiness/clients/memkit-sdk-0.3.0.tgz",
+      "bytes": 12924,
+      "sha256": "19876f796a6cf6901da9da3296f4254ddf6edd37b9e16a184b870518f0c96e82"
+    },
+    {
+      "path": "dist/readiness/clients/memkit_client-0.3.0-py3-none-any.whl",
+      "bytes": 237553,
+      "sha256": "634e18c8dec3b94bb9b0961d9f3311043911a6a8622483e3267eb3b43a3dd959"
+    },
+    {
+      "path": "dist/readiness/clients/memos_cli-0.1.0-py3-none-any.whl",
+      "bytes": 80936,
+      "sha256": "fdac35c2a471520c67b080ca1a8e9d234fef30b1f2f237f1ba5d694e66430f21"
+    },
+    {
+      "path": "dist/readiness/requirements.txt",
+      "bytes": 49727,
+      "sha256": "0b236d576c3ab25725d7b885f391ad04ac7db8d509dedb4f8c0c5b087fdbe308"
+    },
+    {
+      "path": "dist/readiness/schema-v2-rollback/memkit-0.3.0-py3-none-any.whl",
+      "bytes": 638417,
+      "sha256": "2faeb852417c56e2449d54a75a79dd7061a5971339931f5a9324ce8d6641d0bb"
+    },
+    {
+      "path": "dist/readiness/uv.lock",
+      "bytes": 218141,
+      "sha256": "8d876f64b00b01a8c7e160c277d8020ffdfa3cfa7061220447c20e1c7fb80224"
+    }
+  ]
+}
