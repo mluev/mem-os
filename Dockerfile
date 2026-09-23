@@ -42,6 +42,7 @@ RUN uv sync --locked --no-dev --no-install-project
 
 COPY src/ ./src/
 COPY integrations/ ./integrations/
+COPY skills/ ./skills/
 COPY eval/ ./eval/
 COPY --from=web /src/memkit/web_dist ./src/memkit/web_dist
 RUN uv sync --locked --no-dev

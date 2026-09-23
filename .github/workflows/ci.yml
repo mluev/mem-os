@@ -42,6 +42,7 @@ jobs:
       - run: uv run python -m eval.reports check docs/experiments/runs
       - run: uv run python tools/export_openapi.py && git diff --exit-code -- openapi.json
       - run: uv run python -m tools.docblocks --check
+      - run: uv run python tools/sync_cli_assets.py --check
       - run: uv export --locked --no-dev --no-emit-project -o /tmp/memkit-requirements.txt
       - run: uv run pip-audit -r /tmp/memkit-requirements.txt
 
@@ -121,6 +122,11 @@ jobs:
           mkdir -p /tmp/hermes
           /tmp/memkit-clean/bin/memkit install-hermes --hermes-home /tmp/hermes
           test -f /tmp/hermes/plugins/memkit/plugin.yaml
+          /tmp/memkit-clean/bin/memkit install-claude-code --claude-home /tmp/claude
+          for f in SKILL.md references/memory-and-retrieval.md references/synchronization.md references/setup-and-operations.md; do
+            cmp "/tmp/claude/skills/mem-os/$f" "skills/mem-os/$f"
+          done
+          test ! -e /tmp/claude/skills/mem-os/HTTP.md
           python -m venv /tmp/memkit-python-sdk
           /tmp/memkit-python-sdk/bin/pip install sdk/python/dist/*.whl
           /tmp/memkit-python-sdk/bin/python -c 'from memkit_client import AuthenticatedClient; c=AuthenticatedClient(base_url="http://localhost",token="k"); r=c.get_httpx_client().build_request("GET","/"); assert r.headers["X-API-Key"]=="k" and "Authorization" not in r.headers'

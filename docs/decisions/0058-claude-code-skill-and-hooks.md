@@ -3,7 +3,7 @@
     Status:        accepted
     Date:          2026-08-28
     Supersedes:    —
-    Superseded by: 0071 (configuration, per-prompt injection, profile shape, breaker)
+    Superseded by: 0071 (configuration, per-prompt injection, profile shape, breaker); 0074 (curl skill replaced by one CLI-only skill)
     Evidence:      tests/test_claude_code_integration.py
     Code:          integrations/claude-code/, src/memkit/cli.py (install-claude-code)
     Contract:      ../03-api.md, decisions/0006

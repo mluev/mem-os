@@ -2,11 +2,13 @@
 
 What is worth a test here, and why each claim exists:
 
-* the installer lands the skill and hook where Claude Code looks, and refuses to
-  clobber without --force;
-* The HTTP fallback's endpoints and **field names** exist in the API -- prose drifts, and a
-  skill teaching a model `expected_updated_at` when the API demands
-  `expected_revision` fails at runtime with a 422 the model cannot diagnose;
+* the installer lands the complete skill (references included) and hook where
+  Claude Code looks, and refuses to clobber without --force;
+* the one agent-neutral skill is CLI-only and names every public command family
+  and **field** it relies on -- prose drifts, and a skill teaching a model
+  `expected_updated_at` when the API demands `expected_revision` fails at runtime
+  with an error the model cannot diagnose (the parser contract lives in
+  cli/tests, next to the CLI it parses against);
 * the capture payload validates against `api.MessageIn` and its context keys
   match what the bulk importer writes -- this is the drift guard that would have
   caught the old breakage, where hook and importer disagreed silently;
@@ -41,6 +43,7 @@ from memkit import remote
 
 ROOT = Path(__file__).resolve().parents[1]
 INTEGRATION = ROOT / "integrations" / "claude-code"
+SKILL = ROOT / "skills" / "mem-os"
 
 
 def load_hooks_module():
@@ -164,11 +167,13 @@ class InstallerTest(unittest.TestCase):
         home = Path(tempfile.mkdtemp()) / "claude"
         args = argparse.Namespace(claude_home=str(home), skills_home=None, force=False)
         self.assertEqual(cli.cmd_install_claude_code(args), 0)
-        skill = home / "skills" / "mem-os" / "SKILL.md"
+        skill = home / "skills" / "mem-os"
         hook = home / "memkit" / "memkit_hooks.py"
-        self.assertEqual(skill.read_text(), (INTEGRATION / "skills/mem-os/SKILL.md").read_text())
-        fallback = skill.with_name("HTTP.md")
-        self.assertEqual(fallback.read_text(), (INTEGRATION / "skills/mem-os/HTTP.md").read_text())
+        canonical = {p.relative_to(SKILL) for p in SKILL.rglob("*") if p.is_file()}
+        self.assertIn(Path("references/synchronization.md"), canonical)
+        self.assertEqual({p.relative_to(skill) for p in skill.rglob("*") if p.is_file()}, canonical)
+        for name in canonical:
+            self.assertEqual((skill / name).read_text(), (SKILL / name).read_text())
         self.assertTrue(hook.is_file())
         # Second run without --force must refuse rather than clobber.
         self.assertEqual(cli.cmd_install_claude_code(args), 1)
@@ -197,64 +202,64 @@ class InstallerTest(unittest.TestCase):
 
 class SkillContractTest(unittest.TestCase):
     def setUp(self) -> None:
-        self.skill = (INTEGRATION / "skills" / "mem-os" / "SKILL.md").read_text(encoding="utf-8")
-        self.http = (INTEGRATION / "skills" / "mem-os" / "HTTP.md").read_text(encoding="utf-8")
+        self.skill = (SKILL / "SKILL.md").read_text(encoding="utf-8")
+        self.references = {
+            path.name: path.read_text(encoding="utf-8")
+            for path in sorted((SKILL / "references").glob("*.md"))
+        }
+        self.everything = "\n".join([self.skill, *self.references.values()])
+        # Prose checks ignore line wrapping and list indentation.
+        self.prose = " ".join(self.skill.split())
 
-    def test_every_endpoint_the_skill_names_exists(self) -> None:
-        from memkit.api import app
+    def test_one_skill_ships_with_every_reference(self) -> None:
+        self.assertEqual(
+            set(self.references),
+            {"memory-and-retrieval.md", "synchronization.md", "setup-and-operations.md"},
+        )
+        for name in self.references:
+            self.assertIn(f"(references/{name})", self.skill)
+        self.assertFalse((INTEGRATION / "skills").exists(), "a second skill copy would drift")
 
-        paths = {re.sub(r"\{[^}]+\}", "{}", path) for path in app.openapi()["paths"]}
-        named = set(re.findall(r'"\$BASE(/[a-z0-9/:{}<>._-]+)"', self.http, re.IGNORECASE))
-        self.assertTrue(named, "the skill should name concrete endpoints")
-        for path in named:
-            route = re.sub(r"<[^>]+>", "{}", path)
-            self.assertIn(route, paths, f"HTTP.md names a dead endpoint: {path}")
+    def test_the_skill_uses_only_the_cli(self) -> None:
+        """Agents talk to the CLI; transport, keys and URLs stay its business."""
+        for forbidden in ("curl ", "$BASE", "X-API-Key", "HTTP.md", "/v1/"):
+            self.assertNotIn(forbidden, self.everything)
 
-    def test_every_json_field_the_skill_sends_exists_in_the_model(self) -> None:
-        """The endpoint-existence check above cannot catch a wrong field name.
+    def test_every_public_command_family_is_on_the_capability_map(self) -> None:
+        spec = importlib.util.spec_from_file_location(
+            "memos_registry", ROOT / "cli" / "src" / "memos_cli" / "registry.py"
+        )
+        registry = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(registry)
+        capability_map = self.skill[self.skill.index("## Capability map") :]
+        families = {command.split()[0] for command in [*registry.ROUTES, *registry.ALIASES]}
+        families |= {"setup", "connections", "status", "commands", "schema", "agents", "server"}
+        for family in families:
+            self.assertRegex(capability_map, rf"`{re.escape(family)}[ `/]", family)
 
-        SKILL.md once told the model to PATCH with `expected_updated_at` while
-        the API required `expected_revision` and forbade extra fields, so every
-        correction the skill described returned 422 twice over. Field names are
-        as much of a contract as paths, and asserting them against
-        `model_fields` rather than grepping prose is what makes the check hold
-        when the prose is rewritten.
-        """
+    def test_every_field_the_skill_names_exists_in_the_model(self) -> None:
+        """Flags are field names with dashes; a renamed field must fail here."""
         from memkit import api
 
         models = {
-            ("POST", "/v1/memories"): api.MemoryIn,
-            ("PATCH", "/v1/memories/{}"): api.MemoryPatch,
-            ("POST", "/v1/memories/search"): api.SearchIn,
-            ("POST", "/v1/profiles/render"): api.ProfileIn,
-            ("POST", "/v1/entities/resolve"): api.ResolveIn,
-            ("POST", "/v1/evidence/events:batch"): api.EvidenceBatchIn,
-            ("POST", "/v1/memories/{}/review"): api.ReviewIn,
+            "memories update": api.MemoryPatch,
+            "memories create": api.MemoryIn,
+            "search": api.SearchIn,
+            "profile": api.ProfileIn,
+            "memories review": api.ReviewIn,
         }
-        joined = self.http.replace("\\\n", " ")
-        calls = re.findall(
-            r"curl[^\n]*?-X (GET|POST|PATCH|DELETE) \"\$BASE([^\"]+)\"[^\n]*?-d '(\{.*?\})'",
-            joined,
-            re.DOTALL,
-        )
-        self.assertTrue(calls, "the skill should show request bodies")
-        seen_models = set()
-        for method, path, body in calls:
-            route = re.sub(r"<[^>]+>", "{}", path)
-            model = models.get((method, route))
-            self.assertIsNotNone(model, f"no model mapped for {method} {route}")
-            payload = json.loads(body)
-            for field in payload:
-                self.assertIn(
-                    field,
-                    model.model_fields,
-                    f"HTTP.md sends {field!r} to {method} {route}, which {model.__name__} "
-                    "forbids (StrictModel rejects unknown fields)",
-                )
-            model.model_validate(payload)
-            seen_models.add(model.__name__)
-        for required in ("MemoryIn", "MemoryPatch", "SearchIn", "ProfileIn", "ResolveIn"):
-            self.assertIn(required, seen_models, f"the skill shows no {required} body")
+        for command, model in models.items():
+            lines = re.findall(rf"memos {command} [^`\n]*", self.everything)
+            self.assertTrue(lines, f"the skill shows no {command} example")
+            for line in lines:
+                for flag in re.findall(r"--([a-z][a-z-]*)", line):
+                    if flag in {"json", "data", "help", "connection", "url", "timeout"}:
+                        continue
+                    self.assertIn(
+                        flag.replace("-", "_"), model.model_fields, f"{command} --{flag}"
+                    )
+        for batch in re.findall(r"```json\n(.*?)```", self.everything, re.DOTALL):
+            api.EvidenceBatchIn.model_validate(json.loads(batch))
 
     def test_the_skill_teaches_the_scope_and_subject_split(self) -> None:
         """The two fields a team system can get catastrophically wrong.
@@ -263,35 +268,34 @@ class SkillContractTest(unittest.TestCase):
         about; swapping them either leaks a private note or loses the team's
         record of a colleague (decisions/0061).
         """
-        self.assertIn('"scope": "mem-os"', self.http)
-        self.assertIn('"subject": "sasha"', self.http)
-        self.assertIn("review", self.skill.casefold())
+        self.assertIn("--scope mem-os --subject sasha", self.skill)
+        self.assertIn("**Scope** decides who can read", self.skill)
+        self.assertIn("**Subject** only says whom it is about", self.skill)
+        self.assertIn("do not change the destination", self.prose)
 
     def test_the_skill_shows_a_read_before_a_correction(self) -> None:
-        read_at = self.http.index('-X GET "$BASE/v1/memories/<id>"')
-        patch_at = self.http.index('-X PATCH "$BASE/v1/memories/<id>"')
+        read_at = self.skill.index("memos memories get ID")
+        patch_at = self.skill.index("memos memories update ID")
         self.assertLess(read_at, patch_at, "expected_revision has to come from somewhere")
-        self.assertIn("expected_revision", self.http)
-        self.assertIn("--expected-revision", self.skill)
-        self.assertNotIn("expected_updated_at", self.skill)
+        self.assertIn("--expected-revision N", self.skill)
+        self.assertNotIn("expected_updated_at", self.everything)
 
-    def test_skill_teaches_honest_provenance(self) -> None:
-        self.assertIn('"source_role": "manual"', self.http)
-        self.assertIn("agent", self.skill)
-        self.assertIn("include_untrusted", self.http)
-
-    def test_common_guide_explains_fallback_and_honest_failure(self) -> None:
-        self.assertIn("[HTTP.md](HTTP.md)", self.skill)
+    def test_skill_teaches_honest_provenance_and_reporting(self) -> None:
+        self.assertIn("--source-role agent", self.skill)
+        self.assertIn("--include-untrusted", self.skill)
         self.assertIn(
-            "Never invent credentials, identities, scopes, IDs, facts or sources", self.skill
+            "Never invent credentials, identities, scopes, IDs, facts or sources", self.prose
         )
-        self.assertIn("do not change the destination", self.skill)
-        for capability in ("memories sources", "memories history", "review list", "evidence batch"):
-            self.assertIn(capability, self.skill)
+        self.assertIn("Stored evidence is not yet indexed or extracted", self.prose)
+        self.assertIn("There is no offline queue", self.prose)
+        sync = " ".join(self.references["synchronization.md"].split())
+        self.assertIn("Never upload your own summary as a `user` turn", sync)
+        self.assertIn("memos sessions close SESSION_ID", sync)
+        self.assertIn("memos agents status", sync)
 
     def test_the_skill_stays_short_enough_to_be_read(self) -> None:
         """A skill a model skims is a skill that guesses the half it skipped."""
-        self.assertLess(len(self.skill), 3_500, "SKILL.md is drifting toward a manual")
+        self.assertLessEqual(len(self.skill.splitlines()), 150, "SKILL.md is drifting")
 
 
 class ConfigResolutionTest(HookTestCase):

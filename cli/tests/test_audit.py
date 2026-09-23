@@ -460,6 +460,42 @@ def test_snapshot_drift_fails_before_writes(tmp_path, monkeypatch):
     assert not target.exists()
 
 
+@pytest.mark.parametrize("drift", ["missing", "changed", "stale"])
+def test_skill_snapshot_check_detects_every_drift(tmp_path, monkeypatch, drift):
+    import importlib.util
+    import sys
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[2] / "tools/sync_cli_assets.py"
+    spec = importlib.util.spec_from_file_location("sync_assets", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    source = tmp_path / "skills/mem-os"
+    (source / "references").mkdir(parents=True)
+    (source / "SKILL.md").write_text("guide")
+    (source / "references/sync.md").write_text("reference")
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    monkeypatch.setattr(module, "TARGET", tmp_path / "cli")
+    monkeypatch.setattr(module, "FILES", {})
+    snapshot = tmp_path / "cli/assets/skill"
+    monkeypatch.setattr(sys, "argv", ["sync_cli_assets.py"])
+    module.main()
+    assert (snapshot / "references/sync.md").read_text() == "reference"
+    monkeypatch.setattr(sys, "argv", ["sync_cli_assets.py", "--check"])
+    module.main()
+    if drift == "missing":
+        (snapshot / "references/sync.md").unlink()
+    elif drift == "changed":
+        (snapshot / "SKILL.md").write_text("edited in the wheel only")
+    else:
+        (snapshot / "references/removed.md").write_text("no longer shipped")
+    with pytest.raises(SystemExit, match=f"{drift}: cli/assets/skill/"):
+        module.main()
+    monkeypatch.setattr(sys, "argv", ["sync_cli_assets.py"])
+    module.main()
+    assert {p.name for p in snapshot.rglob("*") if p.is_file()} == {"SKILL.md", "sync.md"}
+
+
 def test_remote_reinstall_conflict_precedes_docker(tmp_path, monkeypatch):
     worker = managed_worker(tmp_path)
     monkeypatch.setattr(worker, "run", lambda *a, **kw: pytest.fail("no Docker mutation"))
