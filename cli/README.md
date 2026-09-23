@@ -141,6 +141,15 @@ are limited to 2 MB; split large evidence uploads into batches of at most 100.
 `--skills-dir /path/to/skills` for another agent. Installation merges owned hooks
 and settings, backs up replaced files, and preserves unrelated configuration.
 
+Every target receives the same agent-neutral Memkit skill: `mem-os/SKILL.md`
+plus its `references/`. The canonical source is
+[`skills/mem-os`](../skills/mem-os/SKILL.md); the wheel ships a copy that
+`tools/sync_cli_assets.py --check` keeps identical, flagging missing, changed
+and stale files. The skill drives memory only through `memos` and has no HTTP
+fallback. Upgrades rewrite changed files, back up replaced ones, and remove the
+obsolete `HTTP.md` from earlier releases. `memos agents status` reports whether
+each agent's skill is complete (`skill`) and current (`skill_current`).
+
 - Claude: profile at session start and after compaction; gated recall;
   incremental capture at Stop, PreCompact and SessionEnd.
 - Hermes: existing search/remember tools and lifecycle callbacks, connected

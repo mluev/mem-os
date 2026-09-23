@@ -547,9 +547,18 @@ def _claude_code_source() -> Path:
     return Path(__file__).resolve().parents[2] / "integrations" / "claude-code"
 
 
+def _skill_source() -> Path:
+    """The one agent-neutral skill, shared with `memos agents install`."""
+    packaged = resources.files("memkit").joinpath("agent_skill", "mem-os")
+    if packaged.is_dir():
+        return Path(str(packaged))
+    return Path(__file__).resolve().parents[2] / "skills" / "mem-os"
+
+
 def cmd_install_claude_code(args: argparse.Namespace) -> int:
     source = _claude_code_source()
-    if not source.is_dir():
+    skill_source = _skill_source()
+    if not source.is_dir() or not skill_source.is_dir():
         print("Claude Code integration is missing from this installation", file=sys.stderr)
         return 1
     claude_home = Path(args.claude_home or "~/.claude").expanduser()
@@ -562,9 +571,7 @@ def cmd_install_claude_code(args: argparse.Namespace) -> int:
     if skill_target.exists():
         shutil.rmtree(skill_target)
     skill_target.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(
-        source / "skills" / "mem-os", skill_target, ignore=shutil.ignore_patterns("__pycache__")
-    )
+    shutil.copytree(skill_source, skill_target, ignore=shutil.ignore_patterns("__pycache__"))
     hook_target.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(source / "hooks" / "memkit_hooks.py", hook_target)
 
@@ -606,6 +613,10 @@ def cmd_install_claude_code(args: argparse.Namespace) -> int:
     }
     print(f"installed skill:  {skill_target}")
     print(f"installed hooks:  {hook_target}")
+    print(
+        "\nthe skill works through the `memos` CLI: install it (uv tool install ./cli, or the\n"
+        "released memos_cli wheel) and run `memos setup` so agents can recall and save."
+    )
     print("\nadd this to ~/.claude/settings.json:\n")
     print(json.dumps(snippet, indent=2))
     print(

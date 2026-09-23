@@ -7,14 +7,14 @@ import json
 import os
 import subprocess
 import sys
-from importlib import resources
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from memos_cli import config
-from memos_cli.agents import install
+from memos_cli.agents import install, skill_files
 from memos_cli.cli import parser_tree
 
+REFERENCES = ("memory-and-retrieval.md", "synchronization.md", "setup-and-operations.md")
 parser_tree()
 for forbidden in ("memkit", "torch", "sentence_transformers", "psycopg", "qdrant_client"):
     assert forbidden not in sys.modules, forbidden
@@ -60,10 +60,13 @@ with TemporaryDirectory() as directory:
         home = root / target
         install([target], home=str(home))
         install([target], home=str(home))
-        for name in ("SKILL.md", "HTTP.md"):
-            assert (home / "skills/mem-os" / name).read_text() == (
-                resources.files("memos_cli").joinpath(f"assets/{name}").read_text()
-            )
+        guides = skill_files()
+        assert {"SKILL.md", *(f"references/{name}" for name in REFERENCES)} <= set(guides)
+        skill = home / "skills/mem-os"
+        for name, content in guides.items():
+            assert (skill / name).read_text() == content, name
+        present = {p.relative_to(skill).as_posix() for p in skill.rglob("*") if p.is_file()}
+        assert present == set(guides), present
         if target == "hermes":
             assert (home / "plugins/memkit/bridge.json").is_file()
     assert cursor.read_text() == "123"

@@ -715,38 +715,122 @@ def test_backup_catalog_survives_database_failure(tmp_path, monkeypatch):
     assert worker.perform({"action": "backup-list", "directory": str(tmp_path)}) == [artifact]
 
 
-@pytest.mark.parametrize("target", ["claude", "hermes", "codex", "custom"])
-def test_common_guide_installs_with_http_fallback(tmp_path, target):
-    from importlib.resources import files
-
-    from memos_cli.agents import install
-
-    home = tmp_path / target
-    if target == "custom":
-        install([], skills_dir=str(home))
-        directory = home / "mem-os"
-    else:
-        install([target], home=str(home))
-        directory = home / "skills/mem-os"
-    for name in ("SKILL.md", "HTTP.md"):
-        assert (directory / name).read_text() == files("memos_cli").joinpath(
-            f"assets/{name}"
-        ).read_text()
+SKILL_REFERENCES = ("memory-and-retrieval.md", "synchronization.md", "setup-and-operations.md")
 
 
-def test_common_guide_commands_parse_against_the_installed_cli(monkeypatch, capsys):
+def skill_commands():
+    """Every `memos …` example in the packaged skill: inline code and bash blocks."""
     import re
-    import shlex
-    from importlib.resources import files
 
-    guide = files("memos_cli").joinpath("assets/SKILL.md").read_text()
-    commands = re.findall(r"`memos ([^`]+)`", guide)
-    assert len(commands) >= 15
+    from memos_cli.agents import skill_files
+
+    commands = []
+    for text in skill_files().values():
+        commands += re.findall(r"`memos ([^`]+)`", text)
+        for block in re.findall(r"```bash\n(.*?)```", text, re.DOTALL):
+            commands += [line[6:] for line in block.splitlines() if line.startswith("memos ")]
+    return commands
+
+
+@pytest.mark.parametrize("target", ["claude", "hermes", "codex", "custom"])
+def test_complete_skill_installs_and_upgrades_in_place(tmp_path, target):
+    from memos_cli.agents import install, skill_files
+
+    guides = skill_files()
+    assert {"SKILL.md", *(f"references/{name}" for name in SKILL_REFERENCES)} == set(guides)
+    home = tmp_path / target
+    directory = home / ("mem-os" if target == "custom" else "skills/mem-os")
+    # An earlier release installed an HTTP fallback and a shorter guide.
+    directory.mkdir(parents=True)
+    (directory / "HTTP.md").write_text("old curl fallback")
+    (directory / "SKILL.md").write_text("old guide")
+
+    def run():
+        if target == "custom":
+            install([], skills_dir=str(home))
+        else:
+            install([target], home=str(home))
+
+    run()
+    for name, content in guides.items():
+        assert (directory / name).read_text() == content, name
+    assert not (directory / "HTTP.md").exists()
+    backups = sorted(p.name for p in directory.glob("*.before-memos-*"))
+    assert [name.split(".before-memos-")[0] for name in backups] == ["HTTP.md", "SKILL.md"]
+    # A repeated upgrade is a no-op: no new backups, no missing or extra files.
+    run()
+    assert sorted(p.name for p in directory.glob("*.before-memos-*")) == backups
+    installed = {
+        p.relative_to(directory).as_posix()
+        for p in directory.rglob("*")
+        if p.is_file() and ".before-memos-" not in p.name
+    }
+    assert installed == set(guides)
+
+
+def test_agent_status_requires_every_skill_reference(tmp_path, monkeypatch):
+    from memos_cli.agents import dispatch, install
+
+    def offline(options):
+        raise ClientError("offline")
+
+    monkeypatch.setattr(cli, "connect", offline)
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / ".codex"))
+    install(["codex"])
+
+    def codex():
+        status = dispatch(SimpleNamespace(action="status"), SimpleNamespace())
+        return next(item for item in status["agents"] if item["target"] == "codex")
+
+    assert codex()["skill"] and codex()["skill_current"]
+    (tmp_path / ".codex/skills/mem-os/references/synchronization.md").unlink()
+    assert not codex()["skill"] and not codex()["skill_current"]
+
+
+def test_skill_commands_parse_against_the_installed_cli(monkeypatch, capsys):
+    import shlex
+
+    commands = skill_commands()
+    assert len(commands) >= 100
     monkeypatch.setattr(cli, "dispatch", lambda args, options: {"parsed": True})
     for command in commands:
         argv = ["3" if token == "N" else token for token in shlex.split(command)]
+        if "--help" in argv:
+            with pytest.raises(SystemExit) as exit_info:
+                cli.main(argv)
+            assert exit_info.value.code == 0, command
+            capsys.readouterr()
+            continue
         result = cli.main(argv)
         assert result == 0, (command, capsys.readouterr())
+
+
+def test_skill_shows_every_public_command():
+    import shlex
+
+    from memos_cli.arguments import local_schemas
+
+    shown = {" ".join(shlex.split(command)) for command in skill_commands()}
+    public = [*registry.ROUTES, *registry.ALIASES]
+    public += [name for name in local_schemas() if not name.startswith("internal ")]
+    missing = [
+        name for name in public if not any(f"{c} ".startswith(f"{name} ") for c in shown)
+    ]
+    assert not missing, missing
+
+
+def test_skill_is_cli_only_and_links_its_references():
+    from memos_cli.agents import skill_files
+
+    guides = skill_files()
+    skill = guides["SKILL.md"]
+    assert skill.startswith("---\nname: mem-os\ndescription: ")
+    assert len(skill.splitlines()) <= 150
+    for name in SKILL_REFERENCES:
+        assert f"(references/{name})" in skill, name
+    for text in guides.values():
+        for forbidden in ("curl ", "$BASE", "HTTP.md", "X-API-Key"):
+            assert forbidden not in text, forbidden
 
 
 @pytest.mark.parametrize("failure", [None, "restore", "cleanup", "reindex"])

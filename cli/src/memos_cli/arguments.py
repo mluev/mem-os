@@ -109,7 +109,11 @@ def parser_tree():
     setup.add_argument("--api-key-file")
     setup.add_argument("--password-file")
     setup.add_argument("--handle")
-    setup.add_argument("--agents", nargs="*", choices=["claude", "hermes", "codex"])
+    from .agents import targets
+
+    setup.add_argument(
+        "--agents", nargs="*", type=targets, metavar="AGENT", help="claude, hermes or codex"
+    )
     for cmd in ("list", "use", "remove"):
         p = leaf(["connections", cmd])
         p.set_defaults(handler="connections", action=cmd)

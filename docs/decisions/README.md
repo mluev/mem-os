@@ -88,3 +88,4 @@ No entry restates a measured value; it links an anchor. `Status` and
 | [0071](0071-per-user-hooks-and-gated-recall.md) | Hooks carry a person's key, file into a scope, and may recall on request | accepted |
 | [0072](0072-semantic-blocks-and-experiment-archives.md) | Independent semantic blocks and durable experiment archives | accepted |
 | [0073](0073-contribution-and-budgeted-source-context.md) | Contribution and budgeted source context | accepted |
+| [0074](0074-one-cli-only-agent-skill.md) | One agent-neutral, CLI-only Memkit skill for every agent | accepted |

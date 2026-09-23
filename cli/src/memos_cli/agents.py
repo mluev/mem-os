@@ -1,5 +1,6 @@
 """Install owned integration files; merge settings without replacing user configuration."""
 
+import argparse
 import json
 import os
 import shlex
@@ -15,18 +16,38 @@ from . import config
 from .errors import ClientError
 
 
+TARGETS = ("claude", "hermes", "codex")
+
+
+def targets(value):
+    # Validated per value rather than with argparse choices: before Python 3.12,
+    # nargs="*" plus choices rejects an empty list, so `memos agents install`
+    # (detect installed agents) and a bare `--agents` would fail to parse.
+    if value not in TARGETS:
+        raise argparse.ArgumentTypeError(
+            f"unknown agent {value!r}; choose from {', '.join(TARGETS)}"
+        )
+    return value
+
+
 def add_parser(leaf):
     p = leaf(["agents", "install"], help="configure agent memory automatically")
     p.set_defaults(handler="agents", action="install")
-    p.add_argument("targets", nargs="*", choices=["claude", "hermes", "codex"])
+    p.add_argument(
+        "targets",
+        nargs="*",
+        type=targets,
+        metavar="AGENT",
+        help="claude, hermes or codex; default: agents found on this machine",
+    )
     p.add_argument("--skills-dir", help="custom directory containing skill folders")
     p.add_argument("--home", help="alternate agent configuration root (one target only)")
     p = leaf(["agents", "status"], help="check adapter installation and connection")
     p.set_defaults(handler="agents", action="status")
-    p = leaf(["internal", "request"], help=__import__("argparse").SUPPRESS)
+    p = leaf(["internal", "request"], help=argparse.SUPPRESS)
     p.set_defaults(handler="agents", action="request")
     p.add_argument("--input", default="-")
-    p = leaf(["internal", "hook"], help=__import__("argparse").SUPPRESS)
+    p = leaf(["internal", "hook"], help=argparse.SUPPRESS)
     p.set_defaults(handler="agents", action="hook")
     p.add_argument("event", choices=["session-start", "recall", "capture", "session-end"])
 
@@ -40,7 +61,17 @@ def root(target):
 
 
 def detected():
-    return [name for name in ("claude", "hermes", "codex") if root(name).is_dir()]
+    return [name for name in TARGETS if root(name).is_dir()]
+
+
+# Files earlier releases installed into the skill folder and no longer ship.
+OBSOLETE_SKILL_FILES = ("HTTP.md",)
+
+
+def backup(path):
+    target = path.with_name(path.name + f".before-memos-{time.time_ns()}")
+    shutil.copy2(path, target)
+    os.chmod(target, 0o600)
 
 
 def replace_owned(path, text):
@@ -48,10 +79,34 @@ def replace_owned(path, text):
     if path.exists() and path.read_text() == text:
         return
     if path.exists():
-        backup = path.with_name(path.name + f".before-memos-{time.time_ns()}")
-        shutil.copy2(path, backup)
-        os.chmod(backup, 0o600)
+        backup(path)
     config.private_write(path, text)
+
+
+def skill_files():
+    """The packaged skill folder as {relative path: content}, references included."""
+    result = {}
+
+    def walk(directory, prefix=""):
+        for item in directory.iterdir():
+            if item.is_dir():
+                walk(item, f"{prefix}{item.name}/")
+            elif item.is_file():
+                result[prefix + item.name] = item.read_text()
+
+    walk(files("memos_cli").joinpath("assets/skill"))
+    return dict(sorted(result.items()))
+
+
+def install_skill(directory, guides):
+    directory = Path(directory)
+    for name, content in guides.items():
+        replace_owned(directory / name, content)
+    for name in OBSOLETE_SKILL_FILES:
+        path = directory / name
+        if path.is_file():
+            backup(path)
+            path.unlink()
 
 
 def agent_settings(directory, target):
@@ -105,21 +160,16 @@ def agent_settings(directory, target):
 def install(targets, skills_dir=None, home=None):
     if home and len(targets) != 1:
         raise ClientError("--home requires exactly one agent target")
-    guides = {
-        name: files("memos_cli").joinpath(f"assets/{name}").read_text()
-        for name in ("SKILL.md", "HTTP.md")
-    }
+    guides = skill_files()
     result = []
     command = shlex.join([sys.executable, "-m", "memos_cli"])
     if skills_dir:
-        for name, content in guides.items():
-            replace_owned(Path(skills_dir).expanduser() / "mem-os" / name, content)
+        install_skill(Path(skills_dir).expanduser() / "mem-os", guides)
         result.append({"target": "custom", "skill": str(Path(skills_dir).expanduser())})
     for target in targets:
         directory = Path(home).expanduser() if home else root(target)
         settings = agent_settings(directory, target) if target in {"claude", "hermes"} else {}
-        for name, content in guides.items():
-            replace_owned(directory / "skills/mem-os" / name, content)
+        install_skill(directory / "skills/mem-os", guides)
         if target == "claude":
             path = directory / "settings.json"
             hooks = settings.setdefault("hooks", {})
@@ -216,9 +266,20 @@ def dispatch(args, options):
             code = 0
         raise SystemExit(code)
     result = []
+    guides = skill_files()
     for target in ("claude", "hermes", "codex"):
         directory = root(target)
-        item = {"target": target, "skill": (directory / "skills/mem-os/SKILL.md").is_file()}
+        skill = directory / "skills/mem-os"
+        item = {
+            "target": target,
+            # Complete means every packaged file, references included, is present;
+            # current means it also matches this CLI's version of the skill.
+            "skill": all((skill / name).is_file() for name in guides),
+            "skill_current": all(
+                (skill / name).is_file() and (skill / name).read_text() == content
+                for name, content in guides.items()
+            ),
+        }
         if target == "claude":
             settings = agent_settings(directory, target)
             item["hooks"] = [

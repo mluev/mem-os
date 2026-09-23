@@ -75,11 +75,22 @@ memos setup --url https://your-memory-server
 memos agents install claude hermes codex
 ```
 
-The [agent guide](cli/src/memos_cli/assets/SKILL.md) explains recall, explicit
-saves, corrections, scopes and complete command discovery. Extraction happens
-server-side. Existing `memkit install-claude-code` and `memkit install-hermes`
-installations remain supported without requiring `memos`; their environment-file
-credentials, legacy cursor locations and opt-in Claude recall remain unchanged.
+Every agent gets the same [Memkit skill](skills/mem-os/SKILL.md). It is
+agent-neutral and CLI-only, and makes recall, saving, correction and
+synchronization part of everyday work. Its references cover
+[memory and retrieval](skills/mem-os/references/memory-and-retrieval.md),
+[continuous synchronization](skills/mem-os/references/synchronization.md) and
+[setup and operations](skills/mem-os/references/setup-and-operations.md).
+
+- `memos agents install` copies the complete folder into Claude, Hermes and
+  Codex, or into any agent's skills directory with `--skills-dir`. Re-running it
+  upgrades in place.
+- Extraction happens server-side.
+- Existing `memkit install-claude-code` and `memkit install-hermes`
+  installations remain supported. Their hooks, environment-file credentials,
+  legacy cursor locations and opt-in Claude recall are unchanged. The skill
+  `install-claude-code` copies works through `memos`, so install and connect
+  the CLI as well.
 
 Add the rest of the team with `memkit users create`, and give shared work a scope of its own with `memkit entities create "Shop" --kind project --alias магазин`. Aliases are what let a name in conversation route to an entity.
 

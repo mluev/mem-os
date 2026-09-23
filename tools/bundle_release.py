@@ -63,13 +63,15 @@ def main() -> None:
         destination = target / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, destination)
-    guide = Path("integrations/claude-code/skills/mem-os")
-    (target / guide).mkdir(parents=True)
-    for name in ("SKILL.md", "HTTP.md"):
-        shutil.copy2(ROOT / guide / name, target / guide / name)
+    guide = Path("skills/mem-os")
+    shutil.copytree(ROOT / guide, target / guide, ignore=shutil.ignore_patterns("__pycache__"))
+    references = sorted((ROOT / guide / "references").glob("*.md"))
     (target / "AGENT-GUIDE.md").write_text(
-        f"# Agent guide\n\n[Capabilities and commands]({guide}/SKILL.md) · "
-        f"[HTTP fallback]({guide}/HTTP.md)\n"
+        f"# Agent guide\n\n[Memkit skill: capabilities and commands]({guide}/SKILL.md)\n\n"
+        + "".join(
+            f"- [{path.stem.replace('-', ' ').capitalize()}]({guide}/references/{path.name})\n"
+            for path in references
+        )
     )
     subprocess.run(  # noqa: S603 -- committed repository archive only
         [GIT, "archive", "--format=tar.gz", f"--output={target / 'source.tar.gz'}", revision],
