@@ -653,3 +653,46 @@ def explain(
 def search(*args: Any, **kwargs: Any) -> tuple[list[Scored], int]:
     result = explain(*args, **kwargs)
     return result.chosen, result.used_tokens
+
+
+# Reciprocal-rank-fusion constant. 60 is the value the method was published
+# with; it keeps one list's top hit from drowning agreement between the others.
+RRF_K = 60
+
+
+def fuse(results: Sequence[Explain], *, budget_tokens: int, limit: int | None = None) -> Explain:
+    """Merge rankings for one question asked several ways (decisions/0078).
+
+    Each memory scores the sum of 1/(k + rank) over the lists that returned it,
+    so a memory found by the original query and by two rewrites outranks one
+    found by a single rewrite, whatever its raw score was. The first result is
+    the original query's: its drop lists, intent and vector describe the
+    request the caller made.
+    """
+    if not results:
+        raise ValueError("nothing to fuse")
+    primary = results[0]
+    fused: dict[str, float] = {}
+    best: dict[str, Scored] = {}
+    for result in results:
+        for rank, item in enumerate(result.chosen):
+            fused[item.id] = fused.get(item.id, 0.0) + 1.0 / (RRF_K + rank + 1)
+            if item.id not in best or item.score > best[item.id].score:
+                best[item.id] = item
+    ordered = sorted(best.values(), key=lambda item: (-fused[item.id], -item.score, item.id))
+    chosen, used = _fill_budget(ordered, budget_tokens, limit=limit)
+    timings = dict(primary.timings)
+    timings["fused_queries"] = float(len(results))
+    return Explain(
+        chosen=chosen,
+        used_tokens=used,
+        dropped_trust=primary.dropped_trust,
+        dropped_validity=primary.dropped_validity,
+        dropped_filter=primary.dropped_filter,
+        dropped_relevance=[i for i in primary.dropped_relevance if i not in best],
+        policy_id=primary.policy_id,
+        embed_ms=sum(result.embed_ms for result in results),
+        timings=timings,
+        query_vector=primary.query_vector,
+        intent=primary.intent,
+    )

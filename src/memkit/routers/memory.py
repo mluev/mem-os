@@ -24,9 +24,12 @@ from .. import (
     context_assembly,
     entities,
     graph,
+    judge,
     maintenance,
     profiles,
+    prompts,
     retrieval,
+    rewrite,
     store,
     telemetry,
     vectors,
@@ -36,7 +39,15 @@ from .. import (
 )
 from ..config import Settings, get_settings
 from ..db import iso, utcnow
-from ..http import _drain, _memory_id, _memory_summary, _outbox_state, get_conn, get_principal
+from ..http import (
+    _drain,
+    _memory_id,
+    _memory_summary,
+    _outbox_state,
+    get_conn,
+    get_principal,
+    judge_configured,
+)
 from ..principal import Principal, ScopeForbidden, UnknownScope
 from ..schemas import (
     AttentionResolveIn,
@@ -44,6 +55,8 @@ from ..schemas import (
     FeedbackIn,
     FeedbackOut,
     FlexibleOut,
+    ForgetIn,
+    ForgetOut,
     MemoryCreatedOut,
     MemoryHistoryOut,
     MemoryIn,
@@ -627,23 +640,46 @@ def search_memories(
     semantic = getattr(request.app.state, "semantic", None)
     assemble = bool(body.include_raw and semantic is not None and semantic.context != "off")
     raw = None
-    try:
-        result = retrieval.explain(
+    rewrites: list[str] = []
+    if body.rewrite_query and not assemble:
+        rewrite_started = time.perf_counter()
+        rewrites, _ = rewrite.rewrites(
+            conn, body.query, settings=settings, user_id=principal.user_id
+        )
+        rewrite_ms = (time.perf_counter() - rewrite_started) * 1000
+
+    def ranked(query: str, *, limit: int, budget: int) -> retrieval.Explain:
+        return retrieval.explain(
             conn,
             request.app.state.qdrant,
             request.app.state.embedder,
-            query=body.query,
+            query=query,
             scope_ids=scopes,
             expression=expression,
             kinds=body.kinds,
-            limit=60 if assemble else body.limit,
-            budget_tokens=120_000 if assemble else body.budget_tokens,
+            limit=limit,
+            budget_tokens=budget,
             policy=policy,
             include_untrusted=body.include_untrusted,
             reranker=None if assemble else getattr(request.app.state, "reranker", None),
             as_of=body.as_of,
             time_range=(body.since, body.until) if body.since or body.until else None,
         )
+
+    try:
+        wide = assemble or bool(rewrites)
+        result = ranked(
+            body.query,
+            limit=60 if assemble else body.limit,
+            budget=120_000 if wide else body.budget_tokens,
+        )
+        if rewrites:
+            result = retrieval.fuse(
+                [result, *(ranked(q, limit=body.limit, budget=120_000) for q in rewrites)],
+                budget_tokens=body.budget_tokens,
+                limit=body.limit,
+            )
+            result.timings["rewrite_ms"] = rewrite_ms
         if assemble:
             context_started = time.perf_counter()
             result, raw = context_assembly.assemble(
@@ -735,7 +771,126 @@ def search_memories(
                     used += cost
             memory[key] = kept
     payload["used_tokens"] = used
-    return {**payload, "raw": raw or [], "retrieval_id": retrieval_id}
+    return {**payload, "raw": raw or [], "retrieval_id": retrieval_id, "rewrites": rewrites}
+
+
+@router.post("/v1/memories/forget")
+def forget_memories(
+    request: Request,
+    body: ForgetIn,
+    principal: Principal = Depends(get_principal),
+    conn: psycopg.Connection = Depends(get_conn),
+    settings: Settings = Depends(get_settings),
+) -> ForgetOut:
+    """Forget what matches a request, or exactly the ids given (decisions/0079).
+
+    Only scopes the caller may write are searched. In query mode the judge
+    model, when configured, keeps only candidates that are really about the
+    request, choosing by number among those it was shown. Applying with the
+    ids from a dry run forgets exactly what was reviewed, even if the store has
+    changed since.
+    """
+    if body.scope:
+        scopes = [principal_module.resolve_scope(conn, principal, body.scope, write=True)]
+    else:
+        scopes = sorted(principal.writable_scope_ids)
+    verified = False
+    if body.ids is not None:
+        try:
+            ids = [uuid.UUID(item) for item in body.ids]
+        except ValueError as exc:
+            raise HTTPException(422, "ids must be memory ids") from exc
+        rows = conn.execute(
+            """SELECT m.id,m.text,sc.name AS scope_name FROM memories m
+                 JOIN entities sc ON sc.id = m.scope_id
+                WHERE m.id = ANY(%s) AND m.scope_id = ANY(%s) AND m.status='active'
+                ORDER BY m.updated_at DESC, m.id""",
+            (ids, [uuid.UUID(str(scope)) for scope in scopes]),
+        ).fetchall()
+        candidates = [
+            {"id": str(r["id"]), "text": r["text"], "score": 1.0, "scope": r["scope_name"]}
+            for r in rows
+        ]
+    else:
+        if not getattr(request.app.state, "index_ready", False):
+            raise HTTPException(503, "vector search dependency is temporarily unavailable")
+        found = retrieval.explain(
+            conn,
+            request.app.state.qdrant,
+            request.app.state.embedder,
+            query=str(body.query),
+            scope_ids=scopes,
+            limit=min(200, body.max_forget * 2),
+            budget_tokens=1_000_000,
+            policy=retrieval.load_policy(conn, "core-retrieval-v2"),
+            include_untrusted=True,
+        )
+        candidates = [
+            {"id": item.id, "text": item.text, "score": round(item.score, 4), "scope": item.scope}
+            for item in found.chosen
+            if item.score >= body.threshold
+        ]
+        if body.verify and candidates and judge_configured(settings):
+            answer = judge.structured_call(
+                conn,
+                kind="forget",
+                prompt_version=prompts.FORGET_VERSION,
+                prompt=prompts.render_forget(str(body.query), [c["text"] for c in candidates]),
+                schema=prompts.forget_schema(),
+                name="emit_forget",
+                model=settings.judge_model,
+                monthly_limit_usd=settings.monthly_cost_limit_usd,
+                audit={"candidate_ids": [c["id"] for c in candidates]},
+                api_key=settings.anthropic_api_key,
+                gemini_api_key=settings.gemini_api_key,
+                project=settings.vertex_project,
+                location=settings.vertex_location,
+                max_output_tokens=512,
+                user_id=principal.user_id,
+            )
+            if answer.raw is not None:
+                keep = set()
+                for number in answer.raw.get("forget") or []:
+                    try:
+                        index = int(number) - 1
+                    except (TypeError, ValueError):
+                        continue
+                    if 0 <= index < len(candidates):
+                        keep.add(index)
+                candidates = [c for i, c in enumerate(candidates) if i in keep]
+                verified = True
+    candidates = candidates[: body.max_forget]
+    if body.dry_run or not candidates:
+        return {
+            "dry_run": body.dry_run,
+            "verified": verified,
+            "candidates": candidates,
+            "forgotten": [],
+            "reason": body.reason,
+        }
+    reason = body.reason or (f"forget request: {body.query}" if body.query else "forget request")
+    forgotten: list[str] = []
+    try:
+        with conn.transaction():
+            for candidate in candidates:
+                store.set_memory_status(
+                    conn,
+                    memory_id=candidate["id"],
+                    scopes=scopes,
+                    status="archived",
+                    forget_reason=reason,
+                )
+                forgotten.append(candidate["id"])
+    except KeyError as exc:
+        raise HTTPException(409, "a memory changed while forgetting; retry") from exc
+    _drain(request)
+    return {
+        "dry_run": False,
+        "verified": verified,
+        "candidates": candidates,
+        "forgotten": forgotten,
+        "reason": reason[:500],
+    }
 
 
 @router.post("/v1/retrieval-feedback", status_code=201)

@@ -558,6 +558,71 @@ def dream_schema() -> dict[str, Any]:
     }
 
 
+# Query rewriting (decisions/0078). A question and the memory that answers it
+# are worded differently -- "where do I live now?" against "The user moved to
+# Lisbon" -- and a short query gives the lexical arm almost nothing. Rewrites
+# are searched alongside the original and fused by rank, so a bad rewrite can
+# add noise at the tail but cannot remove what the original query found.
+REWRITE_V1 = """Rewrite a search query for a store of short, self-contained
+memories about a person or a team ("The user moved to Lisbon on 2026-04-02",
+"The team always squash-merges").
+
+Return up to three alternative queries that ask for the same information in
+other words:
+- turn the question into the statement that would answer it ("where do I live"
+  -> "the user lives in", "moved to");
+- name the attribute or event it asks about, and expand abbreviations;
+- keep every name, number and date from the query exactly;
+- never add a fact, a name or a date the query does not contain;
+- write in the language of the query.
+
+QUERY
+{query}"""
+REWRITE_VERSION = "q1"
+
+
+def render_rewrite(query: str) -> str:
+    return REWRITE_V1.format(query=query)
+
+
+def rewrite_schema() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {"queries": {"type": "array", "items": {"type": "string"}}},
+        "required": ["queries"],
+    }
+
+
+# Forget-matching (decisions/0079). Search finds what shares words or meaning
+# with a request; the model decides which of those are actually about what the
+# person asked to forget, by number, among the candidates it was shown.
+FORGET_V1 = """A person asked to forget: {request}
+
+Below are memories that might match. Return the numbers of the memories that are
+about what they asked to forget — the same topic, person, project or thing — and
+leave out anything that only shares a word or a date with it. When unsure, leave
+it out: forgetting the wrong memory is worse than keeping one.
+
+MEMORIES
+{memories}"""
+FORGET_VERSION = "f1"
+
+
+def render_forget(request: str, memories: list[str]) -> str:
+    listed = "\n".join(f"{number}. {text}" for number, text in enumerate(memories, start=1))
+    return FORGET_V1.format(request=request, memories=listed)
+
+
+def forget_schema() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {"forget": {"type": "array", "items": {"type": "integer"}}},
+        "required": ["forget"],
+    }
+
+
 def render(
     version: str,
     *,

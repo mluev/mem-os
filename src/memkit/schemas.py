@@ -204,6 +204,9 @@ class SearchIn(StrictModel):
     # was said).
     since: AwareDatetime | None = None
     until: AwareDatetime | None = None
+    # Ask the judge model for up to three rephrasings and fuse their rankings
+    # with the original's. Adds one model call; failures fall back silently.
+    rewrite_query: bool = False
     budget_tokens: int = Field(default=800, ge=1, le=20_000)
     limit: int = Field(default=30, ge=1, le=200)
 
@@ -211,6 +214,37 @@ class SearchIn(StrictModel):
     def _ordered_range(self) -> SearchIn:
         if self.since is not None and self.until is not None and self.since > self.until:
             raise ValueError("since must not be later than until")
+        return self
+
+
+class ForgetIn(StrictModel):
+    """Forget matching memories: by a request searched semantically, or by ids.
+
+    Forgetting archives: a forgotten memory leaves search and profiles, keeps
+    its history and reason, and a reviewer can bring it back. A dry run is the
+    default, because the match is semantic and a broad request selects more
+    than intended.
+    """
+
+    query: (
+        Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)]
+        | None
+    ) = None
+    ids: list[Identifier] | None = Field(default=None, max_length=500)
+    # Narrow to one scope; omitted means every scope the caller may write.
+    scope: Slug | None = None
+    dry_run: bool = True
+    # Minimum hybrid score for a query-mode candidate.
+    threshold: float = Field(default=0.3, ge=0, le=2)
+    max_forget: int = Field(default=100, ge=1, le=500)
+    # Ask the judge model which candidates are really about the request.
+    verify: bool = True
+    reason: Annotated[str, StringConstraints(strip_whitespace=True, max_length=500)] | None = None
+
+    @model_validator(mode="after")
+    def _one_selector(self) -> ForgetIn:
+        if (self.query is None) == (self.ids is None):
+            raise ValueError("give exactly one of query or ids")
         return self
 
 
@@ -809,6 +843,24 @@ class MemorySearchOut(StrictModel):
     timings: dict[str, float]
     raw: list[dict[str, Any]] = Field(default_factory=list)
     retrieval_id: str | None = None
+    # The rephrasings searched alongside the query, when rewrite_query was set.
+    rewrites: list[str] = Field(default_factory=list)
+
+
+class ForgetCandidate(View):
+    id: str
+    text: str
+    score: float
+    scope: str | None
+
+
+class ForgetOut(StrictModel):
+    dry_run: bool
+    # Whether the judge model confirmed the query-mode candidates.
+    verified: bool
+    candidates: list[ForgetCandidate]
+    forgotten: list[str]
+    reason: str | None = None
 
 
 class FeedbackOut(StrictModel):

@@ -704,6 +704,7 @@ def structured_call(
     max_output_tokens: int = 2048,
     user_id: str | None = None,
     job_id: str | None = None,
+    record_output: bool = True,
 ) -> StructuredResult:
     """Reserve, call, log and reconcile one non-extraction model call.
 
@@ -775,7 +776,9 @@ def structured_call(
                 model,
                 prompt_version,
                 Jsonb(audit),
-                Jsonb(result.raw) if isinstance(result.raw, dict) else None,
+                # A rewrite of a query is the query in other words; retrieval
+                # telemetry never stores query text, so neither does this.
+                Jsonb(result.raw) if isinstance(result.raw, dict) and record_output else None,
                 error,
                 result.input_tokens,
                 result.output_tokens,
