@@ -255,9 +255,7 @@ class SkillContractTest(unittest.TestCase):
                 for flag in re.findall(r"--([a-z][a-z-]*)", line):
                     if flag in {"json", "data", "help", "connection", "url", "timeout"}:
                         continue
-                    self.assertIn(
-                        flag.replace("-", "_"), model.model_fields, f"{command} --{flag}"
-                    )
+                    self.assertIn(flag.replace("-", "_"), model.model_fields, f"{command} --{flag}")
         for batch in re.findall(r"```json\n(.*?)```", self.everything, re.DOTALL):
             api.EvidenceBatchIn.model_validate(json.loads(batch))
 
