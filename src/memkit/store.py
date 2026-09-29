@@ -425,12 +425,35 @@ def evidence_rows(
     ).fetchall()
 
 
+def surrounding(text: str, start: int, end: int, chars: int) -> tuple[int, int]:
+    """A window of about `chars` characters around a span, on word boundaries.
+
+    The cited span is the smallest sufficient quote, which is right for
+    verifying a claim and wrong for answering a question about it: "the
+    Lisbon half marathon" loses the finishing time said in the same breath.
+    The window is the source chunk around the citation, never cut mid-word.
+    """
+    if chars <= 0 or (start == 0 and end >= len(text)):
+        return start, end
+    extra = max(0, chars - (end - start)) // 2
+    lo = max(0, start - extra)
+    hi = min(len(text), end + extra)
+    if lo > 0:
+        space = text.find(" ", lo, start)
+        lo = space + 1 if space >= 0 else lo
+    if hi < len(text):
+        space = text.rfind(" ", end, hi)
+        hi = space if space >= 0 else hi
+    return lo, hi
+
+
 def evidence_excerpts(
     conn: psycopg.Connection,
     memory_ids: list[str],
     *,
     per_memory: int = 3,
     scope_ids: Sequence[str] | None = None,
+    context_chars: int = 0,
 ) -> dict[str, list[dict[str, Any]]]:
     """Verbatim source spans for search results — search facts, return evidence.
 
@@ -453,16 +476,22 @@ def evidence_excerpts(
         excerpt = str(row["content"])[row["start_char"] : row["end_char"]]
         if hashlib.sha256(excerpt.encode()).hexdigest() != row["excerpt_sha256"]:
             continue
-        bucket.append(
-            {
-                "message_id": int(row["message_id"]),
-                "excerpt": excerpt,
-                "role": row["role"],
-                "created_at": iso(row["created_at"]),
-                "revision": row["revision"],
-                "evidence_status": "current" if row["revision"] else "legacy_unversioned",
-            }
-        )
+        item = {
+            "message_id": int(row["message_id"]),
+            "excerpt": excerpt,
+            "role": row["role"],
+            "created_at": iso(row["created_at"]),
+            "revision": row["revision"],
+            "evidence_status": "current" if row["revision"] else "legacy_unversioned",
+        }
+        if context_chars > 0:
+            content = str(row["content"])
+            lo, hi = surrounding(content, row["start_char"], row["end_char"], context_chars)
+            if (lo, hi) != (row["start_char"], row["end_char"]):
+                item["context"] = content[lo:hi]
+                item["context_start"] = lo
+                item["context_end"] = hi
+        bucket.append(item)
     return excerpts
 
 
@@ -1132,3 +1161,15 @@ def reinforce(conn: psycopg.Connection, *, memory_id: str, message_ids: Sequence
         (added, memory_id),
     )
     return True
+
+
+def recount_mentions(conn: psycopg.Connection, *, memory_id: str) -> int:
+    """Set `source_count` from the distinct sessions a memory now cites."""
+    row = conn.execute(
+        """UPDATE memories m SET source_count = GREATEST(1, (
+               SELECT count(DISTINCT msg.session_id) FROM memory_evidence e
+                 JOIN messages msg ON msg.id = e.message_id WHERE e.memory_id = m.id))
+            WHERE m.id = %s RETURNING source_count""",
+        (memory_id,),
+    ).fetchone()
+    return int(row["source_count"]) if row else 0

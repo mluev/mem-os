@@ -472,6 +472,92 @@ MEMORIES
 CONSOLIDATE_VERSION = "c2"
 
 
+# Dreaming (decisions/0077): a second pass over memories that were written one
+# window at a time, looking at a small cluster of related ones together. It
+# finds what no single window could: that a later claim replaced an earlier
+# one said in another session, that one adds detail to another, and what the
+# cluster implies that none of them states. Inferences are written with their
+# own provenance, start pending, and rank below stated facts until confirmed.
+DREAM_V1 = """You maintain one person's or one team's memory. The numbered
+memories below all live in the same space; each shows when it was said. Report
+only what is clearly there. Returning nothing is correct far more often than
+returning something.
+
+LINKS between two memories, by number:
+- "updates": memory FROM replaced memory TO. TO was true; FROM, said on or after
+  TO's date, says the same attribute of the same person or thing has since
+  changed ("moved to Lisbon" updates "lives in Porto"; "switched to pnpm" updates
+  "uses npm"). Never for two claims that can both be true.
+- "extends": FROM adds detail to TO without contradicting it ("leads a team of
+  five" extends "is a PM at Stripe").
+Never link memories that merely share a topic, a person, or a date.
+
+INFERENCES: at most two new claims that follow with high confidence from two or
+more of the memories taken together, and that none of them states alone —
+"Alex works on Stripe's payments product" from "Alex is a PM at Stripe" and
+"Alex spends every day on payment APIs". Each inference:
+- names who or what it is about, like the memories do, in under 200 characters;
+- lists every memory it depends on in `premises`;
+- uses only names, numbers and dates the premises contain;
+- is useful in a future conversation, not a summary or a restatement;
+- never speculates about health, feelings, beliefs, finances, relationships or
+  anything else a person would not want guessed about them.
+
+MEMORIES
+{memories}"""
+DREAM_VERSION = "d1"
+
+
+def render_dream(memories: list[dict[str, Any]]) -> str:
+    lines = []
+    for number, memory in enumerate(memories, start=1):
+        events = memory.get("event_dates") or []
+        when = f"said {memory.get('said') or 'unknown'}"
+        if events:
+            when += f"; happened {', '.join(events)}"
+        lines.append(f"{number}. ({memory.get('kind')}; {when}) {memory['text']}")
+    return DREAM_V1.format(memories="\n".join(lines))
+
+
+def dream_schema() -> dict[str, Any]:
+    """Links and inferences, every property required for strict mode."""
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "links": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": {
+                        "from": {"type": "integer"},
+                        "to": {"type": "integer"},
+                        "relation": {"type": "string", "enum": ["updates", "extends"]},
+                        "reason": {"type": "string"},
+                    },
+                    "required": ["from", "to", "relation", "reason"],
+                },
+            },
+            "inferences": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": {
+                        "text": {"type": "string"},
+                        "kind": {"type": "string"},
+                        "premises": {"type": "array", "items": {"type": "integer"}},
+                        "confidence": {"type": "number"},
+                    },
+                    "required": ["text", "kind", "premises", "confidence"],
+                },
+            },
+        },
+        "required": ["links", "inferences"],
+    }
+
+
 def render(
     version: str,
     *,

@@ -23,6 +23,7 @@ from psycopg.types.json import Jsonb
 from .. import (
     context_assembly,
     entities,
+    graph,
     maintenance,
     profiles,
     retrieval,
@@ -124,6 +125,9 @@ def post_memory(
                 valid_until=body.valid_until,
                 source_role=body.source_role,
                 review_status="confirmed" if self_asserted else "pending",
+                document_date=body.document_date,
+                event_dates=body.event_dates,
+                is_static=body.is_static,
             )
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
@@ -193,6 +197,8 @@ def patch_memory(
                 valid_until=valid_until,
                 subject_id=subject_id,
                 scope_id=scope_id,
+                **({"event_dates": body.event_dates} if body.event_dates is not None else {}),
+                is_static=body.is_static,
             )
     except KeyError as exc:
         raise HTTPException(404, "unknown memory") from exc
@@ -635,6 +641,8 @@ def search_memories(
             policy=policy,
             include_untrusted=body.include_untrusted,
             reranker=None if assemble else getattr(request.app.state, "reranker", None),
+            as_of=body.as_of,
+            time_range=(body.since, body.until) if body.since or body.until else None,
         )
         if assemble:
             context_started = time.perf_counter()
@@ -676,12 +684,24 @@ def search_memories(
         raise HTTPException(503, "vector search dependency is temporarily unavailable") from exc
     result.timings["request_ms"] = (time.perf_counter() - started) * 1000
     excerpts = (
-        store.evidence_excerpts(conn, [item.id for item in result.chosen], scope_ids=scopes)
+        store.evidence_excerpts(
+            conn,
+            [item.id for item in result.chosen],
+            scope_ids=scopes,
+            context_chars=body.source_context_chars,
+        )
         if body.include_sources and result.chosen
         else {}
     )
     result, raw, selected_excerpts = context_assembly.pack_context(
         result, raw or [], excerpts, budget_tokens=body.budget_tokens, limit=body.limit
+    )
+    neighbours = graph.expand(
+        conn,
+        [item.id for item in result.chosen],
+        scope_ids=scopes,
+        include_history=body.include_history,
+        include_related=body.include_related,
     )
     with conn.transaction():
         retrieval_id = telemetry.record_retrieval_run(
@@ -700,6 +720,21 @@ def search_memories(
     if body.include_sources and result.chosen:
         for memory in payload["memories"]:
             memory["sources"] = selected_excerpts.get(memory["id"], [])
+    # Neighbours spend whatever budget the facts and their sources left,
+    # history first: a replaced claim answers "before" questions directly.
+    used = int(payload["used_tokens"])
+    for key, wanted in (("history", body.include_history), ("related", body.include_related)):
+        if not wanted:
+            continue
+        for memory in payload["memories"]:
+            kept = []
+            for item in neighbours.get(memory["id"], {}).get(key, []):
+                cost = retrieval._token_count(item["text"]) + 6
+                if used + cost <= body.budget_tokens:
+                    kept.append(item)
+                    used += cost
+            memory[key] = kept
+    payload["used_tokens"] = used
     return {**payload, "raw": raw or [], "retrieval_id": retrieval_id}
 
 

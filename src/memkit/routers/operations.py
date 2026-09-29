@@ -37,6 +37,7 @@ from ..schemas import (
     AdminHealthOut,
     BackupsOut,
     ConsolidateIn,
+    DreamIn,
     EntityOut,
     EntityStatsOut,
     HealthOut,
@@ -202,6 +203,35 @@ def start_consolidation(
                 "merge": body.merge,
             },
             call_limit=0 if body.dry_run else 20,
+            user_id=principal.user_id,
+        )
+    _wake_worker(request)
+    return {"job_id": job_id, "status": "queued"}
+
+
+@router.post("/v1/dream", status_code=202)
+def start_dream(
+    request: Request,
+    body: DreamIn,
+    principal: Principal = Depends(get_principal),
+    conn: psycopg.Connection = Depends(get_conn),
+) -> JobQueuedOut:
+    """Link and infer across one scope's recent memories (decisions/0077).
+
+    The caller must be able to write the scope: inferences are written into it
+    under their name, pending review.
+    """
+    scope_id = principal_module.resolve_scope(conn, principal, body.scope, write=True)
+    with conn.transaction():
+        job_id = jobs.create(
+            conn,
+            kind="dream",
+            input_data={
+                "scope_id": scope_id,
+                "max_clusters": body.max_clusters,
+                "dry_run": body.dry_run,
+            },
+            call_limit=0 if body.dry_run else body.max_clusters,
             user_id=principal.user_id,
         )
     _wake_worker(request)

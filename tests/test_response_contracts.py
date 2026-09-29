@@ -45,6 +45,7 @@ def test_search_optional_sources_and_arbitrary_context_survive_typed_roundtrip()
         "future_extension": {"enabled": True},
     }
     payload = {
+        "temporal": None,
         "memories": [memory],
         "used_tokens": 5,
         "dropped_trust": [],

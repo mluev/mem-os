@@ -23,7 +23,7 @@ from typing import Any, Protocol
 import psycopg
 from qdrant_client import QdrantClient
 
-from . import eligibility, filters, vectors
+from . import eligibility, filters, temporal, vectors
 from .db import Row, as_datetime, iso
 from .embed import Embedder
 from .store import memory_active
@@ -43,10 +43,27 @@ class RetrievalPolicy:
     min_relevance: float = 0.18
     allowed_source_roles: frozenset[str] = DEFAULT_TRUST
     default_half_life_days: float = 180.0
+    # Policy v2 signals (decisions/0076). Every one defaults to off, so a v1
+    # policy ranks exactly as it did before they existed.
+    #
+    # Episodes age from when they happened, faster than facts, unless marked
+    # significant: last Tuesday's lunch should fade, a wedding should not.
+    episode_half_life_days: float = 0.0
+    episode_significance: float = 1.0
+    # A query naming a time ("last month", "в марте") boosts memories whose
+    # event -- or, lacking one, whose saying -- falls inside it.
+    temporal_weight: float = 0.0
+    # "first"/"latest" questions prefer the earliest/newest matching claim.
+    order_weight: float = 0.0
+    # Independent mentions: a preference restated across sessions outranks one
+    # said once. Saturates at eight mentions.
+    reinforcement_weight: float = 0.0
+    # A derived claim nobody has confirmed ranks below stated ones.
+    inference_penalty: float = 0.0
 
 
 def load_policy(conn: psycopg.Connection, policy_id: str) -> RetrievalPolicy:
-    aliases = {"neutral-v1": "core-retrieval-neutral-v1"}
+    aliases = {"neutral-v1": "core-retrieval-neutral-v1", "temporal-v2": "core-retrieval-v2"}
     resolved = aliases.get(policy_id, policy_id)
     row = conn.execute(
         "SELECT id,config FROM policies WHERE id=%s AND kind='retrieval'", (resolved,)
@@ -64,6 +81,12 @@ def load_policy(conn: psycopg.Connection, policy_id: str) -> RetrievalPolicy:
         min_relevance=float(config.get("min_relevance", 0.18)),
         allowed_source_roles=frozenset(config.get("allowed_source_roles", DEFAULT_TRUST)),
         default_half_life_days=float(config.get("default_half_life_days", 180.0)),
+        episode_half_life_days=float(config.get("episode_half_life_days", 0.0)),
+        episode_significance=float(config.get("episode_significance", 1.0)),
+        temporal_weight=float(config.get("temporal_weight", 0.0)),
+        order_weight=float(config.get("order_weight", 0.0)),
+        reinforcement_weight=float(config.get("reinforcement_weight", 0.0)),
+        inference_penalty=float(config.get("inference_penalty", 0.0)),
     )
 
 
@@ -91,6 +114,13 @@ class Scored:
     scope_slug: str | None = None
     subject: str | None = None
     subject_slug: str | None = None
+    # When it was said and when it happened; see temporal.py.
+    document_date: str | None = None
+    event_dates: list[str] = field(default_factory=list)
+    source_count: int = 1
+    is_static: bool = False
+    # The time-window/order contribution to `score`, for explanation.
+    temporal: float = 0.0
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -115,6 +145,11 @@ class Scored:
             "importance": round(self.importance, 3),
             "recency": round(self.recency, 4),
             "updated_at": self.updated_at,
+            "document_date": self.document_date,
+            "event_dates": list(self.event_dates),
+            "source_count": self.source_count,
+            "is_static": self.is_static,
+            "temporal": round(self.temporal, 4),
         }
 
 
@@ -142,9 +177,21 @@ class Explain:
     # embed the same string twice. Excluded from as_dict: it is 1024 floats of
     # internal detail, not part of the API response.
     query_vector: list[float] | None = None
+    # What the query said about time, when it said anything.
+    intent: temporal.TemporalIntent | None = None
+
+    def temporal_dict(self) -> dict[str, Any] | None:
+        if self.intent is None or not self.intent.active:
+            return None
+        return {
+            "window": self.intent.window.as_dict() if self.intent.window else None,
+            "order": self.intent.order,
+            "asks_time": self.intent.asks_time,
+        }
 
     def as_dict(self) -> dict[str, Any]:
         return {
+            "temporal": self.temporal_dict(),
             "memories": [memory.as_dict() for memory in self.chosen],
             "used_tokens": self.used_tokens,
             "dropped_trust": self.dropped_trust,
@@ -326,6 +373,77 @@ def _fill_budget(
     return chosen, used
 
 
+def _reinforcement(source_count: int) -> float:
+    """0 for one mention, 1 at eight; logarithmic so repetition saturates."""
+    return min(1.0, math.log2(max(1, source_count)) / 3.0)
+
+
+def _when(row: Row) -> tuple[datetime | None, datetime | None]:
+    """The interval a memory is about: its events, or the day it was said."""
+    start = as_datetime(row.get("event_start"))
+    end = as_datetime(row.get("event_end"))
+    if start is not None or end is not None:
+        return start, end
+    said = as_datetime(row.get("document_date"))
+    return said, said
+
+
+def _recency(row: Row, now: datetime, policy: RetrievalPolicy) -> float:
+    """Exponential decay; episodes age from their event, and faster.
+
+    Facts age from their last update, as they always have. An episode's
+    relevance is tied to when it happened, not when it was last touched, so
+    a correction next week does not make last year's trip recent again.
+    """
+    if (
+        row["kind"] == "episode"
+        and policy.episode_half_life_days > 0
+        and float(row["importance"]) < policy.episode_significance
+    ):
+        start, end = _when(row)
+        anchor = end or start or row["updated_at"]
+        return math.exp(-_age_days(anchor, now) / policy.episode_half_life_days)
+    return math.exp(-_age_days(row["updated_at"], now) / policy.default_half_life_days)
+
+
+def _in_range(row: Row, time_range: tuple[datetime | None, datetime | None] | None) -> bool:
+    if time_range is None:
+        return True
+    since, until = time_range
+    start, end = _when(row)
+    if start is None and end is None:
+        return False
+    if since is not None and (end or start) < since:
+        return False
+    return not (until is not None and (start or end) > until)
+
+
+def _apply_order(scored: list[Scored], rows: dict[str, Row], order: str, weight: float) -> None:
+    """Nudge the earliest or the newest relevant claim to the top.
+
+    Normalised over the candidates that survived the relevance floor, so it
+    orders among relevant answers and cannot promote an irrelevant one.
+    """
+    moments: dict[str, float] = {}
+    for item in scored:
+        start, end = _when(rows[item.id])
+        anchor = start if order == "earliest" else (end or start)
+        if anchor is not None:
+            moments[item.id] = anchor.timestamp()
+    if len(moments) < 2:
+        return
+    low, high = min(moments.values()), max(moments.values())
+    if high <= low:
+        return
+    for item in scored:
+        if item.id not in moments:
+            continue
+        position = (moments[item.id] - low) / (high - low)
+        bonus = weight * (position if order == "latest" else 1.0 - position)
+        item.score += bonus
+        item.temporal += bonus
+
+
 def explain(
     conn: psycopg.Connection,
     client: QdrantClient,
@@ -342,11 +460,25 @@ def explain(
     reranker: Reranker | None = None,
     now: datetime | None = None,
     memory_collection: str = vectors.MEMORIES,
+    as_of: datetime | None = None,
+    time_range: tuple[datetime | None, datetime | None] | None = None,
 ) -> Explain:
+    """Rank the caller's memories for `query`.
+
+    `as_of` is the moment the question is asked, which relative phrases in it
+    resolve against; it defaults to now and differs for a benchmark or a
+    replayed conversation. `time_range` is a hard filter on when a memory's
+    event happened -- or, without one, when it was said.
+    """
     total_started = time.perf_counter()
     filters.validate(expression)
     policy = policy or RetrievalPolicy()
     now = now or datetime.now(UTC)
+    intent = (
+        temporal.parse_intent(query, now=as_of or now)
+        if policy.temporal_weight or policy.order_weight
+        else None
+    )
     allowed_roles = None if include_untrusted else policy.allowed_source_roles
     criteria = eligibility.memory_sql(
         expression=expression, kinds=kinds, allowed_roles=allowed_roles, now=now
@@ -431,7 +563,7 @@ def explain(
         context = dict(row["context"] or {})
         tags = list(row["tags"] or [])
         document = eligibility.document(row)
-        if not filters.matches(document, expression):
+        if not filters.matches(document, expression) or not _in_range(row, time_range):
             dropped_filter.append(memory_id)
             continue
         similarity = dense.get(memory_id, 0.0)
@@ -445,12 +577,21 @@ def explain(
         if relevance < policy.min_relevance:
             dropped_relevance.append(memory_id)
             continue
-        recency = math.exp(-_age_days(row["updated_at"], now) / policy.default_half_life_days)
+        recency = _recency(row, now, policy)
+        boost = 0.0
+        if intent is not None and intent.window is not None and policy.temporal_weight:
+            start, end = _when(row)
+            if intent.window.overlaps(start, end):
+                boost += policy.temporal_weight
         score = (
             relevance
             + policy.importance_weight * float(row["importance"])
             + policy.recency_weight * recency
+            + policy.reinforcement_weight * _reinforcement(int(row.get("source_count") or 1))
+            + boost
         )
+        if row["source_role"] == "inference" and row["review_status"] != "confirmed":
+            score -= policy.inference_penalty
         scored.append(
             Scored(
                 id=memory_id,
@@ -472,8 +613,15 @@ def explain(
                 scope_slug=str(row["scope_slug"]),
                 subject=str(row["subject_name"]) if row["subject_name"] else None,
                 subject_slug=str(row["subject_slug"]) if row["subject_slug"] else None,
+                document_date=iso(row.get("document_date")),
+                event_dates=list(row.get("event_dates") or []),
+                source_count=int(row.get("source_count") or 1),
+                is_static=bool(row.get("is_static", False)),
+                temporal=boost,
             )
         )
+    if intent is not None and intent.order and policy.order_weight and len(scored) > 1:
+        _apply_order(scored, row_by_id, intent.order, policy.order_weight)
     scored.sort(key=lambda item: (-item.score, item.id))
     scored = (reranker or IdentityReranker()).rerank(query, scored)
     chosen, used = _fill_budget(scored, budget_tokens, limit=limit)
@@ -483,6 +631,7 @@ def explain(
         chosen=chosen,
         used_tokens=used,
         query_vector=dense_vector,
+        intent=intent,
         dropped_trust=dropped_trust,
         dropped_validity=dropped_validity,
         dropped_filter=dropped_filter,

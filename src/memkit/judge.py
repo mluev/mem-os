@@ -674,3 +674,121 @@ def extract(
         dropped_links=dropped_links,
         prompt_version=active_version,
     )
+
+
+@dataclass
+class StructuredResult:
+    """One budgeted, logged structured call: the answer object or an error."""
+
+    raw: dict[str, Any] | None
+    judge_run_id: int | None
+    cost_usd: float
+    error: str | None = None
+
+
+def structured_call(
+    conn: psycopg.Connection,
+    *,
+    kind: str,
+    prompt_version: str,
+    prompt: str,
+    schema: dict[str, Any],
+    name: str,
+    model: str,
+    monthly_limit_usd: float,
+    audit: dict[str, Any],
+    api_key: str = "",
+    gemini_api_key: str = "",
+    project: str = "",
+    location: str = "",
+    max_output_tokens: int = 2048,
+    user_id: str | None = None,
+    job_id: str | None = None,
+) -> StructuredResult:
+    """Reserve, call, log and reconcile one non-extraction model call.
+
+    The same discipline `extract` follows, in one place for every other
+    caller: a conservative maximum is reserved against the monthly ceiling
+    before the call, the call runs outside every write transaction, and the
+    run row and the reconciled cost land together. `audit` is what the run
+    row records as input -- ids and counts, never the prompt, which can carry
+    other people's memories.
+    """
+    from .retrieval import _token_count
+
+    prompt = security.redact(prompt).text
+    estimated_input = max(_token_count(prompt), len(prompt.encode("utf-8")))
+    maximum_cost = cost_of(estimated_input, max_output_tokens, model=model)
+    period = datetime.now(UTC).strftime("%Y-%m")
+    try:
+        reservation_id = jobs.reserve_budget(
+            conn,
+            period=period,
+            amount_usd=maximum_cost,
+            limit_usd=monthly_limit_usd,
+            job_id=job_id,
+            user_id=user_id,
+        )
+    except jobs.BudgetExceeded:
+        return StructuredResult(None, None, 0.0, error="monthly_cost_limit_reached")
+    if job_id:
+        try:
+            jobs.consume_call(conn, job_id)
+        except jobs.CallLimitExceeded:
+            jobs.release_budget(conn, reservation_id)
+            return StructuredResult(None, None, 0.0, error="job_call_limit_reached")
+
+    started = time.perf_counter()
+    try:
+        result = providers.call_json(
+            model=model,
+            prompt=prompt,
+            schema=schema,
+            name=name,
+            anthropic_api_key=api_key,
+            gemini_api_key=gemini_api_key,
+            project=project,
+            location=location,
+            max_tokens=max_output_tokens,
+        )
+    except Exception as exc:  # provider SDKs raise freely; callers degrade
+        result = providers.ProviderResult(error=f"{type(exc).__name__}: {exc}")
+    latency_ms = int((time.perf_counter() - started) * 1000)
+    cost = cost_of(result.input_tokens, result.output_tokens, model=model)
+    error = result.error
+    if error and result.input_tokens == 0 and result.output_tokens == 0:
+        if providers.is_unbilled(error):
+            cost, error = 0.0, f"unbilled: {error}"
+        else:
+            cost, error = cost_of(estimated_input, 0, model=model), f"cost_unknown: {error}"
+    with conn.transaction():
+        run = conn.execute(
+            """INSERT INTO judge_runs
+               (user_id,job_id,kind,model,prompt_version,input,output,error,
+                input_tokens,output_tokens,cost_usd,latency_ms,created_at)
+               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,now())
+               RETURNING id""",
+            (
+                user_id,
+                job_id,
+                kind,
+                model,
+                prompt_version,
+                Jsonb(audit),
+                Jsonb(result.raw) if isinstance(result.raw, dict) else None,
+                error,
+                result.input_tokens,
+                result.output_tokens,
+                cost,
+                latency_ms,
+            ),
+        ).fetchone()
+        if run is None:  # pragma: no cover - RETURNING cannot be empty here
+            raise RuntimeError("judge_runs insert returned no row")
+        conn.execute(
+            """UPDATE budget_reservations
+                  SET actual_usd=%s,status='reconciled',updated_at=now() WHERE id=%s""",
+            (cost, reservation_id),
+        )
+    raw = result.raw if isinstance(result.raw, dict) and not error else None
+    return StructuredResult(raw, int(run["id"]), cost, error=error)

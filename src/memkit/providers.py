@@ -331,6 +331,111 @@ def call_vertex(
     return result
 
 
+def call_json(
+    *,
+    model: str,
+    prompt: str,
+    schema: dict[str, Any],
+    name: str,
+    anthropic_api_key: str = "",
+    gemini_api_key: str = "",
+    project: str = "",
+    location: str = "",
+    max_tokens: int = 2048,
+) -> ProviderResult:
+    """One structured call whose answer is a single JSON object in `raw`.
+
+    The extractor has its own path because its result is a list of operations;
+    everything else the service asks a model -- a merge, a set of graph links,
+    a forget decision, query rewrites -- is one object against one schema.
+    """
+    which = provider_of(model)
+    custom = _CUSTOM_PROVIDERS.get(which)
+    if custom:
+        return custom[1](
+            model=model,
+            prompt=prompt,
+            schema_name=name,
+            schema=schema,
+            anthropic_api_key=anthropic_api_key,
+            gemini_api_key=gemini_api_key,
+            project=project,
+            location=location,
+        )
+    if which == "gemini":
+        if not (gemini_api_key or project):
+            return ProviderResult(error="no GEMINI_API_KEY and no VERTEX_PROJECT")
+        from google.genai import types
+
+        client = _gemini_client(api_key=gemini_api_key, project=project, location=location)
+        response = client.models.generate_content(
+            model=model,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                thinking_config=types.ThinkingConfig(thinking_level="MINIMAL"),
+                response_mime_type="application/json",
+                response_json_schema=schema,
+                max_output_tokens=max_tokens,
+            ),
+        )
+        usage = getattr(response, "usage_metadata", None)
+        result = ProviderResult(
+            input_tokens=getattr(usage, "prompt_token_count", 0) or 0,
+            output_tokens=(
+                (getattr(usage, "candidates_token_count", 0) or 0)
+                + (getattr(usage, "thoughts_token_count", 0) or 0)
+            ),
+        )
+        text = getattr(response, "text", None)
+        if not text:
+            result.error = "empty_response"
+            return result
+        try:
+            result.raw = json.loads(text)
+        except ValueError as exc:
+            result.error = f"json_decode_error: {exc}"
+        return result
+
+    if not anthropic_api_key:
+        return ProviderResult(error="no ANTHROPIC_API_KEY configured")
+    from anthropic import Anthropic
+
+    tool = {
+        "name": name,
+        "description": f"Emit the {name.replace('_', ' ')} result.",
+        "strict": True,
+        "input_schema": schema,
+    }
+    extra: dict[str, Any] = {}
+    if not model.startswith("claude-haiku"):
+        extra["output_config"] = {"effort": "low"}
+    response = Anthropic(
+        api_key=anthropic_api_key,
+        timeout=PROVIDER_TIMEOUT_SECONDS,
+        max_retries=1,
+    ).messages.create(
+        model=model,
+        max_tokens=max_tokens,
+        tools=[tool],
+        tool_choice={"type": "tool", "name": name},
+        messages=[{"role": "user", "content": prompt}],
+        **extra,
+    )
+    result = ProviderResult(
+        input_tokens=response.usage.input_tokens,
+        output_tokens=response.usage.output_tokens,
+    )
+    if response.stop_reason == "refusal":
+        result.error = "refusal"
+        return result
+    for block in response.content:
+        if block.type == "tool_use" and block.name == name:
+            result.raw = block.input
+    if result.raw is None:
+        result.error = "structured_output_missing"
+    return result
+
+
 def merge_schema() -> dict[str, Any]:
     """Response schema for the consolidator.
 

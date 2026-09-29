@@ -154,4 +154,8 @@ def _memory_summary(row: Any) -> dict[str, Any]:
         "created_at": iso(data.get("created_at")),
         "updated_at": iso(data["updated_at"]),
         "revision": int(data["revision"]),
+        "document_date": iso(data.get("document_date")),
+        "event_dates": list(data.get("event_dates") or []),
+        "is_static": bool(data.get("is_static", False)),
+        "source_count": int(data.get("source_count") or 1),
     }
