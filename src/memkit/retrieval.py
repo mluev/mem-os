@@ -10,6 +10,7 @@ morphology.
 
 from __future__ import annotations
 
+import functools
 import math
 import re
 import time
@@ -284,15 +285,29 @@ def _age_days(value: Any, now: datetime) -> float:
     return max(0.0, (now - parsed).total_seconds() / 86_400)
 
 
-def _token_count(text: str) -> int:
+@functools.lru_cache(maxsize=1)
+def _encoding() -> Any:
+    """The tokenizer, or None when it cannot be loaded.
+
+    tiktoken fetches its vocabulary over the network on first use. A deployment
+    without egress to that host used to fail every search with a proxy error
+    rather than fall back, because only ImportError and ValueError were caught.
+    """
     try:
         import tiktoken
 
-        return len(tiktoken.get_encoding("cl100k_base").encode(text))
-    except (ImportError, ValueError):
-        # Conservative Unicode-aware fallback; unlike len/3 it counts words,
-        # punctuation and non-Latin text independently.
-        return max(1, len(re.findall(r"\w+|[^\w\s]", text, re.UNICODE)))
+        return tiktoken.get_encoding("cl100k_base")
+    except Exception:
+        return None
+
+
+def _token_count(text: str) -> int:
+    encoding = _encoding()
+    if encoding is not None:
+        return len(encoding.encode(text))
+    # Conservative Unicode-aware fallback; unlike len/3 it counts words,
+    # punctuation and non-Latin text independently.
+    return max(1, len(re.findall(r"\w+|[^\w\s]", text, re.UNICODE)))
 
 
 def _fill_budget(

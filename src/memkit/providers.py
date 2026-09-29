@@ -67,6 +67,13 @@ _OP_FIELDS = [
     "scope",
     "subject",
     "subject_name",
+    # Time and graph (prompt v11). Optional in meaning -- an empty list or null
+    # is the answer for most operations -- but present in the schema so strict
+    # mode can require every property.
+    "event_dates",
+    "is_static",
+    "extends",
+    "change",
 ]
 
 
@@ -104,6 +111,20 @@ def _operation_properties(*, anthropic: bool) -> dict[str, Any]:
         "scope": {"type": ["integer", "null"]},
         "subject": {"type": ["integer", "null"]},
         "subject_name": nullable_string,
+        "event_dates": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "When the described thing happened: YYYY, YYYY-MM or YYYY-MM-DD.",
+        },
+        "is_static": {"type": ["boolean", "null"]},
+        "extends": {
+            "type": ["integer", "null"],
+            "description": "Number of the candidate this ADD adds detail to.",
+        },
+        "change": {
+            "type": ["string", "null"],
+            "description": "For UPDATE: correction or supersede.",
+        },
     }
 
 

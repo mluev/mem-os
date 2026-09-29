@@ -273,7 +273,175 @@ CANDIDATES
     )
 )
 
-REGISTRY: dict[str, str] = {"v7": V7, "v8": V8, "v9": V9, "v10": V10}
+# v11 = v10 plus time, episodes and the memory graph (decisions/0074-0075).
+#
+# Rule 3 of every earlier version dropped anything temporary, completed or
+# dated. That kept work logs out, and it also made every "when did I…" and
+# "how many times…" question unanswerable: the evidence was discarded at the
+# write. v11 keeps the work-log exclusion word for word and moves what a person
+# *did or will do* into `kind="episode"` with absolute `event_dates`, and a
+# state with a natural end into a memory whose `valid_until` is that end.
+# Episodes decay at read time rather than being refused at write time.
+#
+# Three graph fields replace rule 11's single UPDATE. An UPDATE now says whether
+# the candidate was wrong (`correction`, rewritten in place, as before) or was
+# true until something changed (`supersede`, a new memory; the old one stays as
+# dated history). An ADD may name the candidate it `extends`. Candidates show
+# when they were said, so the model can tell a newer claim from an older one.
+V11 = """You extract atomic, self-contained memories from a conversation between a
+user and an assistant. Precision and source fidelity matter more than recall: when
+uncertain, return no operation.
+
+Return ADD, UPDATE, or DELETE operations only. Never create tasks, reminders or
+to-dos for the assistant. A memory is one claim that helps a future conversation
+and is understandable with no transcript: name who it is about (the user or the
+person's name, never "I", "he" or "they") and resolve every "it", "there" and
+"that project" into the names the window gives. A message stating several
+independent facts yields several operations, one claim each.
+
+DATES
+Today is {today}. The window below was recorded on {session_date}; the recording
+date is the ONLY anchor for relative time. Convert relative references to absolute
+dates against it: "last month" in a window recorded 2026-03-10 means 2026-02 even
+when today is much later. Write only the absolute form — the relative phrase must
+not survive into the memory text. Never rewrite an absolute date or duration into
+a vaguer one ("18 days" stays "18 days", not "recently"). `valid_until` and
+`event_dates` use the same anchor.
+
+`event_dates` is WHEN THE DESCRIBED THING HAPPENED OR WILL HAPPEN, not when it was
+said: absolute dates at the precision the user gave — "2026", "2026-03", or
+"2026-03-14". "Last Saturday" in a window recorded Wednesday 2026-03-18 is
+"2026-03-14"; "in March" is "2026-03"; never invent a day the user did not give.
+Leave it empty for timeless facts and preferences.
+
+RULES
+1. Only a user's own words can support a memory. Assistant messages are context
+   for resolving references only. Never extract assistant work logs, counts,
+   summaries, plans, claims, or suggestions—even when the user says "go on",
+   "okay", or otherwise acknowledges them.
+2. Every ADD or UPDATE must cite one or more exact spans from USER messages only.
+   For each citation, copy the smallest sufficient user substring word-for-word
+   into `quote`. Also provide `start_char`/`end_char` if you can count them, but
+   the system derives authoritative offsets from a unique exact quote. Never
+   paraphrase a quote, cite an assistant message, or guess source text.
+3. Emit nothing for one-off questions or definitions, acknowledgements, greetings,
+   ordinary task requests to the assistant, implementation steps, tickets, or the
+   assistant's work in this session ("run the tests", "fix that bug", "done"), or
+   facts stated only by the assistant. Repetition in an assistant message does
+   not make it evidence. A passing mood with no consequence ("I'm tired") is
+   nothing.
+4. Kinds: `kind="preference"` for a user's taste, correction, constraint, or
+   durable working style; `kind="fact"` for identity, contact, relationships,
+   possessions, and other stable attributes; `kind="episode"` for something the
+   user or a named person did, experienced, attended, bought, started, finished,
+   or will do at a particular time — "The user ran the Lisbon half marathon on
+   2026-03-14". An episode always has `event_dates` and states its date in the
+   text. Otherwise use one concise domain-neutral noun. Do not invent taxonomy
+   variants such as `ux_preference`, `identity`, `event`, or `profile_info`.
+5. Context defaults to empty and stays empty unless the claim would be FALSE
+   outside what CONTEXT names. Test it: said again tomorrow in another repo,
+   would this sentence still hold? If yes, context is empty — personal
+   preferences, identity, contact details, general working style, and rules
+   stated as "always", "everywhere", "in all our products", or "in future" are
+   global however project-heavy the surrounding session is. The test decides the
+   context field and nothing else: never generalise the claim or drop a specific
+   the user gave in order to make the answer come out "yes". Copy caller context
+   only for a claim about this named codebase/system. When you do, copy the key
+   and the value from CONTEXT **character for character** — never rename,
+   shorten, or invent a key, and never emit a key CONTEXT does not contain.
+6. Importance: identity/contact, hard constraints, explicit durable
+   "always/never" rules, and life events (moving, a new job, a birth, a
+   diagnosis) are 0.7–0.9; ordinary durable preferences and project architecture
+   are 0.5–0.7; ordinary episodes are 0.3–0.6.
+7. Keep text under 200 characters and free of credential values. A request to
+   remember a secret is not permission to store the value.
+8. A state with a natural end ("on vacation until March 10", "my exam is
+   tomorrow", "staying in Berlin this week") is a memory whose `valid_until` is
+   that end. `valid_until` means the claim stops being true, never a deadline.
+9. `is_static` is true only for enduring identity traits that should color every
+   conversation — name, pronouns, native language, hometown, profession,
+   family members. Preferences, episodes and project facts are not static.
+10. Keep proper nouns verbatim — product, repo, library, person, and place names.
+    A memory is found by the names it contains: "a new restaurant" is unfindable,
+    "Osteria Francescana" is not. Keep numbers, quantities and prices exactly.
+11. CANDIDATES are existing memories; each shows when it was said. Never ADD a
+    claim a candidate already states. UPDATE or DELETE only a supplied candidate
+    in the same context, and give every UPDATE a `change`:
+    - "correction": the candidate was wrong or imprecise; its text is rewritten.
+    - "supersede": the candidate WAS true and the situation has since changed
+      ("switched from npm to pnpm", "moved to Lisbon", "no longer at Acme"). The
+      new text states the current truth; the old memory is kept as history.
+    An ADD that adds detail to one candidate without contradicting it sets
+    `extends` to that candidate's number ("Alex leads a team of five" extends
+    "Alex is a PM at Stripe").
+
+FAILURE MODES — check every operation against all five:
+- Echo extraction. The assistant restating the user adds no second fact.
+  WRONG: a memory cited from the assistant's "I've set daily check-ins at 7:30".
+  RIGHT: one memory cited from the user's own "I want daily check-ins at 7:30".
+- Meta-extraction. Record content, never the act of sharing it.
+  WRONG: "User asked about JWT auth". RIGHT: nothing — a one-off question is not
+  durable.
+- Detail contamination. Never merge candidate or neighbouring-message details
+  into a claim. WRONG: "User had a great meal at Olive Garden" when the cited
+  message says only "I had a great meal" and Olive Garden appears elsewhere.
+- First-topic dominance. Middle and late messages count equally; re-scan the
+  whole window before returning.
+- Lost dates. An episode without `event_dates`, or "recently" where the user gave
+  a date. WRONG: "The user adopted a dog". RIGHT: "The user adopted a beagle
+  named Max on 2026-02-01" with event_dates ["2026-02-01"].
+
+FINAL CHECK FOR EACH OPERATION
+- useful in a future conversation, and one claim;
+- supported only by exact cited user text;
+- kind, context, importance, and candidate target follow the rules above;
+- scope and subject are numbers printed in ENTITIES, or absent — and were
+  decided separately from context;
+- relative dates resolved against the session date, absolutes kept absolute,
+  and every episode dated;
+- no credential, assistant-only detail, assistant work log, or one-off question.
+If any check fails, omit the operation.
+
+CONTEXT
+{context}
+
+ENTITIES (refer to them by number only; never invent a number)
+{entities}
+
+ROUTING — which of those numbers owns the memory. Most operations need none.
+Scope is not context: scope is where the memory lives, context is a qualifier on
+when the claim is true. They are decided separately, and a scoped memory usually
+still has empty context. The workspace CONTEXT names is not a scope; only a
+number in ENTITIES is, and only the sentence can justify one.
+- Default: no scope and no subject. Everything about the speaker — who they are,
+  what they like, how they want you to work, what they did, including their own
+  "always/never" rules — routes nowhere. When torn, choose the speaker. The
+  project you happen to be working in is never a reason to scope their
+  preference.
+  WRONG: scope = the repo whose files you were editing when they said it.
+  RIGHT: no scope; a working style is the speaker's, not the project's.
+- A fact about a listed teammate ("Alex prefers dark mode", "Саша в отпуске до
+  марта"): set subject to their number and omit scope.
+- A fact about a listed project, product or company — its architecture, its
+  conventions, its state: set scope to its number.
+- A rule the user states for everyone ("we always squash-merge", "у нас
+  принято…"): set scope to the team's number, no subject.
+- A person who is NOT in the list: omit scope and subject, and copy their name
+  into `subject_name` in the user's own spelling and script — never translated
+  or transliterated. Do not guess which listed person was meant. The speaker's
+  own family and friends are not teammates: "The user's sister Emma graduated"
+  is the speaker's memory and needs no `subject_name`.
+- Anything else with no number — an unlisted repo, product or company — is not
+  routable. Never route to a number whose name is not the thing the sentence is
+  about; empty is the right answer there, not a fallback.
+
+CANDIDATES
+{candidates}
+
+CONVERSATION WINDOW
+{window}"""
+
+REGISTRY: dict[str, str] = {"v7": V7, "v8": V8, "v9": V9, "v10": V10, "v11": V11}
 # v10 is the default, and v9 never was. v9 bought routing at the cost of context
 # accuracy (8/14 -> 6/14) with its own routing unmeasured, so it stayed on the
 # shelf. v10 was measured against v8 on the same run, with the golden harness
@@ -284,7 +452,15 @@ REGISTRY: dict[str, str] = {"v7": V7, "v8": V8, "v9": V9, "v10": V10}
 # 42% more input tokens than v8 -- 13% more total cost, since output dominates
 # the bill -- which is what the routing rules and the entity block weigh.
 # See docs/measurements.md#extractor-prompt-v8-against-v10.
-DEFAULT_VERSION = "v10"
+#
+# v11 is the default because the store now has somewhere to put what v10 threw
+# away -- event dates, episodes, supersession -- and a v10 extraction would leave
+# those columns empty forever. It is unmeasured on the golden set at the time of
+# writing; `memkit eval` and the LoCoMo/LongMemEval harness (eval/bench) are the
+# measurements that decide whether it stays. Rolling back is naming "v10" in
+# MEMKIT_PROMPT_VERSION; the new op fields are optional, so v10 output still
+# parses and applies.
+DEFAULT_VERSION = "v11"
 
 CONSOLIDATE_V2 = """Compare the memories below. Return a merged text only when they
 state the same claim in the same context. Preserve the newest truth and all useful

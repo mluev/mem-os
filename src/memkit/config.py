@@ -108,6 +108,9 @@ class Settings(BaseSettings):
     # Cheapest option. Swap for a claude-* model to compare on the same eval;
     # see providers.py.
     judge_model: str = "gemini-3.5-flash-lite"
+    # Extractor prompt version; empty means prompts.DEFAULT_VERSION. Naming an
+    # older version is how a prompt change is rolled back without a deploy.
+    prompt_version: str = ""
 
     # Write-time dedup threshold on the extraction path (decisions/0055): an ADD
     # whose text is closer than this to an existing active memory in the same

@@ -21,7 +21,17 @@ import psycopg
 from psycopg.types.json import Jsonb
 from qdrant_client import QdrantClient
 
-from . import eligibility, entities, filters, maintenance, outbox, provenance, security, vectors
+from . import (
+    eligibility,
+    entities,
+    filters,
+    maintenance,
+    outbox,
+    provenance,
+    security,
+    temporal,
+    vectors,
+)
 from .db import Row, advisory_lock, as_datetime, iso, utcnow
 from .embed import Embedder
 from .limits import MAX_MEMORY_CHARS, MAX_MESSAGE_CHARS, MIN_INDEX_CHARS
@@ -556,12 +566,21 @@ def add_memory(
     source_role: str = provenance.DEFAULT_ROLE,
     review_status: str = "pending",
     memory_id: str | None = None,
+    document_date: datetime | str | None = None,
+    event_dates: Sequence[str] | None = None,
+    is_static: bool = False,
+    source_count: int = 1,
 ) -> str:
     """Insert one authoritative memory and enqueue its index operation.
 
     `review_status` defaults to pending because most writes are automatic: the
     fact is usable immediately and a human confirms or deletes it later. A
     caller storing a user's own explicit statement passes `confirmed`.
+
+    `document_date` is when the claim was said -- the cited message's time on
+    the extraction path, now for a manual save. `event_dates` are when the
+    thing it describes happened, already absolute; invalid entries are dropped
+    rather than guessed at.
     """
     text = text.strip()
     kind = kind.strip()
@@ -579,12 +598,16 @@ def add_memory(
     tags, tag_redactions = security.redact_value(tags or [])
     memory_id = memory_id or str(uuid.uuid4())
     now = utcnow()
+    events = temporal.normalize_event_dates(event_dates)
+    event_start, event_end = temporal.interval(events)
     row = conn.execute(
         """INSERT INTO memories
            (id,scope_id,subject_id,author_id,agent_id,kind,text,importance,confidence,
             status,valid_from,valid_until,created_at,updated_at,extraction_version,
-            judge_run_id,source_role,review_status,content_hash,context,tags,redacted)
-           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,'active',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            judge_run_id,source_role,review_status,content_hash,context,tags,redacted,
+            document_date,event_dates,event_start,event_end,is_static,source_count)
+           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,'active',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
+                   %s,%s,%s,%s,%s,%s)
            RETURNING *""",
         (
             memory_id,
@@ -608,6 +631,12 @@ def add_memory(
             Jsonb(context),
             Jsonb(tags),
             bool(cleaned.redacted or context_redactions > 0 or tag_redactions > 0),
+            as_datetime(document_date) or now,
+            Jsonb(events),
+            event_start,
+            event_end,
+            bool(is_static),
+            max(1, int(source_count)),
         ),
     ).fetchone()
     row = _returned(row, "memory insert")
@@ -627,8 +656,9 @@ def append_memory_revision(conn: psycopg.Connection, row: Row) -> None:
         """INSERT INTO memory_revisions
            (memory_id,revision,scope_id,subject_id,author_id,kind,text,importance,
             confidence,status,superseded_by,valid_until,extraction_version,judge_run_id,
-            source_role,review_status,context,tags,redacted,created_at)
-           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            source_role,review_status,context,tags,redacted,created_at,
+            document_date,event_dates,is_static)
+           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
            ON CONFLICT (memory_id,revision) DO NOTHING""",
         (
             row["id"],
@@ -651,6 +681,9 @@ def append_memory_revision(conn: psycopg.Connection, row: Row) -> None:
             Jsonb(row["tags"]),
             row["redacted"],
             row["updated_at"],
+            row.get("document_date"),
+            Jsonb(list(row.get("event_dates") or [])),
+            bool(row.get("is_static", False)),
         ),
     )
     # Metadata-only revisions retain the evidence of the unchanged wording.
@@ -706,8 +739,15 @@ def update_memory(
     judge_run_id: int | None = None,
     source_role: str | None = None,
     review_status: str | None = None,
+    event_dates: Sequence[str] | _Unchanged | None = _UNCHANGED,
+    is_static: bool | None = None,
+    document_date: datetime | str | None = None,
 ) -> Row:
-    """Atomically replace mutable memory fields and append one immutable revision."""
+    """Atomically replace mutable memory fields and append one immutable revision.
+
+    Temporal fields keep their stored values unless given: a correction that
+    says nothing about when something happened must not erase that it did.
+    """
     text = text.strip()
     kind = kind.strip()
     if not text or len(text) > MAX_MEMORY_CHARS:
@@ -722,12 +762,19 @@ def update_memory(
     current = _load_for_write(conn, memory_id=memory_id, scopes=scopes)
     next_source_role = source_role or str(current["source_role"])
     provenance.validate(next_source_role)
+    events = (
+        list(current["event_dates"] or [])
+        if isinstance(event_dates, _Unchanged)
+        else temporal.normalize_event_dates(event_dates)
+    )
+    event_start, event_end = temporal.interval(events)
     changed = conn.execute(
         """UPDATE memories
               SET text=%s,kind=%s,importance=%s,confidence=%s,context=%s,tags=%s,
                   valid_until=%s,updated_at=%s,revision=revision+1,extraction_version=%s,
                   judge_run_id=%s,source_role=%s,review_status=%s,content_hash=%s,
-                  subject_id=%s,scope_id=%s,redacted=%s
+                  subject_id=%s,scope_id=%s,redacted=%s,event_dates=%s,event_start=%s,
+                  event_end=%s,is_static=%s,document_date=%s
             WHERE id=%s AND revision=%s""",
         (
             cleaned.text,
@@ -751,6 +798,11 @@ def update_memory(
                 or tag_redactions > 0
                 or (bool(current["redacted"]) and cleaned.text == current["text"])
             ),
+            Jsonb(events),
+            event_start,
+            event_end,
+            bool(current["is_static"]) if is_static is None else bool(is_static),
+            as_datetime(document_date) or current["document_date"],
             memory_id,
             expected_revision,
         ),
@@ -781,15 +833,29 @@ def set_memory_status(
     status: str,
     expected_revision: int | None = None,
     superseded_by: str | None = None,
+    forget_reason: str | None = None,
+    valid_until: datetime | str | _Unchanged | None = _UNCHANGED,
 ) -> Row:
     current = _load_for_write(conn, memory_id=memory_id, scopes=scopes)
     revision = int(current["revision"])
     if expected_revision is not None and revision != expected_revision:
         raise RuntimeError("memory revision conflict")
+    reason = (forget_reason or "").strip()[:500] or None
     changed = conn.execute(
-        """UPDATE memories SET status=%s,superseded_by=%s,updated_at=%s,revision=revision+1
+        """UPDATE memories SET status=%s,superseded_by=%s,updated_at=%s,revision=revision+1,
+                  forget_reason=%s,valid_until=%s
              WHERE id=%s AND revision=%s""",
-        (status, superseded_by, utcnow(), memory_id, revision),
+        (
+            status,
+            superseded_by,
+            utcnow(),
+            reason if status != "active" else None,
+            current["valid_until"]
+            if isinstance(valid_until, _Unchanged)
+            else as_datetime(valid_until),
+            memory_id,
+            revision,
+        ),
     ).rowcount
     if not changed:
         raise RuntimeError("memory revision conflict")
@@ -881,6 +947,10 @@ def mem_payload(row: Row | dict[str, Any]) -> dict[str, Any]:
         "updated_at": iso(data.get("updated_at")),
         "revision": int(data.get("revision", 1)),
         "redacted": bool(data.get("redacted", False)),
+        "document_date": iso(data.get("document_date")),
+        "event_start": iso(data.get("event_start")),
+        "event_end": iso(data.get("event_end")),
+        "is_static": bool(data.get("is_static", False)),
     }
 
 
@@ -901,3 +971,164 @@ def memory_active(row: Row | dict[str, Any], *, now: datetime | None = None) -> 
     if expiry is None:
         return False
     return expiry > (now or datetime.now(UTC))
+
+
+# ---------------------------------------------------------------------------
+# The memory graph: updates, extends, derives (decisions/0075)
+# ---------------------------------------------------------------------------
+
+RELATIONS = frozenset({"updates", "extends", "derives"})
+
+
+@maintenance.write_transaction
+def add_relation(
+    conn: psycopg.Connection,
+    *,
+    from_id: str,
+    to_id: str,
+    relation: str,
+    judge_run_id: int | None = None,
+) -> bool:
+    """Link two memories. Both must live in one scope; returns whether it is new.
+
+    Same-scope is the invariant that keeps the graph from becoming a leak: an
+    edge is only ever followed on behalf of a caller who can already read both
+    ends, and erasing a scope removes every edge touching it by cascade.
+    """
+    if relation not in RELATIONS:
+        raise ValueError(f"unknown relation: {relation!r}")
+    if from_id == to_id:
+        raise ValueError("a memory cannot relate to itself")
+    rows = conn.execute(
+        "SELECT id,scope_id FROM memories WHERE id = ANY(%s)",
+        ([uuid.UUID(str(from_id)), uuid.UUID(str(to_id))],),
+    ).fetchall()
+    scopes = {str(row["scope_id"]) for row in rows}
+    if len(rows) != 2 or len(scopes) != 1:
+        raise ValueError("related memories must exist in one scope")
+    inserted = conn.execute(
+        """INSERT INTO memory_relations (from_id,to_id,relation,judge_run_id)
+           VALUES (%s,%s,%s,%s) ON CONFLICT DO NOTHING""",
+        (from_id, to_id, relation, judge_run_id),
+    ).rowcount
+    return bool(inserted)
+
+
+def relations_for(
+    conn: psycopg.Connection,
+    memory_ids: Sequence[str],
+    *,
+    scope_ids: Sequence[str],
+) -> list[Row]:
+    """Edges touching these memories whose far end the caller may read.
+
+    Both ends are re-checked against `scope_ids` on every read, so an edge can
+    never be the path by which a memory from an unreadable scope is revealed.
+    """
+    if not memory_ids or not scope_ids:
+        return []
+    ids = [uuid.UUID(str(mid)) for mid in memory_ids]
+    scopes = [uuid.UUID(str(scope)) for scope in scope_ids]
+    return conn.execute(
+        """SELECT r.from_id,r.to_id,r.relation,r.created_at
+             FROM memory_relations r
+             JOIN memories a ON a.id = r.from_id
+             JOIN memories b ON b.id = r.to_id
+            WHERE (r.from_id = ANY(%s) OR r.to_id = ANY(%s))
+              AND a.scope_id = ANY(%s) AND b.scope_id = ANY(%s)
+            ORDER BY r.created_at, r.from_id, r.to_id""",
+        (ids, ids, scopes, scopes),
+    ).fetchall()
+
+
+def history_of(
+    conn: psycopg.Connection,
+    memory_id: str,
+    *,
+    scope_ids: Sequence[str],
+    limit: int = 5,
+) -> list[Row]:
+    """The memories this one replaced, newest first, following `updates` edges.
+
+    A state change keeps its past: "moved to Lisbon" updates "lives in Porto",
+    and a question about where someone lived before needs the older fact with
+    the dates it held -- which a revision list of corrections cannot answer.
+    """
+    rows = conn.execute(
+        """WITH RECURSIVE chain(id, depth) AS (
+               SELECT r.to_id, 1 FROM memory_relations r
+                WHERE r.from_id = %s AND r.relation = 'updates'
+               UNION
+               SELECT r.to_id, c.depth + 1 FROM memory_relations r
+                 JOIN chain c ON r.from_id = c.id
+                WHERE r.relation = 'updates' AND c.depth < %s
+           )
+           SELECT m.*, c.depth FROM chain c JOIN memories m ON m.id = c.id
+            WHERE m.scope_id = ANY(%s)
+            ORDER BY c.depth, m.document_date DESC
+            LIMIT %s""",
+        (memory_id, limit, [uuid.UUID(str(s)) for s in scope_ids], limit),
+    ).fetchall()
+    return list(rows)
+
+
+@maintenance.write_transaction
+def supersede(
+    conn: psycopg.Connection,
+    *,
+    old_id: str,
+    new_id: str,
+    scopes: Sequence[str],
+    judge_run_id: int | None = None,
+) -> Row:
+    """Mark `old_id` as replaced by `new_id`, keeping it as dated history.
+
+    The old claim was true until the new one was said, so its validity ends at
+    the new memory's document date rather than at the write -- a backfilled
+    window must not claim someone lived in Porto until the day it was imported.
+    """
+    new = conn.execute("SELECT document_date FROM memories WHERE id=%s", (new_id,)).fetchone()
+    if new is None:
+        raise KeyError(new_id)
+    add_relation(conn, from_id=new_id, to_id=old_id, relation="updates", judge_run_id=judge_run_id)
+    current = _load_for_write(conn, memory_id=old_id, scopes=scopes)
+    ends = new["document_date"]
+    if current["valid_until"] is not None and current["valid_until"] < ends:
+        ends = current["valid_until"]
+    return set_memory_status(
+        conn,
+        memory_id=old_id,
+        scopes=scopes,
+        status="superseded",
+        superseded_by=new_id,
+        valid_until=ends,
+    )
+
+
+@maintenance.write_transaction
+def reinforce(conn: psycopg.Connection, *, memory_id: str, message_ids: Sequence[int]) -> bool:
+    """Count another independent mention of an existing memory.
+
+    One per new session among `message_ids`, so a fact repeated within one
+    conversation is one mention and a preference restated a week later is two.
+    Deliberately not a revision: nothing about the claim changed.
+    """
+    if not message_ids:
+        return False
+    fresh = conn.execute(
+        """SELECT count(DISTINCT msg.session_id) AS n FROM messages msg
+            WHERE msg.id = ANY(%s)
+              AND msg.session_id NOT IN (
+                  SELECT cited.session_id FROM memory_evidence e
+                    JOIN messages cited ON cited.id = e.message_id
+                   WHERE e.memory_id = %s AND NOT (e.message_id = ANY(%s)))""",
+        (list(message_ids), memory_id, list(message_ids)),
+    ).fetchone()
+    added = int(fresh["n"]) if fresh else 0
+    if added <= 0:
+        return False
+    conn.execute(
+        "UPDATE memories SET source_count = source_count + %s WHERE id=%s",
+        (added, memory_id),
+    )
+    return True

@@ -43,7 +43,7 @@ from psycopg_pool import ConnectionPool as _PsycopgPool
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 DDL_V1 = """
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
@@ -464,7 +464,75 @@ CREATE TABLE memory_revision_evidence (
 );
 """
 
-MIGRATIONS: dict[int, str] = {1: DDL_V1, 2: DDL_V2}
+# Version 3: time, reinforcement and a memory graph (decisions/0074-0077).
+#
+# `document_date` is when the claim was said -- the earliest message it cites,
+# or the write itself for a manual save -- and never the write time of a
+# backfilled window. `event_dates` is when the thing it describes happened or
+# will happen, as the absolute dates the extractor resolved, with
+# `event_start`/`event_end` as their bounding interval so a time-scoped query is
+# an index range rather than a JSON scan. Relative time was already resolved
+# into the text; it had nowhere structured to go.
+#
+# `source_count` counts independent mentions, so a preference repeated in three
+# sessions outranks one said once. `is_static` marks identity-level traits that
+# belong in every profile regardless of kind. `forget_reason` records why a
+# memory was deliberately forgotten.
+#
+# `inference` is a new provenance label: a claim the service derived from other
+# memories rather than one a person stated. It is never evidence for another
+# claim and ranks below stated facts until someone confirms it.
+#
+# `memory_relations` links a newer memory to the one it `updates` (the old one
+# was true until then and is now superseded), `extends` (adds detail, both stay
+# true) or `derives` from (an inference and each of its premises).
+DDL_V3 = """
+ALTER TABLE memories
+    ADD COLUMN document_date timestamptz,
+    ADD COLUMN event_dates jsonb NOT NULL DEFAULT '[]'
+        CHECK (jsonb_typeof(event_dates) = 'array' AND jsonb_array_length(event_dates) <= 8),
+    ADD COLUMN event_start timestamptz,
+    ADD COLUMN event_end timestamptz,
+    ADD COLUMN is_static boolean NOT NULL DEFAULT false,
+    ADD COLUMN source_count integer NOT NULL DEFAULT 1 CHECK (source_count >= 1),
+    ADD COLUMN forget_reason text CHECK (forget_reason IS NULL OR length(forget_reason) <= 500),
+    ADD CONSTRAINT memories_event_interval
+        CHECK (event_start IS NULL OR event_end IS NULL OR event_end >= event_start);
+UPDATE memories m SET document_date = COALESCE(
+    (SELECT min(msg.created_at) FROM memory_evidence e
+       JOIN messages msg ON msg.id = e.message_id WHERE e.memory_id = m.id),
+    m.created_at);
+UPDATE memories m SET source_count = GREATEST(1,
+    (SELECT count(DISTINCT msg.session_id) FROM memory_evidence e
+       JOIN messages msg ON msg.id = e.message_id WHERE e.memory_id = m.id));
+ALTER TABLE memories ALTER COLUMN document_date SET DEFAULT now();
+ALTER TABLE memories ALTER COLUMN document_date SET NOT NULL;
+ALTER TABLE memories DROP CONSTRAINT memories_source_role_check;
+ALTER TABLE memories ADD CONSTRAINT memories_source_role_check
+    CHECK (source_role IN ('user','assistant','tool','manual','agent','inference'));
+CREATE INDEX memories_document_date ON memories(scope_id, document_date DESC)
+    WHERE status = 'active';
+CREATE INDEX memories_event ON memories(scope_id, event_start, event_end)
+    WHERE status = 'active' AND event_start IS NOT NULL;
+
+ALTER TABLE memory_revisions
+    ADD COLUMN document_date timestamptz,
+    ADD COLUMN event_dates jsonb NOT NULL DEFAULT '[]',
+    ADD COLUMN is_static boolean NOT NULL DEFAULT false;
+
+CREATE TABLE memory_relations (
+    from_id       uuid NOT NULL REFERENCES memories ON DELETE CASCADE,
+    to_id         uuid NOT NULL REFERENCES memories ON DELETE CASCADE,
+    relation      text NOT NULL CHECK (relation IN ('updates','extends','derives')),
+    judge_run_id  bigint REFERENCES judge_runs ON DELETE SET NULL,
+    created_at    timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (from_id, to_id, relation),
+    CHECK (from_id <> to_id)
+);
+CREATE INDEX memory_relations_to ON memory_relations(to_id, relation);
+"""
+
+MIGRATIONS: dict[int, str] = {1: DDL_V1, 2: DDL_V2, 3: DDL_V3}
 MIGRATION_CHECKSUMS = {
     version: sha256(ddl.encode()).hexdigest() for version, ddl in MIGRATIONS.items()
 }
@@ -699,6 +767,30 @@ def _seed_core_policies(conn: psycopg.Connection) -> None:
                 "min_relevance": 0.18,
                 "allowed_source_roles": ["user", "manual", "tool"],
                 "default_half_life_days": 180.0,
+            },
+        ),
+        (
+            # v1 plus time, reinforcement and inference (decisions/0076). The
+            # fusion weights and floor are v1's: this version adds signals, it
+            # does not re-tune the ones already there.
+            "core-retrieval-v2",
+            "retrieval",
+            "temporal-graph",
+            {
+                "dense_weight": 0.60,
+                "lexical_weight": 0.30,
+                "entity_weight": 0.10,
+                "importance_weight": 0.10,
+                "recency_weight": 0.05,
+                "min_relevance": 0.18,
+                "allowed_source_roles": ["user", "manual", "tool", "inference"],
+                "default_half_life_days": 180.0,
+                "episode_half_life_days": 60.0,
+                "episode_significance": 0.7,
+                "temporal_weight": 0.15,
+                "order_weight": 0.05,
+                "reinforcement_weight": 0.05,
+                "inference_penalty": 0.08,
             },
         ),
         (

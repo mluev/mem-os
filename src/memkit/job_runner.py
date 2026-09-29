@@ -129,6 +129,7 @@ def _execute(application, conn, job, guard, cancelled) -> dict[str, Any]:
                 embedder=state.embedder,
                 dedup_cosine=settings.dedup_cosine,
                 semantic=getattr(state, "semantic", None),
+                prompt_version=settings.prompt_version or None,
             )
             if outcome.error:
                 raise RuntimeError(outcome.error)

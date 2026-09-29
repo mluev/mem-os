@@ -55,7 +55,7 @@ from typing import Any
 import psycopg
 from psycopg.types.json import Jsonb
 
-from . import jobs, prompts, providers, security
+from . import jobs, prompts, providers, security, temporal
 
 logger = logging.getLogger(__name__)
 
@@ -169,6 +169,17 @@ class Op:
     # A person the model saw named but could not find in the block. Kept
     # verbatim so a human can say who was meant.
     subject_name: str | None = None
+    # When the described thing happened (prompt v11): canonical YYYY[-MM[-DD]].
+    event_dates: list[str] | None = None
+    # An enduring identity trait every profile should carry.
+    is_static: bool | None = None
+    # ADD only: the candidate this memory adds detail to, as the integer the
+    # model saw; resolved to a memory id by `extract` like an UPDATE target.
+    extends: str | None = None
+    # UPDATE only: "correction" rewrites in place; "supersede" writes a new
+    # memory and keeps the old one as dated history. None means correction,
+    # which is what every UPDATE meant before v11.
+    change: str | None = None
     # Filled in by apply_ops once routing resolves; not part of the schema.
     scope_id: str | None = None
 
@@ -236,6 +247,18 @@ class Op:
         # says "this person", the other says "somebody I could not place".
         if subject is not None and subject_name:
             subject_name = None
+        raw_events = raw.get("event_dates") or []
+        if not isinstance(raw_events, list):
+            raw_events = [raw_events]
+        # Invalid dates are dropped rather than failing the operation: a claim
+        # with a mistyped date is still a claim, and an invented date is worse
+        # than none.
+        event_dates = temporal.normalize_event_dates(raw_events)
+        change = str(raw.get("change") or "").strip().lower() or None
+        if op != "UPDATE" or change not in ("correction", "supersede"):
+            change = None
+        extends = _positive_int(raw.get("extends")) if op == "ADD" else None
+        is_static = raw.get("is_static")
         return cls(
             op=op,
             reason=raw.get("reason") or "",
@@ -251,6 +274,10 @@ class Op:
             scope=scope,
             subject=subject,
             subject_name=subject_name,
+            event_dates=event_dates,
+            is_static=is_static if isinstance(is_static, bool) else None,
+            extends=str(extends) if extends is not None else None,
+            change=change,
         )
 
 
@@ -292,6 +319,11 @@ class JudgeResult:
     # Operations naming an entity number that was never shown: fabricated
     # rather than mistyped, and dropped for the same reason as candidates.
     unknown_entities: list[dict[str, Any]] = dataclasses.field(default_factory=list)
+    # `extends` references to candidates never shown. The ADD itself survives:
+    # the claim was cited, only its link was fabricated.
+    dropped_links: list[dict[str, Any]] = dataclasses.field(default_factory=list)
+    # The prompt version actually rendered, so writes are stamped with it.
+    prompt_version: str = PROMPT_VERSION
 
 
 def price_per_mtok(model: str = DEFAULT_MODEL, when: date | None = None) -> tuple[float, float]:
@@ -394,13 +426,26 @@ def render_window(messages: list[Any]) -> str:
 
 
 def render_candidates(candidates: list[dict[str, Any]]) -> str:
+    """Candidates with when each was said, so a newer claim can supersede it.
+
+    Without the date the model cannot tell "switched to pnpm" (a change since
+    the candidate) from a restatement, and v11's supersede/correction choice
+    turns on exactly that.
+    """
     if not candidates:
         return "(none)"
-    return "\n".join(
-        f"- id={c['id']} kind={c.get('kind')} context={c.get('context', {})} "
-        f"importance={c.get('importance')}: {c['text']}"
-        for c in candidates
-    )
+    lines = []
+    for c in candidates:
+        said = temporal.render_date(c.get("document_date"))
+        events = c.get("event_dates") or []
+        when = f" said={said}" if said else ""
+        if events:
+            when += f" events={','.join(events)}"
+        lines.append(
+            f"- id={c['id']} kind={c.get('kind')}{when} context={c.get('context', {})} "
+            f"importance={c.get('importance')}: {c['text']}"
+        )
+    return "\n".join(lines)
 
 
 def render_entities(entities: list[dict[str, Any]]) -> str:
@@ -521,6 +566,7 @@ def extract(
     ops: list[Op] = []
     unknown_candidates: list[dict[str, Any]] = []
     unknown_entities: list[dict[str, Any]] = []
+    dropped_links: list[dict[str, Any]] = []
     in_tok = out_tok = 0
     raw_output: Any = None
 
@@ -555,6 +601,11 @@ def extract(
             if op.subject is not None and str(op.subject) not in entity_map:
                 unknown_entities.append({"op": op.op, "ref": op.subject, "field": "subject"})
                 continue
+            if op.extends is not None:
+                link = id_map.get(str(op.extends))
+                if link is None:
+                    dropped_links.append({"op": op.op, "ref": op.extends, "field": "extends"})
+                op.extends = link
             resolved.append(op)
         ops = resolved
     except Exception as exc:
@@ -620,4 +671,6 @@ def extract(
         unknown_candidates=unknown_candidates,
         entity_map=entity_map,
         unknown_entities=unknown_entities,
+        dropped_links=dropped_links,
+        prompt_version=active_version,
     )
