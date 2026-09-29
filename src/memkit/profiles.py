@@ -43,6 +43,18 @@ BLOCKS = ("about", "style", "team", "project", "recent")
 BUDGET_SHARE = {"about": 0.20, "style": 0.35, "team": 0.20, "project": 0.20, "recent": 0.05}
 
 
+# Block orderings. Durable blocks put identity-level traits first, then what
+# matters most, then what was said most often: a preference restated in five
+# sessions is more reliably "how they work" than one said once. The recent
+# block is about time, so it puts upcoming events first and then whatever was
+# said or changed most lately.
+_DURABLE_ORDER = "m.is_static DESC, m.importance DESC, m.source_count DESC, m.updated_at DESC, m.id"
+_RECENT_ORDER = (
+    "(m.event_end IS NOT NULL AND m.event_end >= now()) DESC, "
+    "GREATEST(m.document_date, m.updated_at) DESC, m.importance DESC, m.id"
+)
+
+
 def _rows(
     conn: psycopg.Connection,
     *,
@@ -54,18 +66,26 @@ def _rows(
     since: Any = None,
     include_untrusted: bool,
     limit: int = 60,
+    static_too: bool = False,
+    recent: bool = False,
 ) -> list[Row]:
-    """Candidate memories for one block, ordered by importance then recency.
+    """Candidate memories for one block, in the block's order.
 
     Bounded by LIMIT rather than by reading the scope and filtering in Python:
     a profile render is on the hot path and the store grows without bound.
+
+    `static_too` admits identity-level traits of any kind alongside `kinds`.
+    `recent` reads "since" as said, changed, or still to happen after it, so a
+    trip next week belongs in the recent block even if it was mentioned last
+    month. An inference appears only once someone has confirmed it.
     """
     if not scope_ids:
         return []
-    trust = None if include_untrusted else sorted(DEFAULT_TRUST)
+    trust = None if include_untrusted else sorted(DEFAULT_TRUST | {"inference"})
+    order = _RECENT_ORDER if recent else _DURABLE_ORDER
     return list(
         conn.execute(
-            """SELECT m.*, sc.name AS scope_name, sc.slug AS scope_slug,
+            f"""SELECT m.*, sc.name AS scope_name, sc.slug AS scope_slug,
                       sub.name AS subject_name
                  FROM memories m
                  JOIN entities sc ON sc.id = m.scope_id
@@ -73,13 +93,17 @@ def _rows(
                 WHERE m.scope_id = ANY(%(scopes)s)
                   AND m.status = 'active'
                   AND (m.valid_until IS NULL OR m.valid_until > now())
-                  AND (%(kinds)s::text[] IS NULL OR m.kind = ANY(%(kinds)s))
+                  AND (%(kinds)s::text[] IS NULL OR m.kind = ANY(%(kinds)s)
+                       OR (%(static_too)s AND m.is_static))
                   AND (%(exclude)s::text[] IS NULL OR NOT (m.kind = ANY(%(exclude)s)))
                   AND (%(subject)s::uuid IS NULL OR m.subject_id = %(subject)s)
                   AND (NOT %(unattributed)s OR m.subject_id IS NULL)
-                  AND (%(since)s::timestamptz IS NULL OR m.updated_at >= %(since)s)
+                  AND (%(since)s::timestamptz IS NULL OR m.updated_at >= %(since)s
+                       OR (%(recent)s AND (m.document_date >= %(since)s
+                                           OR m.event_end >= now())))
                   AND (%(trust)s::text[] IS NULL OR m.source_role = ANY(%(trust)s))
-                ORDER BY m.importance DESC, m.updated_at DESC, m.id
+                  AND (m.source_role <> 'inference' OR m.review_status = 'confirmed')
+                ORDER BY {order}
                 LIMIT %(limit)s""",
             {
                 "scopes": [uuid.UUID(str(s)) for s in scope_ids],
@@ -90,6 +114,8 @@ def _rows(
                 "since": since,
                 "trust": trust,
                 "limit": limit,
+                "static_too": static_too,
+                "recent": recent,
             },
         )
     )
@@ -105,6 +131,9 @@ def _item(row: Row) -> dict[str, Any]:
         "scope": row["scope_name"],
         "subject": row["subject_name"],
         "updated_at": iso(row["updated_at"]),
+        "document_date": iso(row.get("document_date")),
+        "event_dates": list(row.get("event_dates") or []),
+        "is_static": bool(row.get("is_static", False)),
     }
 
 
@@ -140,6 +169,7 @@ def render(
                 conn,
                 scope_ids=[own_scope_id],
                 kinds=IDENTITY_KINDS,
+                static_too=True,
                 include_untrusted=include_untrusted,
             )
         elif block == "style":
@@ -177,6 +207,7 @@ def render(
                 exclude_kinds=IDENTITY_KINDS + STYLE_KINDS,
                 since=cutoff,
                 include_untrusted=include_untrusted,
+                recent=True,
             )
 
         # The last block may use everything left; earlier ones keep to their
@@ -201,5 +232,5 @@ def render(
         "used_tokens": used,
         "budget_tokens": budget_tokens,
         "generated_at": iso(now),
-        "policy_id": "profile-v2",
+        "policy_id": "profile-v3",
     }

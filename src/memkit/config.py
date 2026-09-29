@@ -108,6 +108,9 @@ class Settings(BaseSettings):
     # Cheapest option. Swap for a claude-* model to compare on the same eval;
     # see providers.py.
     judge_model: str = "gemini-3.5-flash-lite"
+    # Extractor prompt version; empty means prompts.DEFAULT_VERSION. Naming an
+    # older version is how a prompt change is rolled back without a deploy.
+    prompt_version: str = ""
 
     # Write-time dedup threshold on the extraction path (decisions/0055): an ADD
     # whose text is closer than this to an existing active memory in the same
@@ -132,6 +135,12 @@ class Settings(BaseSettings):
 
     # Optional cross-encoder rerank. Empty means off; see rerank.py.
     rerank_model: str = ""
+
+    # Dreaming (decisions/0078): after an extraction writes memories, link and
+    # infer across the scopes it touched. Runs only when a judge is configured,
+    # under the same monthly ceiling; each cluster is one call.
+    dreaming: Literal["off", "after_extraction"] = "after_extraction"
+    dream_max_clusters: int = Field(default=8, ge=1, le=50)
 
     @model_validator(mode="after")
     def derive_secrets(self) -> Settings:

@@ -27,6 +27,7 @@ import yaml
 from . import (
     auth,
     consolidate,
+    dream,
     entities,
     operations,
     outbox,
@@ -379,6 +380,35 @@ def cmd_consolidate(args: argparse.Namespace) -> int:
         gemini_api_key=settings.gemini_api_key,
         project=settings.vertex_project,
         location=settings.vertex_location,
+    )
+    if args.apply:
+        outbox.drain(conn, client, get_embedder(), limit=500)
+    _json(outcome.as_dict())
+    return 0
+
+
+def cmd_dream(args: argparse.Namespace) -> int:
+    """Link and infer across one user's scope (decisions/0078)."""
+    settings = get_settings()
+    conn, client = _ready()
+    owner = _resolve_user(conn, args.user)
+    caller = principal_module.load(conn, str(owner["id"]))
+    scope_id = principal_module.resolve_scope(conn, caller, args.scope, write=True)
+    outcome = dream.run(
+        conn,
+        scope_id=scope_id,
+        user_id=caller.user_id,
+        client=client,
+        embedder=get_embedder(),
+        model=settings.judge_model,
+        monthly_limit_usd=settings.monthly_cost_limit_usd,
+        api_key=settings.anthropic_api_key,
+        gemini_api_key=settings.gemini_api_key,
+        project=settings.vertex_project,
+        location=settings.vertex_location,
+        since=None if args.all else "auto",
+        max_clusters=args.max_clusters,
+        dry_run=not args.apply,
     )
     if args.apply:
         outbox.drain(conn, client, get_embedder(), limit=500)
@@ -741,6 +771,16 @@ def main() -> int:
     commands.add_parser("reindex", help="build and atomically activate a new index").set_defaults(
         func=cmd_reindex
     )
+
+    dreaming = commands.add_parser(
+        "dream", help="link and infer across recent memories (dry run unless --apply)"
+    )
+    dreaming.add_argument("--user", required=True)
+    dreaming.add_argument("--scope", default=None, help="slug, 'team', or omitted for private")
+    dreaming.add_argument("--max-clusters", type=int, default=8)
+    dreaming.add_argument("--all", action="store_true", help="every memory, not just recent")
+    dreaming.add_argument("--apply", action="store_true")
+    dreaming.set_defaults(func=cmd_dream)
 
     compact = commands.add_parser("consolidate", help="plan conservative maintenance")
     compact.add_argument("--apply", action="store_true")

@@ -59,10 +59,20 @@ class ExtractionOutcome:
     # unattributed until a human says who was meant.
     unresolved_mentions: int = 0
     semantic_support: dict[str, int] = field(default_factory=dict)
+    # Graph outcomes (prompt v11). `superseded` counts UPDATEs that wrote a new
+    # memory and kept the old one as history; `extended` counts ADDs linked to
+    # the candidate they add detail to; `reinforced` counts duplicates that
+    # arrived from a new session and raised an existing memory's mention count.
+    superseded: int = 0
+    extended: int = 0
+    reinforced: int = 0
+    # `extends` links the model fabricated or that failed the same-scope rule.
+    # The ADD itself was kept.
+    dropped_links: int = 0
 
     @property
     def applied(self) -> int:
-        return self.added + self.updated + self.deleted
+        return self.added + self.updated + self.deleted + self.superseded
 
     def absorb(self, other: ExtractionOutcome) -> None:
         """Fold one window's result into a running total."""
@@ -77,6 +87,10 @@ class ExtractionOutcome:
         self.claimed += other.claimed
         self.windows += other.windows
         self.unresolved_mentions += other.unresolved_mentions
+        self.superseded += other.superseded
+        self.extended += other.extended
+        self.reinforced += other.reinforced
+        self.dropped_links += other.dropped_links
         for key, value in other.semantic_support.items():
             self.semantic_support[key] = self.semantic_support.get(key, 0) + value
         self.declined = other.declined
@@ -105,6 +119,10 @@ class ExtractionOutcome:
             "windows": self.windows,
             "unresolved_mentions": self.unresolved_mentions,
             "semantic_support": self.semantic_support,
+            "superseded": self.superseded,
+            "extended": self.extended,
+            "reinforced": self.reinforced,
+            "dropped_links": self.dropped_links,
         }
 
 
@@ -234,6 +252,8 @@ def find_candidates(
             "importance": float(row["importance"]),
             "context": dict(row["context"] or {}),
             "scope_id": str(row["scope_id"]),
+            "document_date": iso(row.get("document_date")),
+            "event_dates": list(row.get("event_dates") or []),
         }
 
     merged: dict[str, dict[str, Any]] = {}
@@ -316,6 +336,50 @@ def _validated_evidence(
             }
         )
     return evidence, roles
+
+
+def _said_at(conn: psycopg.Connection, evidence: list[dict[str, Any]]) -> Any:
+    """When the cited words were said: the earliest cited message's time.
+
+    This, not the write time, is a memory's document date. A backfilled window
+    is written today about something said months ago, and every relative phrase
+    in it was resolved against then.
+    """
+    ids = sorted({int(item["message_id"]) for item in evidence})
+    if not ids:
+        return None
+    row = conn.execute(
+        "SELECT min(created_at) AS said FROM messages WHERE id = ANY(%s)", (ids,)
+    ).fetchone()
+    return row["said"] if row else None
+
+
+def _link_extends(
+    conn: psycopg.Connection,
+    outcome: ExtractionOutcome,
+    *,
+    memory_id: str,
+    target_id: str | None,
+    scope_id: str,
+    judge_run_id: int,
+) -> None:
+    """Record that `memory_id` adds detail to `target_id`, if both share a scope.
+
+    A link across scopes would let a private claim sit under a team one, so it
+    is dropped -- the new memory stands on its own either way.
+    """
+    if not target_id:
+        return
+    target = conn.execute(
+        "SELECT scope_id FROM memories WHERE id=%s AND status='active'", (target_id,)
+    ).fetchone()
+    if target is None or str(target["scope_id"]) != scope_id or target_id == memory_id:
+        outcome.dropped_links += 1
+        return
+    if store.add_relation(
+        conn, from_id=memory_id, to_id=target_id, relation="extends", judge_run_id=judge_run_id
+    ):
+        outcome.extended += 1
 
 
 @dataclass(frozen=True)
@@ -609,6 +673,14 @@ def apply_ops(
                 # The plan was computed outside this transaction; a vanished
                 # target simply means the ADD proceeds normally below.
                 if row is not None:
+                    # Counted before linking: a mention is new only if its
+                    # session was not already cited.
+                    if store.reinforce(
+                        conn,
+                        memory_id=target.id,
+                        message_ids=[item["message_id"] for item in evidence],
+                    ):
+                        outcome.reinforced += 1
                     _link_evidence(conn, target.id, evidence)
                     outcome.deduplicated += 1
                     continue
@@ -630,9 +702,20 @@ def apply_ops(
                 source_role=source_role,
                 # Extraction is automatic, so the fact is live but unconfirmed.
                 review_status="pending",
+                document_date=_said_at(conn, evidence),
+                event_dates=op.event_dates,
+                is_static=bool(op.is_static),
             )
             _link_evidence(conn, memory_id, evidence)
             outcome.added += 1
+            _link_extends(
+                conn,
+                outcome,
+                memory_id=memory_id,
+                target_id=op.extends,
+                scope_id=scope_id,
+                judge_run_id=judge_run_id,
+            )
             if unresolved is not None:
                 _flag_unresolved_mention(
                     conn,
@@ -670,6 +753,49 @@ def apply_ops(
             outcome.deleted += 1
             continue
 
+        if op.change == "supersede":
+            # The candidate was true until now. The replacement is a new
+            # memory with its own date and evidence; the old one stays as
+            # history whose validity ends when the replacement was said.
+            said = _said_at(conn, evidence)
+            # A backfill can replay an older window after a newer one. Then the
+            # candidate is the newer truth and this claim is its history, not
+            # its replacement.
+            backwards = said is not None and said < existing["document_date"]
+            replacement = store.add_memory(
+                conn,
+                scope_id=scope_id,
+                subject_id=(str(existing["subject_id"]) if existing["subject_id"] else None),
+                author_id=user_id,
+                text=op.text or existing["text"],
+                kind=op.kind or existing["kind"],
+                context=existing_context,
+                tags=list(existing["tags"] or []),
+                agent_id=agent_id,
+                importance=op.importance if op.importance is not None else existing["importance"],
+                confidence=op.confidence if op.confidence is not None else existing["confidence"],
+                valid_until=op.valid_until,
+                extraction_version=extraction_version,
+                judge_run_id=judge_run_id,
+                source_role=source_role,
+                review_status="pending",
+                document_date=said,
+                event_dates=op.event_dates,
+                is_static=(
+                    bool(op.is_static) if op.is_static is not None else bool(existing["is_static"])
+                ),
+            )
+            _link_evidence(conn, replacement, evidence)
+            store.supersede(
+                conn,
+                old_id=replacement if backwards else str(existing["id"]),
+                new_id=str(existing["id"]) if backwards else replacement,
+                scopes=writable_scope_ids,
+                judge_run_id=judge_run_id,
+            )
+            outcome.superseded += 1
+            continue
+
         store.update_memory(
             conn,
             memory_id=str(existing["id"]),
@@ -691,6 +817,10 @@ def apply_ops(
             # the new text is live, and the previous wording is one revision
             # back for whoever confirms it.
             review_status="pending",
+            # A correction without dates keeps the stored ones.
+            **({"event_dates": op.event_dates} if op.event_dates else {}),
+            is_static=op.is_static,
+            document_date=_said_at(conn, evidence),
         )
         _link_evidence(conn, str(existing["id"]), evidence)
         outcome.updated += 1
@@ -736,6 +866,7 @@ def run_extraction(
     dedup_cosine: float | None = None,
     semantic: SemanticBlocks | None = None,
     guard: Callable[[], None] | None = None,
+    prompt_version: str | None = None,
 ) -> ExtractionOutcome:
     """Extract one window of one session, on behalf of that session's user.
 
@@ -825,6 +956,7 @@ def run_extraction(
         agent_id=agent_id,
         user_id=user_id,
         job_id=job_id,
+        version=prompt_version or None,
     )
     outcome = ExtractionOutcome(
         judge_run_id=result.judge_run_id,
@@ -922,6 +1054,7 @@ def run_extraction(
                 source_message_ids=[int(row["id"]) for row in window],
                 entity_map=result.entity_map,
                 dedup_hits=dedup_hits,
+                extraction_version=result.prompt_version,
             )
             _mark_processed(conn, window)
     except ExtractionLeaseLost:
@@ -937,6 +1070,7 @@ def run_extraction(
     for dropped in result.unknown_entities:
         applied.rejected += 1
         applied.rejections.append({**dropped, "reason": "unknown_entity"})
+    applied.dropped_links += len(result.dropped_links)
     applied.cost_usd = result.cost_usd
     applied.judge_run_id = result.judge_run_id
     applied.claimed = len(window)

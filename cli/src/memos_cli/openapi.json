@@ -324,6 +324,38 @@
         "title": "DatabaseHealth",
         "type": "object"
       },
+      "DreamIn": {
+        "additionalProperties": false,
+        "properties": {
+          "dry_run": {
+            "default": false,
+            "title": "Dry Run",
+            "type": "boolean"
+          },
+          "max_clusters": {
+            "default": 8,
+            "maximum": 50.0,
+            "minimum": 1.0,
+            "title": "Max Clusters",
+            "type": "integer"
+          },
+          "scope": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scope"
+          }
+        },
+        "title": "DreamIn",
+        "type": "object"
+      },
       "EmbedderHealth": {
         "additionalProperties": true,
         "properties": {
@@ -1012,6 +1044,175 @@
         "title": "FlexibleOut",
         "type": "object"
       },
+      "ForgetCandidate": {
+        "additionalProperties": true,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "scope": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scope"
+          },
+          "score": {
+            "title": "Score",
+            "type": "number"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "text",
+          "score",
+          "scope"
+        ],
+        "title": "ForgetCandidate",
+        "type": "object"
+      },
+      "ForgetIn": {
+        "additionalProperties": false,
+        "description": "Forget matching memories: by a request searched semantically, or by ids.\n\nForgetting archives: a forgotten memory leaves search and profiles, keeps\nits history and reason, and a reviewer can bring it back. A dry run is the\ndefault, because the match is semantic and a broad request selects more\nthan intended.",
+        "properties": {
+          "dry_run": {
+            "default": true,
+            "title": "Dry Run",
+            "type": "boolean"
+          },
+          "ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxItems": 500,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ids"
+          },
+          "max_forget": {
+            "default": 100,
+            "maximum": 500.0,
+            "minimum": 1.0,
+            "title": "Max Forget",
+            "type": "integer"
+          },
+          "query": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Query"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "scope": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scope"
+          },
+          "threshold": {
+            "default": 0.3,
+            "maximum": 2.0,
+            "minimum": 0.0,
+            "title": "Threshold",
+            "type": "number"
+          },
+          "verify": {
+            "default": true,
+            "title": "Verify",
+            "type": "boolean"
+          }
+        },
+        "title": "ForgetIn",
+        "type": "object"
+      },
+      "ForgetOut": {
+        "additionalProperties": false,
+        "properties": {
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/ForgetCandidate"
+            },
+            "title": "Candidates",
+            "type": "array"
+          },
+          "dry_run": {
+            "title": "Dry Run",
+            "type": "boolean"
+          },
+          "forgotten": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Forgotten",
+            "type": "array"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "verified": {
+            "title": "Verified",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "dry_run",
+          "verified",
+          "candidates",
+          "forgotten"
+        ],
+        "title": "ForgetOut",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -1605,6 +1806,85 @@
         "title": "KeyCreatedOut",
         "type": "object"
       },
+      "LinkedMemory": {
+        "additionalProperties": true,
+        "properties": {
+          "document_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Date"
+          },
+          "event_dates": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Event Dates",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "relation": {
+            "enum": [
+              "replaces",
+              "replaced_by",
+              "extends",
+              "extended_by",
+              "derived_from",
+              "premise_of"
+            ],
+            "title": "Relation",
+            "type": "string"
+          },
+          "source_role": {
+            "title": "Source Role",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          },
+          "valid_until": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valid Until"
+          }
+        },
+        "required": [
+          "id",
+          "text",
+          "kind",
+          "relation",
+          "status",
+          "source_role",
+          "document_date",
+          "event_dates",
+          "valid_until"
+        ],
+        "title": "LinkedMemory",
+        "type": "object"
+      },
       "LoginIn": {
         "additionalProperties": false,
         "properties": {
@@ -1758,12 +2038,38 @@
             "title": "Context",
             "type": "object"
           },
+          "document_date": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Date"
+          },
+          "event_dates": {
+            "items": {
+              "pattern": "^\\d{4}(-\\d{2}(-\\d{2})?)?$",
+              "type": "string"
+            },
+            "maxItems": 8,
+            "title": "Event Dates",
+            "type": "array"
+          },
           "importance": {
             "default": 0.6,
             "maximum": 1.0,
             "minimum": 0.0,
             "title": "Importance",
             "type": "number"
+          },
+          "is_static": {
+            "default": false,
+            "title": "Is Static",
+            "type": "boolean"
           },
           "kind": {
             "maxLength": 64,
@@ -1928,6 +2234,22 @@
             ],
             "title": "Context"
           },
+          "event_dates": {
+            "anyOf": [
+              {
+                "items": {
+                  "pattern": "^\\d{4}(-\\d{2}(-\\d{2})?)?$",
+                  "type": "string"
+                },
+                "maxItems": 8,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Event Dates"
+          },
           "expected_revision": {
             "minimum": 1.0,
             "title": "Expected Revision",
@@ -1945,6 +2267,17 @@
               }
             ],
             "title": "Importance"
+          },
+          "is_static": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Static"
           },
           "kind": {
             "anyOf": [
@@ -2078,6 +2411,24 @@
             ],
             "title": "Created At"
           },
+          "document_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Date"
+          },
+          "event_dates": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Event Dates",
+            "type": "array"
+          },
           "extraction_version": {
             "title": "Extraction Version",
             "type": "string"
@@ -2089,6 +2440,10 @@
           "importance": {
             "title": "Importance",
             "type": "number"
+          },
+          "is_static": {
+            "title": "Is Static",
+            "type": "boolean"
           },
           "judge_run_id": {
             "anyOf": [
@@ -2162,13 +2517,18 @@
             "title": "Sessions",
             "type": "array"
           },
+          "source_count": {
+            "title": "Source Count",
+            "type": "integer"
+          },
           "source_role": {
             "enum": [
               "user",
               "assistant",
               "agent",
               "tool",
-              "manual"
+              "manual",
+              "inference"
             ],
             "title": "Source Role",
             "type": "string"
@@ -2417,6 +2777,23 @@
             ],
             "title": "Retrieval Id"
           },
+          "rewrites": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Rewrites",
+            "type": "array"
+          },
+          "temporal": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TemporalIntentView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "timings": {
             "additionalProperties": {
               "type": "number"
@@ -2545,6 +2922,24 @@
             ],
             "title": "Created At"
           },
+          "document_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Date"
+          },
+          "event_dates": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Event Dates",
+            "type": "array"
+          },
           "id": {
             "title": "Id",
             "type": "string"
@@ -2552,6 +2947,10 @@
           "importance": {
             "title": "Importance",
             "type": "number"
+          },
+          "is_static": {
+            "title": "Is Static",
+            "type": "boolean"
           },
           "kind": {
             "title": "Kind",
@@ -2592,13 +2991,18 @@
             ],
             "title": "Scope Slug"
           },
+          "source_count": {
+            "title": "Source Count",
+            "type": "integer"
+          },
           "source_role": {
             "enum": [
               "user",
               "assistant",
               "agent",
               "tool",
-              "manual"
+              "manual",
+              "inference"
             ],
             "title": "Source Role",
             "type": "string"
@@ -3527,9 +3931,31 @@
       "ProfileMemory": {
         "additionalProperties": true,
         "properties": {
+          "document_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Date"
+          },
+          "event_dates": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Event Dates",
+            "type": "array"
+          },
           "id": {
             "title": "Id",
             "type": "string"
+          },
+          "is_static": {
+            "title": "Is Static",
+            "type": "boolean"
           },
           "kind": {
             "title": "Kind",
@@ -3561,7 +3987,8 @@
               "assistant",
               "agent",
               "tool",
-              "manual"
+              "manual",
+              "inference"
             ],
             "title": "Source Role",
             "type": "string"
@@ -4334,6 +4761,18 @@
       "SearchEvidence": {
         "additionalProperties": true,
         "properties": {
+          "context": {
+            "title": "Context",
+            "type": "string"
+          },
+          "context_end": {
+            "title": "Context End",
+            "type": "integer"
+          },
+          "context_start": {
+            "title": "Context Start",
+            "type": "integer"
+          },
           "created_at": {
             "anyOf": [
               {
@@ -4391,6 +4830,18 @@
       "SearchIn": {
         "additionalProperties": false,
         "properties": {
+          "as_of": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "As Of"
+          },
           "budget_tokens": {
             "default": 800,
             "maximum": 20000.0,
@@ -4410,9 +4861,19 @@
             ],
             "title": "Filter"
           },
+          "include_history": {
+            "default": false,
+            "title": "Include History",
+            "type": "boolean"
+          },
           "include_raw": {
             "default": false,
             "title": "Include Raw",
+            "type": "boolean"
+          },
+          "include_related": {
+            "default": false,
+            "title": "Include Related",
             "type": "boolean"
           },
           "include_sources": {
@@ -4449,7 +4910,7 @@
             "type": "integer"
           },
           "policy_id": {
-            "default": "neutral-v1",
+            "default": "core-retrieval-v2",
             "title": "Policy Id",
             "type": "string"
           },
@@ -4458,6 +4919,11 @@
             "minLength": 1,
             "title": "Query",
             "type": "string"
+          },
+          "rewrite_query": {
+            "default": false,
+            "title": "Rewrite Query",
+            "type": "boolean"
           },
           "scopes": {
             "anyOf": [
@@ -4475,6 +4941,25 @@
             ],
             "title": "Scopes"
           },
+          "since": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Since"
+          },
+          "source_context_chars": {
+            "default": 0,
+            "maximum": 4000.0,
+            "minimum": 0.0,
+            "title": "Source Context Chars",
+            "type": "integer"
+          },
           "subject": {
             "anyOf": [
               {
@@ -4487,6 +4972,18 @@
               }
             ],
             "title": "Subject"
+          },
+          "until": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Until"
           }
         },
         "required": [
@@ -4548,9 +5045,34 @@
             "title": "Context",
             "type": "object"
           },
+          "document_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Date"
+          },
           "entity": {
             "title": "Entity",
             "type": "number"
+          },
+          "event_dates": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Event Dates",
+            "type": "array"
+          },
+          "history": {
+            "items": {
+              "$ref": "#/components/schemas/LinkedMemory"
+            },
+            "title": "History",
+            "type": "array"
           },
           "id": {
             "title": "Id",
@@ -4559,6 +5081,10 @@
           "importance": {
             "title": "Importance",
             "type": "number"
+          },
+          "is_static": {
+            "title": "Is Static",
+            "type": "boolean"
           },
           "kind": {
             "title": "Kind",
@@ -4571,6 +5097,13 @@
           "recency": {
             "title": "Recency",
             "type": "number"
+          },
+          "related": {
+            "items": {
+              "$ref": "#/components/schemas/LinkedMemory"
+            },
+            "title": "Related",
+            "type": "array"
           },
           "review_status": {
             "enum": [
@@ -4615,13 +5148,18 @@
             "title": "Similarity",
             "type": "number"
           },
+          "source_count": {
+            "title": "Source Count",
+            "type": "integer"
+          },
           "source_role": {
             "enum": [
               "user",
               "assistant",
               "agent",
               "tool",
-              "manual"
+              "manual",
+              "inference"
             ],
             "title": "Source Role",
             "type": "string"
@@ -4661,6 +5199,10 @@
             },
             "title": "Tags",
             "type": "array"
+          },
+          "temporal": {
+            "title": "Temporal",
+            "type": "number"
           },
           "text": {
             "title": "Text",
@@ -4977,6 +5519,71 @@
           "offset"
         ],
         "title": "SessionsOut",
+        "type": "object"
+      },
+      "TemporalIntentView": {
+        "additionalProperties": true,
+        "properties": {
+          "asks_time": {
+            "title": "Asks Time",
+            "type": "boolean"
+          },
+          "order": {
+            "anyOf": [
+              {
+                "enum": [
+                  "earliest",
+                  "latest"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order"
+          },
+          "window": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TemporalWindow"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "window",
+          "order",
+          "asks_time"
+        ],
+        "title": "TemporalIntentView",
+        "type": "object"
+      },
+      "TemporalWindow": {
+        "additionalProperties": true,
+        "properties": {
+          "end": {
+            "title": "End",
+            "type": "string"
+          },
+          "phrase": {
+            "title": "Phrase",
+            "type": "string"
+          },
+          "start": {
+            "title": "Start",
+            "type": "string"
+          }
+        },
+        "required": [
+          "start",
+          "end",
+          "phrase"
+        ],
+        "title": "TemporalWindow",
         "type": "object"
       },
       "UserIn": {
@@ -7205,6 +7812,84 @@
         "summary": "Change Password"
       }
     },
+    "/v1/dream": {
+      "post": {
+        "description": "Link and infer across one scope's recent memories (decisions/0078).\n\nThe caller must be able to write the scope: inferences are written into it\nunder their name, pending review.",
+        "operationId": "start_dream_v1_dream_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-requested-with",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Requested-With"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "memkit_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memkit Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DreamIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobQueuedOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Start Dream"
+      }
+    },
     "/v1/entities": {
       "get": {
         "operationId": "list_entities_v1_entities_get",
@@ -9038,6 +9723,84 @@
           }
         ],
         "summary": "Post Memory"
+      }
+    },
+    "/v1/memories/forget": {
+      "post": {
+        "description": "Forget what matches a request, or exactly the ids given (decisions/0080).\n\nOnly scopes the caller may write are searched. In query mode the judge\nmodel, when configured, keeps only candidates that are really about the\nrequest, choosing by number among those it was shown. Applying with the\nids from a dry run forgets exactly what was reviewed, even if the store has\nchanged since.",
+        "operationId": "forget_memories_v1_memories_forget_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-requested-with",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Requested-With"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "memkit_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memkit Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ForgetIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForgetOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Forget Memories"
       }
     },
     "/v1/memories/search": {

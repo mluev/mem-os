@@ -21,6 +21,16 @@ The rules, in the order they apply:
 
 Alias resolution is exact on the case-folded form. A named scope the speaker may not write to is refused rather than quietly redirected, because a fact written to the wrong scope is either a leak or a loss.
 
+## Time, episodes and supersession (v11)
+
+v11 keeps v10's routing, context and provenance rules and its exclusion of the assistant's work log, and stops discarding what people did and will do (decisions/0075). Something done, attended, bought, started, finished or planned at a time is `kind="episode"`; every episode carries `event_dates` — absolute, at the precision the user gave — and states its date in its text. A state with a natural end is kept with `valid_until` at that end. `is_static` marks identity-level traits. The service normalises dates, drops invalid ones rather than guessing, and stamps each write with `document_date`, the earliest cited message's time.
+
+Every UPDATE names its `change`. `correction` rewrites the candidate in place, as every UPDATE did before. `supersede` writes the new claim as its own memory and marks the candidate `superseded`, true until the new one was said, linked by an `updates` edge (decisions/0076). An ADD may name the candidate it `extends`; a link to a candidate the model was never shown, or across scopes, is dropped and counted while the ADD stands. Candidates are rendered with when they were said. A near-duplicate ADD from a session the existing memory does not yet cite raises its `source_count`.
+
+## Dreaming
+
+A second pass links and infers across memories written one window apart (decisions/0078). After an extraction writes into a scope, one dream is queued for it; a dream clusters the scope's recently changed memories with their nearest same-scope neighbours and asks, per cluster, for `updates`/`extends` links and at most two inferences, by number. Supersessions must run forward in time between stated claims with one subject and context. Inferences need two or more live stated premises and a 0.7 confidence floor, must not restate an existing memory, are written `source_role='inference'` and pending with a `derives` edge to each premise, and are never premises themselves. Every call reserves against the monthly ceiling and is logged with ids only.
+
 ## Rejection reasons
 
 Recorded per operation in the job result, so a prompt regression is legible without a new table:
@@ -57,4 +67,4 @@ that never arrived was never charged.
 
 ## The registry
 
-The prompt registry is in `prompts.py`; new rows carry its version. v9 is v8 plus the entity block and the routing rules above. Provider failures, empty Anthropic tool output, tokens, latency, and cost are preserved in `judge_runs`. Secrets are scrubbed again immediately before provider egress.
+The prompt registry is in `prompts.py`; new rows carry its version. v9 is v8 plus the entity block and the routing rules above; v10 reorders them after the context rule; v11, the default, adds episodes, event dates and the supersede/extends graph. `MEMKIT_PROMPT_VERSION` names another version to roll back without a deploy. The dream (`d1`), query-rewrite (`q1`) and forget (`f1`) prompts live in the same registry. Provider failures, empty Anthropic tool output, tokens, latency, and cost are preserved in `judge_runs`. Secrets are scrubbed again immediately before provider egress.

@@ -260,7 +260,12 @@ async def lifespan(app: FastAPI):
     from .semantic_runtime import from_settings
 
     app.state.semantic = from_settings(settings)
-    app.state.reranker = app.state.semantic
+    # A semantic reranker, when configured, owns ordering; otherwise an
+    # optional local cross-encoder may (rerank.py). Neither is on by default.
+    from . import rerank
+
+    semantic_ranks = app.state.semantic is not None and app.state.semantic.retrieval != "off"
+    app.state.reranker = app.state.semantic if semantic_ranks else rerank.from_settings(settings)
     _start_durable_worker(app)
     yield
     app.state.worker.stop()

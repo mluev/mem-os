@@ -26,7 +26,10 @@ class MemoryIn:
         agent_id (None | str | Unset):
         confidence (float | Unset):  Default: 0.9.
         context (MemoryInContext | Unset):
+        document_date (datetime.datetime | None | Unset):
+        event_dates (list[str] | Unset):
         importance (float | Unset):  Default: 0.6.
+        is_static (bool | Unset):  Default: False.
         scope (None | str | Unset):
         subject (None | str | Unset):
         tags (list[str] | Unset):
@@ -39,7 +42,10 @@ class MemoryIn:
     agent_id: None | str | Unset = UNSET
     confidence: float | Unset = 0.9
     context: MemoryInContext | Unset = UNSET
+    document_date: datetime.datetime | None | Unset = UNSET
+    event_dates: list[str] | Unset = UNSET
     importance: float | Unset = 0.6
+    is_static: bool | Unset = False
     scope: None | str | Unset = UNSET
     subject: None | str | Unset = UNSET
     tags: list[str] | Unset = UNSET
@@ -64,7 +70,21 @@ class MemoryIn:
         if not isinstance(self.context, Unset):
             context = self.context.to_dict()
 
+        document_date: None | str | Unset
+        if isinstance(self.document_date, Unset):
+            document_date = UNSET
+        elif isinstance(self.document_date, datetime.datetime):
+            document_date = self.document_date.isoformat()
+        else:
+            document_date = self.document_date
+
+        event_dates: list[str] | Unset = UNSET
+        if not isinstance(self.event_dates, Unset):
+            event_dates = self.event_dates
+
         importance = self.importance
+
+        is_static = self.is_static
 
         scope: None | str | Unset
         if isinstance(self.scope, Unset):
@@ -105,8 +125,14 @@ class MemoryIn:
             field_dict["confidence"] = confidence
         if context is not UNSET:
             field_dict["context"] = context
+        if document_date is not UNSET:
+            field_dict["document_date"] = document_date
+        if event_dates is not UNSET:
+            field_dict["event_dates"] = event_dates
         if importance is not UNSET:
             field_dict["importance"] = importance
+        if is_static is not UNSET:
+            field_dict["is_static"] = is_static
         if scope is not UNSET:
             field_dict["scope"] = scope
         if subject is not UNSET:
@@ -147,7 +173,28 @@ class MemoryIn:
         else:
             context = MemoryInContext.from_dict(_context)
 
+        def _parse_document_date(data: object) -> datetime.datetime | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                document_date_type_0 = datetime.datetime.fromisoformat(data)
+
+                return document_date_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(datetime.datetime | None | Unset, data)
+
+        document_date = _parse_document_date(d.pop("document_date", UNSET))
+
+        event_dates = cast(list[str], d.pop("event_dates", UNSET))
+
         importance = d.pop("importance", UNSET)
+
+        is_static = d.pop("is_static", UNSET)
 
         def _parse_scope(data: object) -> None | str | Unset:
             if data is None:
@@ -193,7 +240,10 @@ class MemoryIn:
             agent_id=agent_id,
             confidence=confidence,
             context=context,
+            document_date=document_date,
+            event_dates=event_dates,
             importance=importance,
+            is_static=is_static,
             scope=scope,
             subject=subject,
             tags=tags,

@@ -6,7 +6,14 @@ from datetime import datetime
 from typing import Annotated, Any, Literal, NotRequired, TypedDict
 from uuid import UUID
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import (
+    AwareDatetime,
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    model_validator,
+)
 
 from . import (
     auth,
@@ -16,6 +23,10 @@ ShortText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1
 Identifier = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=256)]
 Kind = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=64)]
 Slug = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=128)]
+# An event date at the precision the speaker gave; see temporal.py.
+EventDate = Annotated[
+    str, StringConstraints(strip_whitespace=True, pattern=r"^\d{4}(-\d{2}(-\d{2})?)?$")
+]
 Password = Annotated[str, StringConstraints(min_length=12, max_length=200)]
 
 
@@ -126,6 +137,12 @@ class MemoryIn(StrictModel):
     source_role: Literal["user", "assistant", "agent", "tool", "manual"]
     scope: Slug | None = None
     subject: Slug | None = None
+    # When the described thing happened: YYYY, YYYY-MM or YYYY-MM-DD.
+    event_dates: list[EventDate] = Field(default_factory=list, max_length=8)
+    # An enduring identity trait every profile should carry.
+    is_static: bool = False
+    # When the claim was said, for a backfill; defaults to now.
+    document_date: AwareDatetime | None = None
 
 
 class MemoryPatch(StrictModel):
@@ -145,6 +162,8 @@ class MemoryPatch(StrictModel):
     # out loud rather than inferred from a field appearing in a patch.
     move_scope: bool = False
     move_context: bool = False
+    event_dates: list[EventDate] | None = Field(default=None, max_length=8)
+    is_static: bool | None = None
 
 
 class ReviewIn(StrictModel):
@@ -165,12 +184,68 @@ class SearchIn(StrictModel):
     # caller can read; naming one they cannot is a 403, not an empty result.
     scopes: list[Slug] | None = None
     subject: Slug | None = None
-    policy_id: str = "neutral-v1"
+    # v2 adds time, reinforcement and inference to v1's fusion; "neutral-v1"
+    # still names the previous ranking exactly (decisions/0077).
+    policy_id: str = "core-retrieval-v2"
     include_untrusted: bool = False
     include_raw: bool = False
     include_sources: bool = False
+    # Characters of the cited message around each source span -- the chunk the
+    # claim came from. 0 returns the verified span alone, as before.
+    source_context_chars: int = Field(default=0, ge=0, le=4000)
+    # The claims each result replaced, with the dates they held.
+    include_history: bool = False
+    # Claims linked by extends/derives edges.
+    include_related: bool = False
+    # When the question is asked; relative phrases in the query resolve
+    # against it. Defaults to now.
+    as_of: AwareDatetime | None = None
+    # Hard window on when a memory's event happened (or, lacking one, when it
+    # was said).
+    since: AwareDatetime | None = None
+    until: AwareDatetime | None = None
+    # Ask the judge model for up to three rephrasings and fuse their rankings
+    # with the original's. Adds one model call; failures fall back silently.
+    rewrite_query: bool = False
     budget_tokens: int = Field(default=800, ge=1, le=20_000)
     limit: int = Field(default=30, ge=1, le=200)
+
+    @model_validator(mode="after")
+    def _ordered_range(self) -> SearchIn:
+        if self.since is not None and self.until is not None and self.since > self.until:
+            raise ValueError("since must not be later than until")
+        return self
+
+
+class ForgetIn(StrictModel):
+    """Forget matching memories: by a request searched semantically, or by ids.
+
+    Forgetting archives: a forgotten memory leaves search and profiles, keeps
+    its history and reason, and a reviewer can bring it back. A dry run is the
+    default, because the match is semantic and a broad request selects more
+    than intended.
+    """
+
+    query: (
+        Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)]
+        | None
+    ) = None
+    ids: list[Identifier] | None = Field(default=None, max_length=500)
+    # Narrow to one scope; omitted means every scope the caller may write.
+    scope: Slug | None = None
+    dry_run: bool = True
+    # Minimum hybrid score for a query-mode candidate.
+    threshold: float = Field(default=0.3, ge=0, le=2)
+    max_forget: int = Field(default=100, ge=1, le=500)
+    # Ask the judge model which candidates are really about the request.
+    verify: bool = True
+    reason: Annotated[str, StringConstraints(strip_whitespace=True, max_length=500)] | None = None
+
+    @model_validator(mode="after")
+    def _one_selector(self) -> ForgetIn:
+        if (self.query is None) == (self.ids is None):
+            raise ValueError("give exactly one of query or ids")
+        return self
 
 
 class FeedbackIn(StrictModel):
@@ -205,6 +280,14 @@ class ConsolidateIn(StrictModel):
     merge: bool = False
 
 
+class DreamIn(StrictModel):
+    # The scope to dream over; omitted means the caller's own.
+    scope: Slug | None = None
+    max_clusters: int = Field(default=8, ge=1, le=50)
+    # Plan clusters without calling a model.
+    dry_run: bool = False
+
+
 class ReplayIn(StrictModel):
     confirm: Literal["REPLAY"] | None = None
 
@@ -230,7 +313,7 @@ class View(TypedDict):
 
 EntityKind = Literal["user", "team", "project", "product", "company", "person", "custom"]
 ReviewStatus = Literal["pending", "confirmed", "declined"]
-SourceRole = Literal["user", "assistant", "agent", "tool", "manual"]
+SourceRole = Literal["user", "assistant", "agent", "tool", "manual", "inference"]
 
 
 class ScopeView(View):
@@ -311,6 +394,10 @@ class MemorySummary(View):
     created_at: str | None
     updated_at: str | None
     revision: int
+    document_date: NotRequired[str | None]
+    event_dates: NotRequired[list[str]]
+    is_static: NotRequired[bool]
+    source_count: NotRequired[int]
 
 
 class MemoryRecord(MemorySummary):
@@ -359,6 +446,24 @@ class SearchEvidence(View):
     created_at: str | None
     revision: int | None
     evidence_status: Literal["current", "legacy_unversioned"]
+    # The source chunk around the verified excerpt, when requested.
+    context: NotRequired[str]
+    context_start: NotRequired[int]
+    context_end: NotRequired[int]
+
+
+class LinkedMemory(View):
+    id: str
+    text: str
+    kind: str
+    relation: Literal[
+        "replaces", "replaced_by", "extends", "extended_by", "derived_from", "premise_of"
+    ]
+    status: str
+    source_role: str
+    document_date: str | None
+    event_dates: list[str]
+    valid_until: str | None
 
 
 class SearchMemory(View):
@@ -381,7 +486,16 @@ class SearchMemory(View):
     importance: float
     recency: float
     updated_at: str
+    # Added with retrieval policy v2; optional so a client can still read an
+    # older server's results.
+    document_date: NotRequired[str | None]
+    event_dates: NotRequired[list[str]]
+    source_count: NotRequired[int]
+    is_static: NotRequired[bool]
+    temporal: NotRequired[float]
     sources: NotRequired[list[SearchEvidence]]
+    history: NotRequired[list[LinkedMemory]]
+    related: NotRequired[list[LinkedMemory]]
 
 
 class ProfileMemory(View):
@@ -393,6 +507,9 @@ class ProfileMemory(View):
     scope: str | None
     subject: str | None
     updated_at: str | None
+    document_date: NotRequired[str | None]
+    event_dates: NotRequired[list[str]]
+    is_static: NotRequired[bool]
 
 
 class SessionView(View):
@@ -699,7 +816,22 @@ class MemoryHistoryOut(StrictModel):
     successor: MemorySummary | None
 
 
+class TemporalWindow(View):
+    start: str
+    end: str
+    phrase: str
+
+
+class TemporalIntentView(View):
+    window: TemporalWindow | None
+    order: Literal["earliest", "latest"] | None
+    asks_time: bool
+
+
 class MemorySearchOut(StrictModel):
+    # What the query said about time, when it said anything and the policy
+    # uses time.
+    temporal: TemporalIntentView | None = None
     memories: list[SearchMemory]
     used_tokens: int
     dropped_trust: list[str]
@@ -711,6 +843,24 @@ class MemorySearchOut(StrictModel):
     timings: dict[str, float]
     raw: list[dict[str, Any]] = Field(default_factory=list)
     retrieval_id: str | None = None
+    # The rephrasings searched alongside the query, when rewrite_query was set.
+    rewrites: list[str] = Field(default_factory=list)
+
+
+class ForgetCandidate(View):
+    id: str
+    text: str
+    score: float
+    scope: str | None
+
+
+class ForgetOut(StrictModel):
+    dry_run: bool
+    # Whether the judge model confirmed the query-mode candidates.
+    verified: bool
+    candidates: list[ForgetCandidate]
+    forgotten: list[str]
+    reason: str | None = None
 
 
 class FeedbackOut(StrictModel):

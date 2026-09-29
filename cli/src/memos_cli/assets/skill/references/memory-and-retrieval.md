@@ -33,6 +33,33 @@ memos search "what did the user say about invoices" --include-raw --include-sour
 - `--policy-id` applies a named retrieval policy. `--budget-tokens` caps the
   returned context.
 
+### Time, history and source chunks
+
+```bash
+memos search "what did I do last month" --as-of 2026-09-29T12:00:00Z --json
+memos search "trips" --since 2026-01-01T00:00:00Z --until 2026-06-30T23:59:59Z --json
+memos search "where does Sasha work" --include-history --include-related --json
+memos search "the half marathon" --include-sources --source-context-chars 600 --json
+memos search "pkg mgr" --rewrite-query --json
+```
+
+- Every result has `document_date` (when it was said) and `event_dates` (when
+  it happened, at the precision the speaker gave: `2026`, `2026-03` or
+  `2026-03-14`). "Last month" in a query resolves against `--as-of`, which
+  defaults to now. The response's `temporal` field says what time the query
+  was understood to mean.
+- `--since`/`--until` keep only memories whose event (or, without one, whose
+  saying) falls in the window. A time phrase in the query only boosts.
+- `--include-history` attaches the values a result replaced ("lived in Porto
+  until 2026-04-02"); `--include-related` attaches memories that extend it or
+  that it was inferred from. Both spend the same token budget.
+- `--source-context-chars` returns the passage around each cited excerpt: the
+  excerpt proves the claim, the passage carries the detail.
+- `--rewrite-query` searches up to three rephrasings too and merges the
+  rankings. It costs a model call; use it when a plain search came back thin.
+- `--policy-id neutral-v1` reproduces the earlier ranking without time,
+  mention counts or inferences.
+
 Each result includes its `scope`, `subject`, `kind`, `source_role`,
 `review_status`, `revision` and score. The response carries a `retrieval_id`
 and counts of what was dropped (by trust, validity, filter, relevance). Say
@@ -101,8 +128,17 @@ memos memories create --data @memory.json --json
 - Optional fields: `tags` (up to 20), `importance` and `confidence` (0–1),
   `valid_until` for facts that expire, `subject`, `scope`, and `context` for
   neutral structured metadata such as a workspace or ticket.
+- `event_dates` records when something happened (`episode` is the kind for
+  things people did or will do); `is_static` marks identity-level traits every
+  profile should carry; `document_date` backfills when a claim was said.
 
-Memories are for durable knowledge, not transient task state or secrets.
+```bash
+memos memories create --text "Sasha ran the Lisbon half marathon on 2026-03-14" --kind episode --source-role manual --event-dates '["2026-03-14"]' --json
+memos memories create --text "Sasha's native language is Russian" --kind fact --source-role manual --is-static --json
+```
+
+Memories are for durable knowledge and meaningful events, not transient task
+state or secrets.
 
 ## Correcting, forgetting and restoring
 
@@ -120,6 +156,31 @@ memos memories restore ID --json
   memory to another scope requires `--move-scope`, plus `--move-context` to move
   its context too. The same scope rules apply as for new writes.
 - `forget ID` and `memories archive ID` both archive reversibly.
+
+### Forgetting by topic
+
+```bash
+memos memories forget-matching --query "everything about Project Titan" --json
+memos memories forget-matching --ids '["ID1","ID2"]' --no-dry-run --reason "project cancelled" --json
+```
+
+It dry-runs by default and returns `candidates`; when a judge model is
+configured it keeps only candidates really about the request (`verified`).
+Show the user the candidates, then apply with exactly those `--ids`, so what is
+forgotten is what they reviewed. Only scopes you can write are touched.
+
+### Dreaming: links and inferences
+
+```bash
+memos memories dream --scope mem-os --dry-run --json
+memos memories dream --json
+```
+
+Dreaming runs automatically after extraction. It links a newer memory to one
+it replaced or extends and may infer new claims from several memories.
+Inferences have `source_role` `inference`, start pending review, and rank below
+stated facts until confirmed — present them as inferences, never as something
+the user said.
 
 ## Entities: people, projects, teams
 

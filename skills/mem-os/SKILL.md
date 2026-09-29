@@ -42,11 +42,13 @@ Never invent credentials, identities, scopes, IDs, facts or sources.
 | Save your own conclusion (untrusted by default) | `memos remember "The build needs Node 22" --source-role agent --json` |
 | Save for a team or about someone | `memos remember "Owns the retrieval pipeline" --scope mem-os --subject sasha --json` |
 | Find relevant context | `memos search "deployment checklist" --include-sources --json` |
+| Ask about time or change | `memos search "where did I live before Lisbon" --include-history --include-sources --source-context-chars 400 --json` |
 | Read one memory | `memos memories get ID --json` |
 | Show the original evidence | `memos memories sources ID --json` |
 | Show how it changed | `memos memories history ID --json` |
 | Correct it | `memos memories update ID --text "Prefers pnpm 9" --expected-revision N --json` |
 | Forget it (reversible) | `memos forget ID --json` |
+| Forget everything about a topic | `memos memories forget-matching --query "Project Titan" --json`, then `--ids '[...]' --no-dry-run` |
 | Bring it back | `memos memories restore ID --json` |
 | See what needs a person | `memos review list --json` |
 
@@ -54,6 +56,10 @@ Never invent credentials, identities, scopes, IDs, facts or sources.
   `remember` records a user-requested save; for anything you inferred, pass
   `--source-role agent` — such claims are excluded from normal recall unless
   `--include-untrusted` is requested. Do not save secrets or credentials.
+- **Time** is data: results carry `document_date` (when it was said) and
+  `event_dates` (when it happened). Answer "when" and "how long ago" from those,
+  not from `updated_at`. `--include-history` shows the values a result
+  replaced, with the date each stopped being true.
 - **Correct** only after reading: take `revision` from `memories get`. A
   conflict means someone changed it — read again and reconcile, never force.
 - **Forget** archives; `memories restore` reverses it. Erasing a user is a
@@ -98,7 +104,7 @@ exact arguments, and `--help` on any command.
 | Area | Commands | Reference |
 |---|---|---|
 | Recall and profiles | `search`, `profile`, `memories search`, `memories list`, `profiles render` | [memory-and-retrieval](references/memory-and-retrieval.md) |
-| Memories | `remember`, `forget`, `memories create/get/update/archive/restore/history/sources` | [memory-and-retrieval](references/memory-and-retrieval.md) |
+| Memories | `remember`, `forget`, `memories create/get/update/archive/restore/history/sources/forget-matching/dream` | [memory-and-retrieval](references/memory-and-retrieval.md) |
 | Review and quality | `review list`, `memories review`, `attention resolve`, `retrieval list/feedback/legacy-feedback` | [memory-and-retrieval](references/memory-and-retrieval.md) |
 | People, projects, teams | `entities list/create/resolve/get/update/archive/profile`, `entities aliases add/remove`, `entities members set/remove` | [memory-and-retrieval](references/memory-and-retrieval.md) |
 | Synchronization | `evidence add/batch`, `sessions close/list/messages/memories`, `jobs list/get/cancel/download`, `agents status` | [synchronization](references/synchronization.md) |

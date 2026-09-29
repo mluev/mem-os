@@ -5,8 +5,20 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from . import consolidate, entities, extract, jobs, maintenance, privacy, reextract, reindex, store
+from . import (
+    consolidate,
+    dream,
+    entities,
+    extract,
+    jobs,
+    maintenance,
+    privacy,
+    reextract,
+    reindex,
+    store,
+)
 from .config import get_settings
+from .http import judge_configured
 
 logger = logging.getLogger(__name__)
 MAX_WINDOWS_PER_JOB = 25
@@ -86,6 +98,28 @@ def run(application, job_id: str) -> None:
                 logger.warning("failure belongs to obsolete job lease: %s", job_id)
 
 
+def _queue_dreams(conn, *, job_id: str, user_id: str) -> list[str]:
+    """One dream per scope this extraction wrote into, unless one is pending."""
+    settings = get_settings()
+    scopes = [
+        str(row["scope_id"])
+        for row in conn.execute(
+            """SELECT DISTINCT m.scope_id FROM memories m
+                 JOIN judge_runs r ON r.id = m.judge_run_id
+                WHERE r.job_id = %s""",
+            (job_id,),
+        )
+    ]
+    queued = []
+    for scope_id in scopes:
+        created = dream.queue(
+            conn, scope_id=scope_id, user_id=user_id, max_clusters=settings.dream_max_clusters
+        )
+        if created:
+            queued.append(created)
+    return queued
+
+
 def _defer(conn, job_id, holder, reason):
     try:
         jobs.defer(conn, job_id, holder=holder, error=reason)
@@ -129,6 +163,7 @@ def _execute(application, conn, job, guard, cancelled) -> dict[str, Any]:
                 embedder=state.embedder,
                 dedup_cosine=settings.dedup_cosine,
                 semantic=getattr(state, "semantic", None),
+                prompt_version=settings.prompt_version or None,
             )
             if outcome.error:
                 raise RuntimeError(outcome.error)
@@ -150,10 +185,19 @@ def _execute(application, conn, job, guard, cancelled) -> dict[str, Any]:
                         pending=remaining,
                         user_id=job["user_id"],
                     )
+            dreams = (
+                _queue_dreams(conn, job_id=job_id, user_id=str(job["user_id"]))
+                if outcome.applied
+                and job["user_id"]
+                and settings.dreaming == "after_extraction"
+                and judge_configured(settings)
+                else []
+            )
             state.worker.wake()
             return {
                 **outcome.as_dict(),
                 "continuation_job_id": continuation,
+                "dream_job_ids": dreams,
                 "cancelled": was_cancelled,
             }
         case "export":
@@ -227,6 +271,29 @@ def _execute(application, conn, job, guard, cancelled) -> dict[str, Any]:
             )
             state.worker.wake()
             return outcome.as_dict()
+        case "dream":
+            with conn.transaction():
+                guard()
+                actor = _active_actor(conn, job["user_id"])
+            result = dream.run(
+                conn,
+                scope_id=data["scope_id"],
+                user_id=str(actor["id"]),
+                client=state.qdrant,
+                embedder=state.embedder,
+                model=settings.judge_model,
+                monthly_limit_usd=settings.monthly_cost_limit_usd,
+                api_key=settings.anthropic_api_key,
+                gemini_api_key=settings.gemini_api_key,
+                project=settings.vertex_project,
+                location=settings.vertex_location,
+                max_clusters=int(data.get("max_clusters") or settings.dream_max_clusters),
+                dry_run=bool(data.get("dry_run", False)),
+                job_id=job_id,
+                guard=guard,
+            )
+            state.worker.wake()
+            return result.as_dict()
         case "reextract_report":
             return reextract.dry_run_report(conn, scope_ids=data["scope_ids"])
         case _:

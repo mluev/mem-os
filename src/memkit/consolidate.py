@@ -636,6 +636,11 @@ def _apply_merges(
                 # else would launder assistant text into a user-sourced fact.
                 source_role=provenance.weakest(roles),
                 review_status="pending",
+                # The merged claim was first said when its earliest member was,
+                # happened whenever any member did, and is static if any is.
+                document_date=min(row["document_date"] for row in rows),
+                event_dates=sorted({d for row in rows for d in (row["event_dates"] or [])}),
+                is_static=any(bool(row["is_static"]) for row in rows),
             )
             for row in rows:
                 member_id = str(row["id"])
@@ -649,4 +654,5 @@ def _apply_merges(
                     expected_revision=int(row["revision"]),
                 )
                 outcome.superseded.append(member_id)
+            store.recount_mentions(conn, memory_id=survivor)
         outcome.merged.append({"survivor": survivor, "members": [str(row["id"]) for row in rows]})

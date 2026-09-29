@@ -49,8 +49,8 @@ class TestPromptRegistry(unittest.TestCase):
         self.assertEqual(prompts.DEFAULT_VERSION, judge.PROMPT_VERSION)
 
     def test_retired_versions_stay_readable(self) -> None:
-        """Facts stamped v7, v8 or v9 are still in the store."""
-        self.assertEqual(sorted(prompts.REGISTRY), ["v10", "v7", "v8", "v9"])
+        """Facts stamped v7 through v10 are still in the store."""
+        self.assertEqual(sorted(prompts.REGISTRY), ["v10", "v11", "v7", "v8", "v9"])
 
     def test_unknown_version_raises(self) -> None:
         with self.assertRaises(ValueError):
@@ -188,6 +188,66 @@ class TestV10Routing(unittest.TestCase):
         self.assertIn("recorded on 2026-03-10", rendered)
         self.assertIn("5. teammate: Alexander Petrov", rendered)
         self.assertNotIn("{entities}", rendered)
+
+
+class TestV11TimeAndGraph(unittest.TestCase):
+    """v11 = v10 plus episodes, event dates and the supersede/extends graph."""
+
+    def test_v11_keeps_every_v10_routing_and_context_rule(self) -> None:
+        v11 = _collapsed("v11")
+        for clause in [
+            "said again tomorrow in another repo, would this sentence still hold",
+            "character for character",
+            "Scope is not context",
+            "a scoped memory usually still has empty context",
+            "The workspace CONTEXT names is not a scope",
+            "set subject to their number and omit scope",
+            "set scope to the team's number, no subject",
+            "Do not guess which listed person was meant",
+            "the recording date is the ONLY anchor",
+            "Only a user's own words can support a memory",
+            "exact spans from USER messages only",
+            "Keep proper nouns verbatim",
+            "Echo extraction",
+            "Meta-extraction",
+            "Detail contamination",
+            "First-topic dominance",
+        ]:
+            self.assertIn(clause, v11, f"v11 lost a v10 rule: {clause!r}")
+
+    def test_v11_keeps_work_logs_out_and_lets_episodes_in(self) -> None:
+        v11 = _collapsed("v11")
+        # The exclusion that kept coding-agent work logs out survives...
+        self.assertIn("the assistant's work in this session", v11)
+        self.assertIn("implementation steps", v11)
+        # ...and what the user did or will do now has a kind and a date.
+        self.assertIn('kind="episode"', v11)
+        self.assertIn("WHEN THE DESCRIBED THING HAPPENED OR WILL HAPPEN", v11)
+        self.assertIn("never invent a day the user did not give", v11)
+        self.assertIn("Lost dates", v11)
+
+    def test_v11_names_both_kinds_of_update_and_the_extends_link(self) -> None:
+        v11 = _collapsed("v11")
+        self.assertIn('"correction": the candidate was wrong or imprecise', v11)
+        self.assertIn('"supersede": the candidate WAS true', v11)
+        self.assertIn("sets `extends` to that candidate's number", v11)
+        # Routing is read after the context rule, as in v10.
+        text = prompts.REGISTRY["v11"]
+        self.assertLess(text.index("Context defaults to empty"), text.index("ROUTING"))
+
+    def test_v11_renders_every_placeholder(self) -> None:
+        rendered = prompts.render(
+            "v11",
+            today="2026-09-29",
+            window="[1] user: I moved to Lisbon last month",
+            candidates="- id=1 kind=fact said=2026-01-05 context={} importance=0.6: lives in Porto",
+            context="{}",
+            entities="1. you, the speaker: Alice",
+            session_date="2026-04-02",
+        )
+        for placeholder in ("{today}", "{window}", "{candidates}", "{entities}", "{session_date}"):
+            self.assertNotIn(placeholder, rendered)
+        self.assertIn("recorded on 2026-04-02", rendered)
 
 
 class TestV8Contract(unittest.TestCase):
