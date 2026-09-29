@@ -586,7 +586,7 @@ def recall() -> None:
     if not fresh:
         return
     _remember_injected(session_id, [str(memory["id"]) for memory in fresh])
-    lines = "\n".join(f"- {memory['text']}" for memory in fresh)
+    lines = "\n".join(f"- {_dated(memory)}" for memory in fresh)
     print(
         json.dumps(
             {
@@ -597,6 +597,18 @@ def recall() -> None:
             }
         )
     )
+
+
+def _dated(memory: dict[str, Any]) -> str:
+    """The memory's text, with when it happened if the text does not say.
+
+    An episode's text carries its date already; a fact whose event date only
+    lives in the metadata would otherwise reach the model undated, and "went
+    to Lisbon" reads as current when it was two years ago.
+    """
+    text = str(memory["text"])
+    dates = [d for d in (memory.get("event_dates") or []) if d not in text]
+    return f"{text} ({', '.join(dates)})" if dates else text
 
 
 def _injected(session_id: str) -> set[str]:

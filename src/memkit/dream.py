@@ -3,7 +3,7 @@
 Extraction sees ten messages at a time. It can supersede a candidate it was
 shown, but a claim from last month that a new window contradicts is often not
 among its candidates, and what several memories imply together is invisible to
-any single window. Dreaming is the second pass (decisions/0077):
+any single window. Dreaming is the second pass (decisions/0078):
 
 1. Pick the memories in one scope that changed since that scope last dreamed.
 2. Around each, gather its nearest neighbours in the same scope.

@@ -8,6 +8,7 @@ from attrs import field as _attrs_field
 
 from ..models.profile_memory_review_status import ProfileMemoryReviewStatus
 from ..models.profile_memory_source_role import ProfileMemorySourceRole
+from ..types import UNSET, Unset
 
 T = TypeVar("T", bound="ProfileMemory")
 
@@ -24,6 +25,9 @@ class ProfileMemory:
         subject (None | str):
         text (str):
         updated_at (None | str):
+        document_date (None | str | Unset):
+        event_dates (list[str] | Unset):
+        is_static (bool | Unset):
     """
 
     id: str
@@ -34,6 +38,9 @@ class ProfileMemory:
     subject: None | str
     text: str
     updated_at: None | str
+    document_date: None | str | Unset = UNSET
+    event_dates: list[str] | Unset = UNSET
+    is_static: bool | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -56,6 +63,18 @@ class ProfileMemory:
         updated_at: None | str
         updated_at = self.updated_at
 
+        document_date: None | str | Unset
+        if isinstance(self.document_date, Unset):
+            document_date = UNSET
+        else:
+            document_date = self.document_date
+
+        event_dates: list[str] | Unset = UNSET
+        if not isinstance(self.event_dates, Unset):
+            event_dates = self.event_dates
+
+        is_static = self.is_static
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -70,6 +89,12 @@ class ProfileMemory:
                 "updated_at": updated_at,
             }
         )
+        if document_date is not UNSET:
+            field_dict["document_date"] = document_date
+        if event_dates is not UNSET:
+            field_dict["event_dates"] = event_dates
+        if is_static is not UNSET:
+            field_dict["is_static"] = is_static
 
         return field_dict
 
@@ -107,6 +132,19 @@ class ProfileMemory:
 
         updated_at = _parse_updated_at(d.pop("updated_at"))
 
+        def _parse_document_date(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        document_date = _parse_document_date(d.pop("document_date", UNSET))
+
+        event_dates = cast(list[str], d.pop("event_dates", UNSET))
+
+        is_static = d.pop("is_static", UNSET)
+
         profile_memory = cls(
             id=id,
             kind=kind,
@@ -116,6 +154,9 @@ class ProfileMemory:
             subject=subject,
             text=text,
             updated_at=updated_at,
+            document_date=document_date,
+            event_dates=event_dates,
+            is_static=is_static,
         )
 
         profile_memory.additional_properties = d

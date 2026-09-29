@@ -388,7 +388,7 @@ def cmd_consolidate(args: argparse.Namespace) -> int:
 
 
 def cmd_dream(args: argparse.Namespace) -> int:
-    """Link and infer across one user's scope (decisions/0077)."""
+    """Link and infer across one user's scope (decisions/0078)."""
     settings = get_settings()
     conn, client = _ready()
     owner = _resolve_user(conn, args.user)

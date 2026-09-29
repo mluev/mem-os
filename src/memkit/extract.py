@@ -757,6 +757,11 @@ def apply_ops(
             # The candidate was true until now. The replacement is a new
             # memory with its own date and evidence; the old one stays as
             # history whose validity ends when the replacement was said.
+            said = _said_at(conn, evidence)
+            # A backfill can replay an older window after a newer one. Then the
+            # candidate is the newer truth and this claim is its history, not
+            # its replacement.
+            backwards = said is not None and said < existing["document_date"]
             replacement = store.add_memory(
                 conn,
                 scope_id=scope_id,
@@ -774,7 +779,7 @@ def apply_ops(
                 judge_run_id=judge_run_id,
                 source_role=source_role,
                 review_status="pending",
-                document_date=_said_at(conn, evidence),
+                document_date=said,
                 event_dates=op.event_dates,
                 is_static=(
                     bool(op.is_static) if op.is_static is not None else bool(existing["is_static"])
@@ -783,8 +788,8 @@ def apply_ops(
             _link_evidence(conn, replacement, evidence)
             store.supersede(
                 conn,
-                old_id=str(existing["id"]),
-                new_id=replacement,
+                old_id=replacement if backwards else str(existing["id"]),
+                new_id=str(existing["id"]) if backwards else replacement,
                 scopes=writable_scope_ids,
                 judge_run_id=judge_run_id,
             )

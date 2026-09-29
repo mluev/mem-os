@@ -96,6 +96,22 @@ class GraphExtractionTest(PipelineCase):
             (str(new["id"]), old, "updates"),
         )
 
+    def test_an_older_window_replayed_late_becomes_history_not_the_truth(self) -> None:
+        current = self.seed_memory("The user lives in Lisbon")  # said 2026-01-05
+        ids = add_messages(self.conn, n=10, content="I live in Porto these days")
+        _said(self.conn, ids, "2025-06-01T10:00:00Z")
+        op = _add("The user lives in Porto", message_id=ids[0], quote="I live in Porto")
+        op.update(op="UPDATE", id="1", kind="fact", change="supersede")
+
+        outcome = self.run_extraction(lambda **_: _result([op]), force=True)
+
+        self.assertEqual(outcome.superseded, 1, outcome.as_dict())
+        porto = self.memory("The user lives in Porto")
+        lisbon = self.conn.execute("SELECT * FROM memories WHERE id=%s", (current,)).fetchone()
+        self.assertEqual((lisbon["status"], porto["status"]), ("active", "superseded"))
+        self.assertEqual(str(porto["superseded_by"]), current)
+        self.assertEqual(db.iso(porto["valid_until"]), "2026-01-05T09:00:00Z")
+
     def test_a_correction_rewrites_in_place_and_keeps_its_event_dates(self) -> None:
         old = self.seed_memory(
             "The user adopted a dog on 2026-02-01", kind="episode", events=["2026-02-01"]
@@ -187,6 +203,29 @@ class StoreGraphTest(PipelineCase):
         self.assertEqual(
             store.relations_for(self.conn, [a], scope_ids=[self.team.scope_of("bob")]), []
         )
+
+    def test_an_export_carries_the_edges_between_exported_memories(self) -> None:
+        import json
+        import tempfile
+        from pathlib import Path
+
+        from memkit import privacy
+
+        a = self.write("The user lives in Porto")
+        b = self.write("The user lives in Lisbon")
+        with self.conn.transaction():
+            store.supersede(self.conn, old_id=a, new_id=b, scopes=[self.team.scope_of("alice")])
+        with tempfile.TemporaryDirectory() as directory:
+            result = privacy.export_user(
+                self.conn,
+                user_id=self.team.alice_id,
+                export_dir=Path(directory),
+                private_scope_id=self.team.scope_of("alice"),
+            )
+            payload = json.loads(Path(result["path"]).read_text())
+        self.assertEqual(result["memory_relations"], 1)
+        [edge] = payload["memory_relations"]
+        self.assertEqual((edge["from_id"], edge["to_id"], edge["relation"]), (b, a, "updates"))
 
     def test_a_mention_counts_once_per_new_session(self) -> None:
         make_session(self.conn, self.team, session_id="s-2")

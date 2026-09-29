@@ -464,7 +464,7 @@ CREATE TABLE memory_revision_evidence (
 );
 """
 
-# Version 3: time, reinforcement and a memory graph (decisions/0074-0077).
+# Version 3: time, reinforcement and a memory graph (decisions/0075-0078).
 #
 # `document_date` is when the claim was said -- the earliest message it cites,
 # or the write itself for a manual save -- and never the write time of a
@@ -770,7 +770,7 @@ def _seed_core_policies(conn: psycopg.Connection) -> None:
             },
         ),
         (
-            # v1 plus time, reinforcement and inference (decisions/0076). The
+            # v1 plus time, reinforcement and inference (decisions/0077). The
             # fusion weights and floor are v1's: this version adds signals, it
             # does not re-tune the ones already there.
             "core-retrieval-v2",

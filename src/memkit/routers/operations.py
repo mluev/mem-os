@@ -216,7 +216,7 @@ def start_dream(
     principal: Principal = Depends(get_principal),
     conn: psycopg.Connection = Depends(get_conn),
 ) -> JobQueuedOut:
-    """Link and infer across one scope's recent memories (decisions/0077).
+    """Link and infer across one scope's recent memories (decisions/0078).
 
     The caller must be able to write the scope: inferences are written into it
     under their name, pending review.

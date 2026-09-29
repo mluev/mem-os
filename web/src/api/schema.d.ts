@@ -499,6 +499,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/dream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start Dream
+         * @description Link and infer across one scope's recent memories (decisions/0078).
+         *
+         *     The caller must be able to write the scope: inferences are written into it
+         *     under their name, pending review.
+         */
+        post: operations["start_dream_v1_dream_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/entities": {
         parameters: {
             query?: never;
@@ -808,6 +831,32 @@ export interface paths {
          *     else -- a shared scope, or a model-authored write -- starts pending.
          */
         post: operations["post_memory_v1_memories_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/memories/forget": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Forget Memories
+         * @description Forget what matches a request, or exactly the ids given (decisions/0080).
+         *
+         *     Only scopes the caller may write are searched. In query mode the judge
+         *     model, when configured, keeps only candidates that are really about the
+         *     request, choosing by number among those it was shown. Applying with the
+         *     ids from a dry run forgets exactly what was reviewed, even if the store has
+         *     changed since.
+         */
+        post: operations["forget_memories_v1_memories_forget_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1259,6 +1308,21 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /** DreamIn */
+        DreamIn: {
+            /**
+             * Dry Run
+             * @default false
+             */
+            dry_run: boolean;
+            /**
+             * Max Clusters
+             * @default 8
+             */
+            max_clusters: number;
+            /** Scope */
+            scope?: string | null;
+        };
         /** EmbedderHealth */
         EmbedderHealth: {
             /** Device */
@@ -1500,6 +1564,71 @@ export interface components {
         FlexibleOut: {
             [key: string]: unknown;
         };
+        /** ForgetCandidate */
+        ForgetCandidate: {
+            /** Id */
+            id: string;
+            /** Scope */
+            scope: string | null;
+            /** Score */
+            score: number;
+            /** Text */
+            text: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * ForgetIn
+         * @description Forget matching memories: by a request searched semantically, or by ids.
+         *
+         *     Forgetting archives: a forgotten memory leaves search and profiles, keeps
+         *     its history and reason, and a reviewer can bring it back. A dry run is the
+         *     default, because the match is semantic and a broad request selects more
+         *     than intended.
+         */
+        ForgetIn: {
+            /**
+             * Dry Run
+             * @default true
+             */
+            dry_run: boolean;
+            /** Ids */
+            ids?: string[] | null;
+            /**
+             * Max Forget
+             * @default 100
+             */
+            max_forget: number;
+            /** Query */
+            query?: string | null;
+            /** Reason */
+            reason?: string | null;
+            /** Scope */
+            scope?: string | null;
+            /**
+             * Threshold
+             * @default 0.3
+             */
+            threshold: number;
+            /**
+             * Verify
+             * @default true
+             */
+            verify: boolean;
+        };
+        /** ForgetOut */
+        ForgetOut: {
+            /** Candidates */
+            candidates: components["schemas"]["ForgetCandidate"][];
+            /** Dry Run */
+            dry_run: boolean;
+            /** Forgotten */
+            forgotten: string[];
+            /** Reason */
+            reason?: string | null;
+            /** Verified */
+            verified: boolean;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -1668,6 +1797,32 @@ export interface components {
             /** Secret */
             secret: string;
         };
+        /** LinkedMemory */
+        LinkedMemory: {
+            /** Document Date */
+            document_date: string | null;
+            /** Event Dates */
+            event_dates: string[];
+            /** Id */
+            id: string;
+            /** Kind */
+            kind: string;
+            /**
+             * Relation
+             * @enum {string}
+             */
+            relation: "replaces" | "replaced_by" | "extends" | "extended_by" | "derived_from" | "premise_of";
+            /** Source Role */
+            source_role: string;
+            /** Status */
+            status: string;
+            /** Text */
+            text: string;
+            /** Valid Until */
+            valid_until: string | null;
+        } & {
+            [key: string]: unknown;
+        };
         /** LoginIn */
         LoginIn: {
             /** Handle */
@@ -1727,11 +1882,20 @@ export interface components {
             context?: {
                 [key: string]: unknown;
             };
+            /** Document Date */
+            document_date?: string | null;
+            /** Event Dates */
+            event_dates?: string[];
             /**
              * Importance
              * @default 0.6
              */
             importance: number;
+            /**
+             * Is Static
+             * @default false
+             */
+            is_static: boolean;
             /** Kind */
             kind: string;
             /** Scope */
@@ -1783,10 +1947,14 @@ export interface components {
             context?: {
                 [key: string]: unknown;
             } | null;
+            /** Event Dates */
+            event_dates?: string[] | null;
             /** Expected Revision */
             expected_revision: number;
             /** Importance */
             importance?: number | null;
+            /** Is Static */
+            is_static?: boolean | null;
             /** Kind */
             kind?: string | null;
             /**
@@ -1822,12 +1990,18 @@ export interface components {
             };
             /** Created At */
             created_at: string | null;
+            /** Document Date */
+            document_date?: string | null;
+            /** Event Dates */
+            event_dates?: string[];
             /** Extraction Version */
             extraction_version?: string;
             /** Id */
             id: string;
             /** Importance */
             importance: number;
+            /** Is Static */
+            is_static?: boolean;
             /** Judge Run Id */
             judge_run_id?: number | null;
             /** Kind */
@@ -1849,11 +2023,13 @@ export interface components {
             scope_slug: string | null;
             /** Sessions */
             sessions?: string[];
+            /** Source Count */
+            source_count?: number;
             /**
              * Source Role
              * @enum {string}
              */
-            source_role: "user" | "assistant" | "agent" | "tool" | "manual";
+            source_role: "user" | "assistant" | "agent" | "tool" | "manual" | "inference";
             /**
              * Status
              * @enum {string}
@@ -1932,6 +2108,9 @@ export interface components {
             }[];
             /** Retrieval Id */
             retrieval_id?: string | null;
+            /** Rewrites */
+            rewrites?: string[];
+            temporal?: components["schemas"]["TemporalIntentView"] | null;
             /** Timings */
             timings: {
                 [key: string]: number;
@@ -1972,10 +2151,16 @@ export interface components {
             confidence: number;
             /** Created At */
             created_at: string | null;
+            /** Document Date */
+            document_date?: string | null;
+            /** Event Dates */
+            event_dates?: string[];
             /** Id */
             id: string;
             /** Importance */
             importance: number;
+            /** Is Static */
+            is_static?: boolean;
             /** Kind */
             kind: string;
             /**
@@ -1989,11 +2174,13 @@ export interface components {
             scope: string | null;
             /** Scope Slug */
             scope_slug: string | null;
+            /** Source Count */
+            source_count?: number;
             /**
              * Source Role
              * @enum {string}
              */
-            source_role: "user" | "assistant" | "agent" | "tool" | "manual";
+            source_role: "user" | "assistant" | "agent" | "tool" | "manual" | "inference";
             /**
              * Status
              * @enum {string}
@@ -2309,8 +2496,14 @@ export interface components {
         };
         /** ProfileMemory */
         ProfileMemory: {
+            /** Document Date */
+            document_date?: string | null;
+            /** Event Dates */
+            event_dates?: string[];
             /** Id */
             id: string;
+            /** Is Static */
+            is_static?: boolean;
             /** Kind */
             kind: string;
             /**
@@ -2324,7 +2517,7 @@ export interface components {
              * Source Role
              * @enum {string}
              */
-            source_role: "user" | "assistant" | "agent" | "tool" | "manual";
+            source_role: "user" | "assistant" | "agent" | "tool" | "manual" | "inference";
             /** Subject */
             subject: string | null;
             /** Text */
@@ -2570,6 +2763,12 @@ export interface components {
         };
         /** SearchEvidence */
         SearchEvidence: {
+            /** Context */
+            context?: string;
+            /** Context End */
+            context_end?: number;
+            /** Context Start */
+            context_start?: number;
             /** Created At */
             created_at: string | null;
             /**
@@ -2590,6 +2789,8 @@ export interface components {
         };
         /** SearchIn */
         SearchIn: {
+            /** As Of */
+            as_of?: string | null;
             /**
              * Budget Tokens
              * @default 800
@@ -2600,10 +2801,20 @@ export interface components {
                 [key: string]: unknown;
             } | null;
             /**
+             * Include History
+             * @default false
+             */
+            include_history: boolean;
+            /**
              * Include Raw
              * @default false
              */
             include_raw: boolean;
+            /**
+             * Include Related
+             * @default false
+             */
+            include_related: boolean;
             /**
              * Include Sources
              * @default false
@@ -2623,15 +2834,29 @@ export interface components {
             limit: number;
             /**
              * Policy Id
-             * @default neutral-v1
+             * @default core-retrieval-v2
              */
             policy_id: string;
             /** Query */
             query: string;
+            /**
+             * Rewrite Query
+             * @default false
+             */
+            rewrite_query: boolean;
             /** Scopes */
             scopes?: string[] | null;
+            /** Since */
+            since?: string | null;
+            /**
+             * Source Context Chars
+             * @default 0
+             */
+            source_context_chars: number;
             /** Subject */
             subject?: string | null;
+            /** Until */
+            until?: string | null;
         };
         /** SearchLatency */
         SearchLatency: {
@@ -2650,18 +2875,28 @@ export interface components {
             context: {
                 [key: string]: unknown;
             };
+            /** Document Date */
+            document_date?: string | null;
             /** Entity */
             entity: number;
+            /** Event Dates */
+            event_dates?: string[];
+            /** History */
+            history?: components["schemas"]["LinkedMemory"][];
             /** Id */
             id: string;
             /** Importance */
             importance: number;
+            /** Is Static */
+            is_static?: boolean;
             /** Kind */
             kind: string;
             /** Lexical */
             lexical: number;
             /** Recency */
             recency: number;
+            /** Related */
+            related?: components["schemas"]["LinkedMemory"][];
             /**
              * Review Status
              * @enum {string}
@@ -2677,11 +2912,13 @@ export interface components {
             score: number;
             /** Similarity */
             similarity: number;
+            /** Source Count */
+            source_count?: number;
             /**
              * Source Role
              * @enum {string}
              */
-            source_role: "user" | "assistant" | "agent" | "tool" | "manual";
+            source_role: "user" | "assistant" | "agent" | "tool" | "manual" | "inference";
             /** Sources */
             sources?: components["schemas"]["SearchEvidence"][];
             /** Subject */
@@ -2690,6 +2927,8 @@ export interface components {
             subject_slug: string | null;
             /** Tags */
             tags: string[];
+            /** Temporal */
+            temporal?: number;
             /** Text */
             text: string;
             /** Updated At */
@@ -2794,6 +3033,27 @@ export interface components {
             offset: number;
             /** Total */
             total: number;
+        };
+        /** TemporalIntentView */
+        TemporalIntentView: {
+            /** Asks Time */
+            asks_time: boolean;
+            /** Order */
+            order: ("earliest" | "latest") | null;
+            window: components["schemas"]["TemporalWindow"] | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /** TemporalWindow */
+        TemporalWindow: {
+            /** End */
+            end: string;
+            /** Phrase */
+            phrase: string;
+            /** Start */
+            start: string;
+        } & {
+            [key: string]: unknown;
         };
         /** UserIn */
         UserIn: {
@@ -3801,6 +4061,43 @@ export interface operations {
             };
         };
     };
+    start_dream_v1_dream_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-requested-with"?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                memkit_session?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DreamIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobQueuedOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_entities_v1_entities_get: {
         parameters: {
             query?: {
@@ -4529,6 +4826,43 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MemoryCreatedOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    forget_memories_v1_memories_forget_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-requested-with"?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                memkit_session?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ForgetIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ForgetOut"];
                 };
             };
             /** @description Validation Error */

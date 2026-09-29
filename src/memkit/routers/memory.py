@@ -782,7 +782,7 @@ def forget_memories(
     conn: psycopg.Connection = Depends(get_conn),
     settings: Settings = Depends(get_settings),
 ) -> ForgetOut:
-    """Forget what matches a request, or exactly the ids given (decisions/0079).
+    """Forget what matches a request, or exactly the ids given (decisions/0080).
 
     Only scopes the caller may write are searched. In query mode the judge
     model, when configured, keeps only candidates that are really about the
@@ -881,7 +881,7 @@ def forget_memories(
                     forget_reason=reason,
                 )
                 forgotten.append(candidate["id"])
-    except KeyError as exc:
+    except (KeyError, RuntimeError) as exc:
         raise HTTPException(409, "a memory changed while forgetting; retry") from exc
     _drain(request)
     return {

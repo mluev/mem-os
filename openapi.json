@@ -7814,7 +7814,7 @@
     },
     "/v1/dream": {
       "post": {
-        "description": "Link and infer across one scope's recent memories (decisions/0077).\n\nThe caller must be able to write the scope: inferences are written into it\nunder their name, pending review.",
+        "description": "Link and infer across one scope's recent memories (decisions/0078).\n\nThe caller must be able to write the scope: inferences are written into it\nunder their name, pending review.",
         "operationId": "start_dream_v1_dream_post",
         "parameters": [
           {
@@ -9727,7 +9727,7 @@
     },
     "/v1/memories/forget": {
       "post": {
-        "description": "Forget what matches a request, or exactly the ids given (decisions/0079).\n\nOnly scopes the caller may write are searched. In query mode the judge\nmodel, when configured, keeps only candidates that are really about the\nrequest, choosing by number among those it was shown. Applying with the\nids from a dry run forgets exactly what was reviewed, even if the store has\nchanged since.",
+        "description": "Forget what matches a request, or exactly the ids given (decisions/0080).\n\nOnly scopes the caller may write are searched. In query mode the judge\nmodel, when configured, keeps only candidates that are really about the\nrequest, choosing by number among those it was shown. Applying with the\nids from a dry run forgets exactly what was reviewed, even if the store has\nchanged since.",
         "operationId": "forget_memories_v1_memories_forget_post",
         "parameters": [
           {

@@ -43,7 +43,7 @@ class RetrievalPolicy:
     min_relevance: float = 0.18
     allowed_source_roles: frozenset[str] = DEFAULT_TRUST
     default_half_life_days: float = 180.0
-    # Policy v2 signals (decisions/0076). Every one defaults to off, so a v1
+    # Policy v2 signals (decisions/0077). Every one defaults to off, so a v1
     # policy ranks exactly as it did before they existed.
     #
     # Episodes age from when they happened, faster than facts, unless marked
@@ -661,7 +661,7 @@ RRF_K = 60
 
 
 def fuse(results: Sequence[Explain], *, budget_tokens: int, limit: int | None = None) -> Explain:
-    """Merge rankings for one question asked several ways (decisions/0078).
+    """Merge rankings for one question asked several ways (decisions/0079).
 
     Each memory scores the sum of 1/(k + rank) over the lists that returned it,
     so a memory found by the original query and by two rewrites outranks one

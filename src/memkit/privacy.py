@@ -188,6 +188,15 @@ def _export_user(
             "SELECT * FROM memory_revision_evidence WHERE memory_id = ANY(%s::uuid[]) ORDER BY memory_id,revision,message_id,start_char",
             (memory_ids,),
         )
+        # Edges between two exported memories: an edge to a memory outside the
+        # export would name something that is not this user's data.
+        relations = _rows(
+            conn,
+            """SELECT * FROM memory_relations
+                WHERE from_id = ANY(%s::uuid[]) AND to_id = ANY(%s::uuid[])
+                ORDER BY from_id,to_id,relation""",
+            (memory_ids, memory_ids),
+        )
         attention = _rows(
             conn,
             "SELECT * FROM needs_attention WHERE user_id=%s ORDER BY created_at",
@@ -230,6 +239,7 @@ def _export_user(
         "memory_sources": sources,
         "memory_evidence": evidence,
         "memory_revision_evidence": revision_evidence,
+        "memory_relations": relations,
         "needs_attention": attention,
         "retrieval_runs": runs,
         "retrieval_run_feedback": run_feedback,
@@ -249,6 +259,7 @@ def _export_user(
         "memory_sources": len(sources),
         "memory_evidence": len(evidence),
         "memory_revision_evidence": len(revision_evidence),
+        "memory_relations": len(relations),
         "needs_attention": len(attention),
         "retrieval_runs": len(runs),
         "retrieval_run_feedback": len(run_feedback),

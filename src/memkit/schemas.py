@@ -185,7 +185,7 @@ class SearchIn(StrictModel):
     scopes: list[Slug] | None = None
     subject: Slug | None = None
     # v2 adds time, reinforcement and inference to v1's fusion; "neutral-v1"
-    # still names the previous ranking exactly (decisions/0076).
+    # still names the previous ranking exactly (decisions/0077).
     policy_id: str = "core-retrieval-v2"
     include_untrusted: bool = False
     include_raw: bool = False

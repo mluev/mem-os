@@ -136,7 +136,7 @@ class Settings(BaseSettings):
     # Optional cross-encoder rerank. Empty means off; see rerank.py.
     rerank_model: str = ""
 
-    # Dreaming (decisions/0077): after an extraction writes memories, link and
+    # Dreaming (decisions/0078): after an extraction writes memories, link and
     # infer across the scopes it touched. Runs only when a judge is configured,
     # under the same monthly ceiling; each cluster is one call.
     dreaming: Literal["off", "after_extraction"] = "after_extraction"

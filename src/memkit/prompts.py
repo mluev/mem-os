@@ -273,7 +273,7 @@ CANDIDATES
     )
 )
 
-# v11 = v10 plus time, episodes and the memory graph (decisions/0074-0075).
+# v11 = v10 plus time, episodes and the memory graph (decisions/0075-0076).
 #
 # Rule 3 of every earlier version dropped anything temporary, completed or
 # dated. That kept work logs out, and it also made every "when did I…" and
@@ -472,7 +472,7 @@ MEMORIES
 CONSOLIDATE_VERSION = "c2"
 
 
-# Dreaming (decisions/0077): a second pass over memories that were written one
+# Dreaming (decisions/0078): a second pass over memories that were written one
 # window at a time, looking at a small cluster of related ones together. It
 # finds what no single window could: that a later claim replaced an earlier
 # one said in another session, that one adds detail to another, and what the
@@ -558,7 +558,7 @@ def dream_schema() -> dict[str, Any]:
     }
 
 
-# Query rewriting (decisions/0078). A question and the memory that answers it
+# Query rewriting (decisions/0079). A question and the memory that answers it
 # are worded differently -- "where do I live now?" against "The user moved to
 # Lisbon" -- and a short query gives the lexical arm almost nothing. Rewrites
 # are searched alongside the original and fused by rank, so a bad rewrite can
@@ -594,7 +594,7 @@ def rewrite_schema() -> dict[str, Any]:
     }
 
 
-# Forget-matching (decisions/0079). Search finds what shares words or meaning
+# Forget-matching (decisions/0080). Search finds what shares words or meaning
 # with a request; the model decides which of those are actually about what the
 # person asked to forget, by number, among the candidates it was shown.
 FORGET_V1 = """A person asked to forget: {request}

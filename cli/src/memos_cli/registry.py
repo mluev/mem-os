@@ -44,6 +44,8 @@ ROUTES = {
     "memories review": ("POST", "/v1/memories/{memory_id}/review"),
     "memories history": ("GET", "/v1/memories/{memory_id}/history"),
     "memories sources": ("GET", "/v1/memories/{memory_id}/sources"),
+    "memories forget-matching": ("POST", "/v1/memories/forget"),
+    "memories dream": ("POST", "/v1/dream"),
     "review list": ("GET", "/v1/review"),
     "attention resolve": ("POST", "/v1/attention/{item_id}/resolve"),
     "profiles render": ("POST", "/v1/profiles/render"),
