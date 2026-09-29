@@ -813,9 +813,7 @@ def test_skill_shows_every_public_command():
     shown = {" ".join(shlex.split(command)) for command in skill_commands()}
     public = [*registry.ROUTES, *registry.ALIASES]
     public += [name for name in local_schemas() if not name.startswith("internal ")]
-    missing = [
-        name for name in public if not any(f"{c} ".startswith(f"{name} ") for c in shown)
-    ]
+    missing = [name for name in public if not any(f"{c} ".startswith(f"{name} ") for c in shown)]
     assert not missing, missing
 
 
