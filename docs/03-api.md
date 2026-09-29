@@ -17,7 +17,8 @@ A **session cookie** (`memkit_session`, HttpOnly, Secure, SameSite=Lax, sliding 
 - api-keys: list, create, revoke. A user manages their own; an administrator may mint for another. The secret is returned once;
 - entities: list, create, get, patch, archive, aliases, members, `POST /v1/entities/resolve` (a conversational name to an entity), and `GET /v1/entities/{slug}/profile` (what the team knows *about* this entity, and what lives *in* its scope);
 - evidence: `POST /v1/evidence/events`, `POST /v1/evidence/events:batch` (up to 100), session close;
-- memory: create, patch, archive, restore, review, list, get, sources, history, `POST /v1/memories/search`, retrieval runs, and scoped feedback;
+- memory: create, patch, archive, restore, review, list, get, sources, history, `POST /v1/memories/search`, `POST /v1/memories/forget` (by request or ids, dry run by default), retrieval runs, and scoped feedback;
+- dreaming: `POST /v1/dream` queues a link-and-infer pass over one writable scope (decisions/0078);
 - review: `GET /v1/review` — pending memories, unresolved mentions, conflicts, failed jobs, and budget warnings in one queue, because they share one question;
 - attention: `POST /v1/attention/{id}/resolve` — link an unresolved name to an entity (which also teaches the alias, so the same name resolves by itself next time) or dismiss it;
 - profiles: `POST /v1/profiles/render`;
@@ -36,7 +37,7 @@ Evidence and memory writes report authoritative storage separately from indexing
 
 A manual save into the caller's own scope with `source_role` of `user` or `manual` is stored `confirmed`; anything else is `pending`. An exact duplicate in the same scope, kind, and context returns the existing id with `deduplicated: true` rather than a twin.
 
-Search responses carry component scores, dropped ids by reason, `policy_id`, token use, timings, and an optional `retrieval_id`. `POST /v1/retrieval-runs/{id}/feedback` accepts labels only for a result that run actually returned. The legacy feedback path HMACs its raw query and immediately discards it.
+Search responses carry component scores, dropped ids by reason, `policy_id`, token use, timings, and an optional `retrieval_id`. Each result names when it was said (`document_date`), when it happened (`event_dates`), how many sessions mentioned it (`source_count`), and its time contribution (`temporal`); the response's `temporal` says what time the query was understood to mean. `as_of` sets the question's date, `since`/`until` filter by it, and `include_history`, `include_related` and `source_context_chars` attach replaced values, linked memories and source passages under the same budget. `rewrite_query` searches rephrasings too and returns them in `rewrites`. `POST /v1/retrieval-runs/{id}/feedback` accepts labels only for a result that run actually returned. The legacy feedback path HMACs its raw query and immediately discards it.
 
 Long operations return a durable `job_id` and are inspected or cancelled through `/v1/jobs/{id}`. `POST /v1/admin/reextract` plans a re-extraction and never rewrites the store.
 

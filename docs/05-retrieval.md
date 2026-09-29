@@ -1,5 +1,7 @@
 # Retrieval
 
+The default is `core-retrieval-v2` (decisions/0077): the fusion below, plus time, order, episode decay, mentions and inference, each described after it. `neutral-v1` still names the fusion alone.
+
 Policy `core-retrieval-neutral-v1` fuses three bounded candidate arms:
 
 ```text
@@ -27,9 +29,33 @@ Generic filters support equality, membership, existence/absence, and logical `AN
 
 `include_sources` attaches up to three verbatim evidence spans per returned memory, each re-sliced from the retained message and verified against its stored hash; a span that no longer matches is dropped, never returned altered. Ranking is unaffected — search runs over atomic facts, the spans carry the detail.
 
+## Policy v2: time, mentions and inference
+
+`core-retrieval-v2` keeps v1's weights and floor and adds, after the floor has been applied:
+
+```text
+score += 0.15 × window     1 if the memory's event (or saying) overlaps the query's time window
+       + 0.05 × order      earliest/latest position among relevant candidates, when asked
+       + 0.05 × mentions   min(1, log2(source_count) / 3)
+       − 0.08 × guess      an inference nobody has confirmed
+recency = 60-day half-life from the event for ordinary episodes (importance < 0.7)
+```
+
+The window comes from `temporal.parse_intent`, which recognises unambiguous English and Russian phrases ("yesterday", "last month", "в марте", "in May 2025", "3 weeks ago") relative to `as_of` — the question's date, defaulting to now — and says nothing otherwise. `since`/`until` are a hard filter on the same interval. `inference` is a trusted role under v2 and an untrusted one under v1.
+
+Results carry `document_date`, `event_dates`, `source_count`, `is_static` and `temporal`. `include_history` attaches the values a result replaced with the date each stopped being true, `include_related` attaches `extends`/`derives` neighbours, and `source_context_chars` widens each cited excerpt to the passage around it on word boundaries; the excerpt itself is still verified against its hash. Neighbours re-check both ends against the caller's scopes and spend the same budget, history first.
+
+`rewrite_query` searches up to three judge-written rephrasings with the same scopes, filters and policy and fuses all lists by reciprocal rank; failures fall back to the original. `MEMKIT_RERANK_MODEL` reorders the head of the list with a local cross-encoder blended with the fused score (decisions/0079).
+
+## Forgetting
+
+`POST /v1/memories/forget` finds candidates by request (hybrid search over the caller's writable scopes, bounded and thresholded, then verified by the judge by number when one is configured) or takes exact ids. It is a dry run unless asked otherwise; applying archives with a `forget_reason` (decisions/0080).
+
 ## Profiles
 
 The session preamble is a separate read path: no query, one bounded SQL statement per block, under the same expiry and trust rules. Five blocks, because they answer different questions and a single ranked list answers none of them well — **about** (identity, from the user's own scope), **style** (how they want an agent to work), **team** (rules everyone shares, excluding facts about a particular person, which belong on that person's page rather than in everyone's preamble), **project** (the workspace this session is in, when the caller's workspace resolves to an entity they can read), and **recent** (what has changed lately across every scope they can see). Each block gets a share of the token budget — 0.20/0.35/0.20/0.20/0.05 — and unspent budget rolls forward, so a user with no team rules gets a longer style block rather than a shorter profile.
+
+Profile v3 orders durable blocks by `is_static`, importance and mention count, admits identity-level traits of any kind into **about**, keeps unconfirmed inferences out, and lets **recent** lead with upcoming events and then whatever was said or changed most lately.
 
 Splitting them fixed a failure of the earlier stable/dynamic pair: the stable half was selected by `kind`, identity facts fell outside the configured kinds, and a user's name and role dropped out of context entirely once they were older than the dynamic window.
 

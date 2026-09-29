@@ -89,3 +89,10 @@ No entry restates a measured value; it links an anchor. `Status` and
 | [0072](0072-semantic-blocks-and-experiment-archives.md) | Independent semantic blocks and durable experiment archives | accepted |
 | [0073](0073-contribution-and-budgeted-source-context.md) | Contribution and budgeted source context | accepted |
 | [0074](0074-one-cli-only-agent-skill.md) | One agent-neutral, CLI-only Memkit skill for every agent | accepted |
+| [0075](0075-episodes-and-two-dates.md) | Episodes are memories, and every memory has two dates | accepted |
+| [0076](0076-supersede-extends-and-a-same-scope-graph.md) | Supersession keeps the past; links never cross a scope | accepted |
+| [0077](0077-retrieval-policy-v2.md) | Retrieval policy v2: time, order, decay, mentions and inference | accepted |
+| [0078](0078-dreaming-and-flagged-inferences.md) | Dreaming links and infers; inferences are flagged and never premises | accepted |
+| [0079](0079-query-rewrites-and-cross-encoder.md) | Optional query rewrites fused by rank; optional local cross-encoder | accepted |
+| [0080](0080-forget-matching.md) | Forget by request, verified, dry-run first, bound to ids | accepted |
+| [0081](0081-public-benchmarks-and-memscore.md) | LoCoMo and LongMemEval with MemScore are the retrieval north star | accepted |
