@@ -152,13 +152,21 @@ def _longmemeval_date(text: str | None) -> datetime | None:
     return datetime(year, month, day, hour, minute, tzinfo=UTC)
 
 
-def load_longmemeval(path: Path) -> list[Conversation]:
+# Questions about what the assistant said. Assistant turns are never evidence
+# here (decisions/0006), so no mode can answer these; they are left out unless
+# asked for, rather than silently lowering every accuracy figure.
+ASSISTANT_ONLY = "single-session-assistant"
+
+
+def load_longmemeval(path: Path, *, include_assistant: bool = False) -> list[Conversation]:
     data: list[dict[str, Any]] = json.loads(Path(path).read_text(encoding="utf-8"))
     conversations = []
     for item in data:
+        if str(item["question_type"]) == ASSISTANT_ONLY and not include_assistant:
+            continue
         qid = str(item["question_id"])
         session_ids = item.get("haystack_session_ids") or [
-            f"{qid}-h{i}" for i in range(len(item["haystack_sessions"]))
+            f"h{i}" for i in range(len(item["haystack_sessions"]))
         ]
         sessions = []
         for index, (raw_session, date) in enumerate(
@@ -204,5 +212,5 @@ def load(name: str, path: Path, **kwargs: Any) -> list[Conversation]:
     if name == "locomo":
         return load_locomo(path, **kwargs)
     if name == "longmemeval":
-        return load_longmemeval(path)
+        return load_longmemeval(path, **kwargs)
     raise ValueError(f"unknown benchmark {name!r}; expected locomo or longmemeval")

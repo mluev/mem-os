@@ -35,6 +35,8 @@ class Config:
     budget_tokens: int = 4000
     limit: int = 20
     rewrite: bool = False
+    # Retrieval policy named on every search; empty means the server default.
+    policy: str = ""
     answer_model: str = "gemini-3.5-flash"
     judge_model: str = "gemini-3.5-flash"
     workers: int = 4
@@ -64,9 +66,23 @@ class Run:
         with self.lock:
             path = self.directory / "state.json"
             temporary = path.with_suffix(".tmp")
-            temporary.write_text(json.dumps(self.state, indent=1, sort_keys=True))
-            os.chmod(temporary, 0o600)
+            # Created 0600, never chmodded after the fact: the keys must not be
+            # readable for even the moment between write and chmod.
+            fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            os.fchmod(fd, 0o600)
+            with os.fdopen(fd, "w") as handle:
+                handle.write(json.dumps(self.state, indent=1, sort_keys=True))
             temporary.replace(path)
+
+    def update(self, record: dict[str, Any], values: dict[str, Any]) -> None:
+        """Change one question's record and checkpoint it.
+
+        Workers share `state`; mutating it outside the lock races `save`, which
+        serialises the whole tree.
+        """
+        with self.lock:
+            record.update(values)
+        self.save()
 
 
 def ingest(run: Run, memkit: Memkit, conversations: list[Conversation], log: Callable) -> None:
@@ -109,7 +125,8 @@ def evaluate_question(
     question: Question,
     keys: dict[str, str],
 ) -> None:
-    record = run.state["questions"].setdefault(question.question_id, {})
+    with run.lock:
+        record = run.state["questions"].setdefault(question.question_id, {})
     conversation = run.state["conversations"][question.conversation_id]
     if "search" not in record:
         payload, latency = memkit.search(
@@ -119,12 +136,14 @@ def evaluate_question(
             budget_tokens=config.budget_tokens,
             limit=config.limit,
             rewrite=config.rewrite,
+            policy=config.policy,
         )
         context = answering.render_context(payload)
         found = retrieved_turns(payload, conversation["mapping"])
         turns = {turn for turn, _ in found}
         sessions = {session for _, session in found}
-        record.update(
+        run.update(
+            record,
             {
                 "category": question.category,
                 "abstention": question.abstention,
@@ -142,10 +161,10 @@ def evaluate_question(
                     if question.evidence_sessions
                     else None
                 ),
+                "rewrites": list(payload.get("rewrites") or []),
                 "search": True,
-            }
+            },
         )
-        run.save()
     if "answer" not in record:
         reply = answering.ask(
             config.answer_model,
@@ -154,9 +173,13 @@ def evaluate_question(
             "emit_answer",
             keys,
         )
-        record["answer"] = str(reply.get("answer") or "")
-        record["reasoning"] = str(reply.get("reasoning") or "")
-        run.save()
+        run.update(
+            record,
+            {
+                "answer": str(reply.get("answer") or ""),
+                "reasoning": str(reply.get("reasoning") or ""),
+            },
+        )
     if "correct" not in record:
         verdict = answering.ask(
             config.judge_model,
@@ -165,11 +188,15 @@ def evaluate_question(
             "emit_verdict",
             keys,
         )
-        record["correct"] = bool(verdict.get("correct"))
-        record["explanation"] = str(verdict.get("explanation") or "")
-        record["expected"] = question.answer
-        record["question"] = question.question
-        run.save()
+        run.update(
+            record,
+            {
+                "correct": bool(verdict.get("correct")),
+                "explanation": str(verdict.get("explanation") or ""),
+                "expected": question.answer,
+                "question": question.question,
+            },
+        )
 
 
 def evaluate(

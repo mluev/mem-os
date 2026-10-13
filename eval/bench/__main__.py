@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -43,11 +44,17 @@ def cmd_download(args: argparse.Namespace) -> int:
 
 
 def cmd_run(args: argparse.Namespace) -> int:
-    conversations = datasets.load(
-        args.dataset,
-        Path(args.data),
-        **({"include_adversarial": args.adversarial} if args.dataset == "locomo" else {}),
+    if args.rewrite and args.mode != "memories":
+        # The server assembles raw passages without rewrites; the flag would be
+        # recorded in the config while changing nothing.
+        _log("--rewrite only applies to --mode memories; ignoring it")
+        args.rewrite = False
+    options = (
+        {"include_adversarial": args.adversarial}
+        if args.dataset == "locomo"
+        else {"include_assistant": args.assistant}
     )
+    conversations = datasets.load(args.dataset, Path(args.data), **options)
     if args.categories:
         wanted = set(args.categories.split(","))
         for conversation in conversations:
@@ -70,11 +77,16 @@ def cmd_run(args: argparse.Namespace) -> int:
         budget_tokens=args.budget,
         limit=args.results,
         rewrite=args.rewrite,
+        policy=args.policy,
         answer_model=args.answer_model,
         judge_model=args.judge_model,
         workers=args.workers,
     )
-    run.state["config"] = config.as_dict()
+    run.state["config"] = {
+        **config.as_dict(),
+        # Which bytes were measured: the dataset URLs track a branch.
+        "data_sha256": hashlib.sha256(Path(args.data).read_bytes()).hexdigest(),
+    }
     run.save()
     _log(
         f"run {run.run_id}: {len(conversations)} conversations, "
@@ -113,10 +125,18 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--limit", type=int, default=0, help="questions to evaluate")
     run.add_argument("--categories", default="", help="comma-separated category names")
     run.add_argument("--adversarial", action="store_true", help="LoCoMo category 5 too")
+    run.add_argument(
+        "--assistant",
+        action="store_true",
+        help="LongMemEval single-session-assistant too (unanswerable by design)",
+    )
     run.add_argument("--mode", choices=["memories", "hybrid", "raw"], default="memories")
     run.add_argument("--budget", type=int, default=4000, help="context tokens per question")
     run.add_argument("--results", type=int, default=20, help="search result limit")
     run.add_argument("--rewrite", action="store_true", help="search with query rewrites")
+    run.add_argument(
+        "--policy", default="", help="retrieval policy, e.g. core-retrieval-v2 (default: server's)"
+    )
     run.add_argument("--answer-model", default="gemini-3.5-flash")
     run.add_argument("--judge-model", default="gemini-3.5-flash")
     run.add_argument("--workers", type=int, default=4)

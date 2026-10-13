@@ -38,13 +38,21 @@ export MEMKIT_ADMIN_KEY=mk_...           # an administrator's key
 export GEMINI_API_KEY=...                # for the answering and judging models
 
 uv run python -m eval.bench run --dataset locomo --data data/bench/locomo10.json \
-    --run-id locomo-v11 --limit 200
-uv run python -m eval.bench report --run-id locomo-v11
+    --run-id locomo-baseline --limit 200
+uv run python -m eval.bench report --run-id locomo-baseline
 ```
+
+To decide the opt-in features, run the same questions against two
+deployments (or one, re-ingested): the defaults, and one started with
+`MEMKIT_PROMPT_VERSION=v11` and `MEMKIT_DREAMING=after_extraction`, searched
+with `--policy core-retrieval-v2`. Extraction happens at ingestion, so the
+prompt and dreaming need a fresh run; the policy alone can be compared on the
+same ingested users with a new `--run-id`.
 
 Useful options: `--mode memories|hybrid|raw` (facts, facts plus raw user
 passages, or raw passages only — the baseline every memory system must beat),
-`--rewrite` (query rewriting with rank fusion), `--budget` (context tokens per
+`--rewrite` (query rewriting with rank fusion; memories mode only),
+`--policy` (retrieval policy for every search), `--budget` (context tokens per
 question), `--answer-model` / `--judge-model` (any `gemini-*` or `claude-*`
 model the providers module supports), `--categories temporal,multi-hop`.
 
@@ -64,8 +72,12 @@ resumes where it stopped; `report` re-summarises without calling anything.
 LoCoMo's two speakers are both people and are ingested as named user turns,
 because only user words can support a memory here. LongMemEval keeps its roles,
 so its `single-session-assistant` questions — about what the assistant said —
-can only be answered from raw passages (`--mode hybrid`): the service does not
-turn an assistant's words into memories, by design (decisions/0006).
+cannot be answered in any mode: assistant words never become memories and are
+never indexed as raw passages, by design (decisions/0006). They are left out
+unless `--assistant` is given, and should be reported separately when they are.
+
+The run's config records the dataset's sha256: the download URLs follow each
+dataset's main branch, so compare runs only when the hashes match.
 
 A published number from another system used its own answering model, judge,
 prompts and context budget. Compare runs of this harness with each other;

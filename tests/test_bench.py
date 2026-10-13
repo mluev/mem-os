@@ -201,7 +201,11 @@ class BenchEndToEndTest(ApiTestCase):
         conversations = datasets.load_locomo(path)
         run = pipeline.Run.open("t1", Path(path.parent) / "runs")
         memkit = Memkit(
-            self.client, admin_key=self.alice_key, run_id="t1", on_wait=self.run_queued_jobs
+            self.client,
+            admin_key=self.alice_key,
+            run_id="t1",
+            on_wait=self.run_queued_jobs,
+            index_grace=0,
         )
         config_ = pipeline.Config(
             dataset="locomo", answer_model="fake-answer", judge_model="fake-judge", workers=1
