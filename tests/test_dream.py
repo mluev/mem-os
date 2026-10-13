@@ -288,7 +288,9 @@ class DreamTest(unittest.TestCase):
 
         done = self.dream(lambda n: nothing, max_clusters=1)
         first = dream.fresh_memories(self.conn, self.scope, since=None)[0]
-        self.assertEqual(done.watermark, {"at": done.watermark["at"], "id": str(first["id"])})
+        self.assertEqual(
+            done.watermark, {"at": first["updated_at"].isoformat(), "id": str(first["id"])}
+        )
 
     def test_the_next_dream_starts_after_the_watermark(self) -> None:
         ids = sorted(

@@ -309,7 +309,13 @@ def run(
             )
     if done:
         last = fresh[done - 1]
-        outcome.watermark = {"at": iso(last["updated_at"]) or "", "id": str(last["id"])}
+        # Full precision: iso() drops microseconds, and a watermark rounded down
+        # would put the memories written in that second back in every dream.
+        at = last["updated_at"]
+        outcome.watermark = {
+            "at": at.isoformat() if isinstance(at, datetime) else str(at),
+            "id": str(last["id"]),
+        }
     return outcome
 
 
