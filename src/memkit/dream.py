@@ -5,7 +5,8 @@ shown, but a claim from last month that a new window contradicts is often not
 among its candidates, and what several memories imply together is invisible to
 any single window. Dreaming is the second pass (decisions/0078):
 
-1. Pick the memories in one scope that changed since that scope last dreamed.
+1. Pick the memories in one scope that changed after the last one a dream
+   fully processed (its watermark), oldest first.
 2. Around each, gather its nearest neighbours in the same scope.
 3. Ask the model, per cluster, for `updates`/`extends` links and at most two
    inferences, each naming the memories it depends on by number.
@@ -26,6 +27,7 @@ inferred into a shared space.
 from __future__ import annotations
 
 import logging
+import math
 import uuid
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
@@ -44,7 +46,6 @@ MAX_FRESH = 40
 # Neighbours gathered per fresh memory, and the similarity they need.
 NEIGHBOURS = 6
 NEIGHBOUR_FLOOR = 0.55
-MAX_CLUSTER = 8
 # An inference below this confidence is not written at all.
 MIN_INFERENCE_CONFIDENCE = 0.7
 # An inference at least this similar to an existing memory is already stated.
@@ -63,6 +64,10 @@ class DreamOutcome:
     cost_usd: float = 0.0
     skipped: list[dict[str, Any]] = field(default_factory=list)
     planned: list[list[str]] = field(default_factory=list)
+    # The last fresh memory every cluster up to it was processed for, as
+    # {"at", "id"}; the next automatic dream starts after it. None when this
+    # run must not move it: a dry run, or nothing processed.
+    watermark: dict[str, str] | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -75,30 +80,69 @@ class DreamOutcome:
             "cost_usd": round(self.cost_usd, 6),
             "skipped": self.skipped,
             "planned": self.planned,
+            "watermark": self.watermark,
         }
 
 
-def last_dreamed(conn: psycopg.Connection, scope_id: str) -> datetime | None:
-    """When the scope's last completed dream started, or None if it never has."""
+Watermark = tuple[datetime, str]
+
+
+def last_dreamed(conn: psycopg.Connection, scope_id: str) -> Watermark | None:
+    """Where the scope's next automatic dream starts, or None to start over.
+
+    Read from completed dream jobs' watermarks, never from when they ran: a dry
+    run, a run stopped by the budget, or one that reached `max_clusters` before
+    its last fresh memory would otherwise mark memories it never looked at as
+    dreamed, and nothing would look at them again.
+    """
     row = conn.execute(
-        """SELECT max(started_at) AS at FROM jobs
-            WHERE kind='dream' AND status='complete' AND input->>'scope_id' = %s""",
+        """SELECT (result->'watermark'->>'at')::timestamptz AS at,
+                  result->'watermark'->>'id' AS id
+             FROM jobs
+            WHERE kind='dream' AND status='complete' AND input->>'scope_id' = %s
+              AND jsonb_typeof(result->'watermark') = 'object'
+            ORDER BY 1 DESC, 2 DESC LIMIT 1""",
         (scope_id,),
     ).fetchone()
-    return row["at"] if row else None
+    return (row["at"], str(row["id"])) if row else None
 
 
 def fresh_memories(
-    conn: psycopg.Connection, scope_id: str, *, since: datetime | None, limit: int = MAX_FRESH
+    conn: psycopg.Connection,
+    scope_id: str,
+    *,
+    since: Watermark | datetime | None,
+    limit: int = MAX_FRESH,
 ) -> list[Row]:
+    """Memories changed after `since`, oldest first, so a capped run resumes.
+
+    One extraction writes several memories in one transaction with the same
+    `updated_at`, so the position is the (updated_at, id) pair, not the time.
+    """
+    if isinstance(since, datetime):
+        after: tuple[datetime | None, uuid.UUID | None] = (since, None)
+    elif since is None:
+        after = (None, None)
+    else:
+        after = (since[0], uuid.UUID(since[1]))
     return conn.execute(
         """SELECT * FROM memories
             WHERE scope_id=%s AND status='active' AND source_role = ANY(%s)
               AND (valid_until IS NULL OR valid_until > now())
-              AND (%s::timestamptz IS NULL OR updated_at > %s::timestamptz)
-            ORDER BY updated_at DESC, id LIMIT %s""",
-        (scope_id, list(PREMISE_ROLES), since, since, limit),
+              AND (%s::timestamptz IS NULL
+                   OR updated_at > %s::timestamptz
+                   OR (updated_at = %s::timestamptz AND %s::uuid IS NOT NULL AND id > %s::uuid))
+            ORDER BY updated_at, id LIMIT %s""",
+        (scope_id, list(PREMISE_ROLES), after[0], after[0], after[0], after[1], after[1], limit),
     ).fetchall()
+
+
+@dataclass
+class Plan:
+    # (index in `fresh` of the memory the cluster grew from, its members)
+    clusters: list[tuple[int, list[Row]]]
+    # How many fresh memories were looked at before `max_clusters` stopped it.
+    considered: int
 
 
 def plan_clusters(
@@ -109,14 +153,14 @@ def plan_clusters(
     scope_id: str,
     fresh: Sequence[Row],
     max_clusters: int,
-) -> list[list[Row]]:
+) -> Plan:
     """Each fresh memory with its nearest same-scope neighbours.
 
     A cluster whose members are all inside one already chosen is dropped, so a
     burst of related writes costs one call rather than one per write.
     """
     if not fresh:
-        return []
+        return Plan([], 0)
     vectors_by_id = dict(
         zip(
             [str(row["id"]) for row in fresh],
@@ -124,11 +168,13 @@ def plan_clusters(
             strict=True,
         )
     )
-    chosen: list[list[Row]] = []
+    chosen: list[tuple[int, list[Row]]] = []
     covered: list[set[str]] = []
-    for row in fresh:
+    considered = 0
+    for index, row in enumerate(fresh):
         if len(chosen) >= max_clusters:
             break
+        considered = index + 1
         hits = vectors.search(
             client,
             vectors.MEMORIES,
@@ -151,7 +197,6 @@ def plan_clusters(
                     ORDER BY document_date, id""",
                 ([uuid.UUID(i) for i in ids], scope_id, list(PREMISE_ROLES)),
             ).fetchall()
-        members = members[:MAX_CLUSTER]
         if len(members) < 2:
             continue
         keys = {str(member["id"]) for member in members}
@@ -159,9 +204,9 @@ def plan_clusters(
             continue
         # Oldest first, so "said" dates read in order.
         members.sort(key=lambda member: (member["document_date"], str(member["id"])))
-        chosen.append(members)
+        chosen.append((index, members))
         covered.append(keys)
-    return chosen
+    return Plan(chosen, considered)
 
 
 def run(
@@ -177,7 +222,7 @@ def run(
     gemini_api_key: str = "",
     project: str = "",
     location: str = "",
-    since: datetime | str | None = "auto",
+    since: Watermark | datetime | str | None = "auto",
     max_clusters: int = 8,
     dry_run: bool = False,
     job_id: str | None = None,
@@ -192,14 +237,17 @@ def run(
     start = last_dreamed(conn, scope_id) if since == "auto" else since
     fresh = fresh_memories(conn, scope_id, since=start)  # type: ignore[arg-type]
     outcome.fresh = len(fresh)
-    clusters = plan_clusters(
+    plan = plan_clusters(
         conn, client, embedder, scope_id=scope_id, fresh=fresh, max_clusters=max_clusters
     )
-    outcome.clusters = len(clusters)
-    outcome.planned = [[str(member["id"]) for member in cluster] for cluster in clusters]
+    outcome.clusters = len(plan.clusters)
+    outcome.planned = [[str(member["id"]) for member in cluster] for _, cluster in plan.clusters]
     if dry_run:
         return outcome
-    for cluster in clusters:
+    # Everything before the first cluster that failed is done; nothing after it
+    # may be marked dreamed, or the next run would never retry it.
+    done = plan.considered
+    for seed, cluster in plan.clusters:
         if guard is not None:
             with conn.transaction():
                 guard()
@@ -231,14 +279,19 @@ def run(
             location=location,
             user_id=user_id,
             job_id=job_id,
+            # The inferences are kept as memories with their premises; the raw
+            # answer would keep teammates' memory text past their erasure.
+            record_output=False,
         )
         outcome.calls += 1
         outcome.cost_usd += result.cost_usd
         if result.error or result.raw is None or result.judge_run_id is None:
             outcome.skipped.append({"reason": result.error or "empty_response"})
+            done = min(done, seed)
             if result.error in {"monthly_cost_limit_reached", "job_call_limit_reached"}:
                 break
             continue
+        stated = _stated_elsewhere(conn, client, embedder, scope_id=scope_id, answer=result.raw)
         with conn.transaction():
             maintenance.require_write(conn)
             if guard is not None:
@@ -252,9 +305,11 @@ def run(
                 scope_id=scope_id,
                 user_id=user_id,
                 run_id=result.judge_run_id,
-                client=client,
-                embedder=embedder,
+                stated=stated,
             )
+    if done:
+        last = fresh[done - 1]
+        outcome.watermark = {"at": iso(last["updated_at"]) or "", "id": str(last["id"])}
     return outcome
 
 
@@ -266,12 +321,42 @@ def _number(value: Any, size: int) -> int | None:
     return number - 1 if 1 <= number <= size else None
 
 
-def _live(conn: psycopg.Connection, memory_id: str, scope_id: str) -> Row | None:
-    return conn.execute(
-        """SELECT * FROM memories WHERE id=%s AND scope_id=%s AND status='active'
-             AND (valid_until IS NULL OR valid_until > now()) FOR UPDATE""",
-        (memory_id, scope_id),
-    ).fetchone()
+def _lock_live(conn: psycopg.Connection, cluster: Sequence[Row], scope_id: str) -> dict[str, Row]:
+    """Lock the cluster's still-live members, in id order, in one statement.
+
+    One ordered lock instead of one row at a time in the model's order, so two
+    writers touching overlapping memories cannot wait on each other.
+    """
+    rows = conn.execute(
+        """SELECT * FROM memories WHERE id = ANY(%s) AND scope_id=%s AND status='active'
+             AND (valid_until IS NULL OR valid_until > now())
+            ORDER BY id FOR UPDATE""",
+        ([uuid.UUID(str(member["id"])) for member in cluster], scope_id),
+    ).fetchall()
+    return {str(row["id"]): row for row in rows}
+
+
+def _inference_texts(answer: dict[str, Any]) -> list[str]:
+    return [
+        str(item.get("text") or "").strip()
+        for item in answer.get("inferences") or []
+        if isinstance(item, dict)
+    ]
+
+
+def _stated_elsewhere(
+    conn: psycopg.Connection, client: Any, embedder: Any, *, scope_id: str, answer: dict[str, Any]
+) -> set[str]:
+    """The proposed inferences that an existing memory already says.
+
+    Embedding and the index lookup happen here, before `_apply` takes its row
+    locks, so no lock is held across a model or network call.
+    """
+    return {
+        text
+        for text in _inference_texts(answer)
+        if text and _already_stated(conn, client, embedder, scope_id=scope_id, text=text)
+    }
 
 
 def _apply(
@@ -283,10 +368,14 @@ def _apply(
     scope_id: str,
     user_id: str,
     run_id: int,
-    client: Any,
-    embedder: Any,
+    stated: set[str],
 ) -> None:
     size = len(cluster)
+    live_by_id = _lock_live(conn, cluster, scope_id)
+
+    def live(index: int) -> Row | None:
+        return live_by_id.get(str(cluster[index]["id"]))
+
     for link in answer.get("links") or []:
         if not isinstance(link, dict):
             continue
@@ -295,8 +384,7 @@ def _apply(
         if source is None or target is None or source == target:
             outcome.skipped.append({"reason": "invalid_link"})
             continue
-        new = _live(conn, str(cluster[source]["id"]), scope_id)
-        old = _live(conn, str(cluster[target]["id"]), scope_id)
+        new, old = live(source), live(target)
         if new is None or old is None:
             outcome.skipped.append({"reason": "link_target_changed"})
             continue
@@ -330,16 +418,23 @@ def _apply(
             scopes=[scope_id],
             judge_run_id=run_id,
         )
+        # No longer live: neither a later link nor an inference may use it.
+        live_by_id.pop(str(old["id"]), None)
         outcome.superseded += 1
 
     written = 0
     for item in answer.get("inferences") or []:
-        if written >= 2 or not isinstance(item, dict):
+        if written >= 2:
             break
+        if not isinstance(item, dict):
+            outcome.skipped.append({"reason": "invalid_inference"})
+            continue
         text = str(item.get("text") or "").strip()
         try:
             confidence = float(item.get("confidence"))
         except (TypeError, ValueError):
+            confidence = 0.0
+        if not math.isfinite(confidence):
             confidence = 0.0
         numbers = sorted(
             {n for n in (_number(p, size) for p in item.get("premises") or []) if n is not None}
@@ -350,16 +445,18 @@ def _apply(
         if confidence < MIN_INFERENCE_CONFIDENCE:
             outcome.skipped.append({"reason": "low_confidence"})
             continue
-        premises = [_live(conn, str(cluster[n]["id"]), scope_id) for n in numbers]
+        premises = [live(n) for n in numbers]
         if any(premise is None for premise in premises):
             outcome.skipped.append({"reason": "premise_changed"})
             continue
-        live = [premise for premise in premises if premise is not None]
-        if _already_stated(conn, client, embedder, scope_id=scope_id, text=text):
+        rows = [premise for premise in premises if premise is not None]
+        # The index check ran before the lock; the hash check is repeated here
+        # because an inference written by the previous cluster counts too.
+        if text in stated or _hash_stated(conn, scope_id=scope_id, text=text):
             outcome.skipped.append({"reason": "already_stated"})
             continue
-        subjects = {premise["subject_id"] for premise in live}
-        contexts = {repr(sorted(dict(premise["context"] or {}).items())) for premise in live}
+        subjects = {premise["subject_id"] for premise in rows}
+        contexts = {repr(sorted(dict(premise["context"] or {}).items())) for premise in rows}
         memory_id = store.add_memory(
             conn,
             scope_id=scope_id,
@@ -369,16 +466,16 @@ def _apply(
             author_id=user_id,
             text=text,
             kind=(str(item.get("kind") or "fact").strip() or "fact")[:64],
-            context=dict(live[0]["context"] or {}) if len(contexts) == 1 else {},
-            importance=min(0.6, max(float(premise["importance"]) for premise in live)),
+            context=dict(rows[0]["context"] or {}) if len(contexts) == 1 else {},
+            importance=min(0.6, max(float(premise["importance"]) for premise in rows)),
             confidence=min(1.0, max(0.0, confidence)),
             extraction_version=f"dream-{prompts.DREAM_VERSION}",
             judge_run_id=run_id,
             source_role="inference",
             review_status="pending",
-            document_date=max(premise["document_date"] for premise in live),
+            document_date=max(premise["document_date"] for premise in rows),
         )
-        for premise in live:
+        for premise in rows:
             store.add_relation(
                 conn,
                 from_id=memory_id,
@@ -390,14 +487,20 @@ def _apply(
         outcome.inferred += 1
 
 
+def _hash_stated(conn: psycopg.Connection, *, scope_id: str, text: str) -> bool:
+    return bool(
+        conn.execute(
+            """SELECT 1 FROM memories WHERE scope_id=%s AND status='active' AND content_hash=%s
+                LIMIT 1""",
+            (scope_id, store.content_hash(text)),
+        ).fetchone()
+    )
+
+
 def _already_stated(
     conn: psycopg.Connection, client: Any, embedder: Any, *, scope_id: str, text: str
 ) -> bool:
-    if conn.execute(
-        """SELECT 1 FROM memories WHERE scope_id=%s AND status='active' AND content_hash=%s
-            LIMIT 1""",
-        (scope_id, store.content_hash(text)),
-    ).fetchone():
+    if _hash_stated(conn, scope_id=scope_id, text=text):
         return True
     hits = vectors.search(
         client,
@@ -411,21 +514,33 @@ def _already_stated(
 
 def queue(
     conn: psycopg.Connection, *, scope_id: str, user_id: str, max_clusters: int
-) -> str | None:
-    """Queue a dream for a scope unless one is already waiting or running."""
-    pending = conn.execute(
-        """SELECT 1 FROM jobs WHERE kind='dream' AND status IN ('queued','running')
-             AND input->>'scope_id' = %s LIMIT 1""",
-        (scope_id,),
-    ).fetchone()
-    if pending:
-        return None
+) -> tuple[str, bool]:
+    """Queue a dream for a scope unless one is already waiting or running.
+
+    Returns the job that will dream over the scope's new memories and whether
+    this call created it. The check and the insert run under a per-scope
+    advisory lock: two extractions finishing together would otherwise both see
+    no pending dream and queue two, which then write the same inferences.
+    """
     from . import jobs
 
-    return jobs.create(
-        conn,
-        kind="dream",
-        input_data={"scope_id": scope_id, "max_clusters": max_clusters},
-        call_limit=max_clusters,
-        user_id=user_id,
-    )
+    with conn.transaction():
+        conn.execute(
+            "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (f"dream:{scope_id}",)
+        )
+        pending = conn.execute(
+            """SELECT id FROM jobs WHERE kind='dream' AND status IN ('queued','running')
+                 AND input->>'scope_id' = %s AND NOT COALESCE((input->>'dry_run')::boolean, false)
+                ORDER BY created_at LIMIT 1""",
+            (scope_id,),
+        ).fetchone()
+        if pending:
+            return str(pending["id"]), False
+        job_id = jobs.create(
+            conn,
+            kind="dream",
+            input_data={"scope_id": scope_id, "max_clusters": max_clusters, "dry_run": False},
+            call_limit=max_clusters,
+            user_id=user_id,
+        )
+        return job_id, True

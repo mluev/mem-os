@@ -13,7 +13,8 @@ After an extraction writes into a scope — when a judge is configured and
 `MEMKIT_DREAMING=after_extraction` (opt-in; the default is `off` until eval/bench
 has measured it) — queue one dream for that
 scope unless one is already waiting. A dream takes the scope's memories changed
-since its last dream, gathers each one's nearest same-scope neighbours, and
+after its watermark — the last memory a completed, non-dry-run dream processed
+along with everything before it — oldest first, gathers each one's nearest same-scope neighbours, and
 asks the judge per cluster for `updates`/`extends` links and at most two
 inferences, all by number among the memories shown.
 

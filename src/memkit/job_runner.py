@@ -112,11 +112,11 @@ def _queue_dreams(conn, *, job_id: str, user_id: str) -> list[str]:
     ]
     queued = []
     for scope_id in scopes:
-        created = dream.queue(
+        job_id, created = dream.queue(
             conn, scope_id=scope_id, user_id=user_id, max_clusters=settings.dream_max_clusters
         )
         if created:
-            queued.append(created)
+            queued.append(job_id)
     return queued
 
 
