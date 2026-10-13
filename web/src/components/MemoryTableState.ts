@@ -42,7 +42,10 @@ export const PAGE_SIZES = [25, 50, 100] as const;
 /** `any` is the server's word for "including archived and superseded". */
 export const STATUSES = ["active", "archived", "superseded", "expired", "any"] as const;
 export const REVIEW_STATUSES = ["pending", "confirmed", "declined"] as const;
+/** Roles a person can write with. */
 export const SOURCE_ROLES = ["user", "assistant", "agent", "tool", "manual"] as const;
+/** Roles a list can be filtered by: dreaming also writes `inference`. */
+export const FILTER_SOURCE_ROLES = [...SOURCE_ROLES, "inference"] as const;
 
 /** The shape `/memories` validates in the router. */
 export interface MemorySearch {

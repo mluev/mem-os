@@ -28,6 +28,7 @@ from typing import Any
 import psycopg
 
 from .db import Row, iso, utcnow
+from .provenance import INFERENCE
 from .retrieval import DEFAULT_TRUST, _token_count
 from .store import memory_active
 
@@ -81,7 +82,7 @@ def _rows(
     """
     if not scope_ids:
         return []
-    trust = None if include_untrusted else sorted(DEFAULT_TRUST | {"inference"})
+    trust = None if include_untrusted else sorted(DEFAULT_TRUST | {INFERENCE})
     order = _RECENT_ORDER if recent else _DURABLE_ORDER
     return list(
         conn.execute(

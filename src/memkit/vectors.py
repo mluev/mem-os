@@ -28,6 +28,7 @@ from typing import Any
 from qdrant_client import QdrantClient, models
 
 from .embed import DIM
+from .provenance import INFERENCE
 
 logger = logging.getLogger(__name__)
 
@@ -365,7 +366,7 @@ def erase_user_indices(client: QdrantClient, *, user_id: str, private_scope_id: 
             # The private scope, and the shared inferences dreamt in the user's name.
             selections = [
                 [keyword("scope_id", private_scope_id)],
-                [keyword("author_id", user_id), keyword("source_role", "inference")],
+                [keyword("author_id", user_id), keyword("source_role", INFERENCE)],
             ]
         elif re.fullmatch(r"raw(?:__g\d+)?", name):
             selections = [[keyword("user_id", user_id)]]

@@ -87,6 +87,20 @@ class CrossEncoderTest(unittest.TestCase):
         self.assertIsNotNone(rerank.from_settings(config.Settings(rerank_model="some/model")))
 
 
+class CustomProviderTest(unittest.TestCase):
+    def test_a_provider_without_schema_support_is_refused_unbilled(self) -> None:
+        def extraction_only(*, model, prompt, api_key, gemini_api_key, project, location):
+            raise AssertionError("must not be called with a schema it cannot take")
+
+        providers.register_provider("legacy", model_prefix="legacy-", call=extraction_only)
+        try:
+            result = providers.call_json(model="legacy-1", prompt="p", schema={}, name="emit")
+        finally:
+            providers._CUSTOM_PROVIDERS.pop("legacy", None)
+        self.assertTrue(result.error.startswith("unsupported:"), result.error)
+        self.assertTrue(providers.is_unbilled(result.error))
+
+
 class FusionTest(unittest.TestCase):
     def test_agreement_between_phrasings_beats_one_high_score(self) -> None:
         original = retrieval.Explain(chosen=[scored("x", 0.9), scored("y", 0.5)], used_tokens=0)

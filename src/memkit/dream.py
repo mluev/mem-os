@@ -36,7 +36,7 @@ from typing import Any
 
 import psycopg
 
-from . import judge, maintenance, prompts, store, vectors
+from . import judge, maintenance, prompts, provenance, store, vectors
 from .db import Row, iso
 
 logger = logging.getLogger(__name__)
@@ -471,7 +471,7 @@ def _apply(
             confidence=min(1.0, max(0.0, confidence)),
             extraction_version=f"dream-{prompts.DREAM_VERSION}",
             judge_run_id=run_id,
-            source_role="inference",
+            source_role=provenance.INFERENCE,
             review_status="pending",
             document_date=max(premise["document_date"] for premise in rows),
         )

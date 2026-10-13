@@ -26,6 +26,7 @@ from qdrant_client import QdrantClient
 from . import eligibility, filters, temporal, vectors
 from .db import Row, as_datetime, iso
 from .embed import Embedder
+from .provenance import INFERENCE
 from .store import memory_active
 
 WORD_RE = re.compile(r"[\w./:@#-]+", re.UNICODE)
@@ -617,7 +618,7 @@ def explain(
             + policy.reinforcement_weight * _reinforcement(int(row.get("source_count") or 1))
             + boost
         )
-        if row["source_role"] == "inference" and row["review_status"] != "confirmed":
+        if row["source_role"] == INFERENCE and row["review_status"] != "confirmed":
             score -= policy.inference_penalty
         scored.append(
             Scored(

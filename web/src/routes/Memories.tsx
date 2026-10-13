@@ -49,7 +49,7 @@ import {
   MEMORY_SORTS,
   PAGE_SIZES,
   REVIEW_STATUSES,
-  SOURCE_ROLES,
+  FILTER_SOURCE_ROLES,
   STATUSES,
   clearedFilters,
   hasFilters,
@@ -420,7 +420,7 @@ export function Memories() {
         <FilterSelect
           label="Source"
           value={search.source_role}
-          options={plainOptions(SOURCE_ROLES)}
+          options={plainOptions(FILTER_SOURCE_ROLES)}
           anyLabel="Any source"
           onChange={(source_role) => commit(withFilters(search, { source_role }))}
         />

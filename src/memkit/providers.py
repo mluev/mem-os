@@ -29,6 +29,7 @@ schema -- is the real gate.
 
 from __future__ import annotations
 
+import inspect
 import json
 import logging
 from collections.abc import Callable
@@ -331,6 +332,14 @@ def call_vertex(
     return result
 
 
+def _accepts_schema(call: ProviderCallable) -> bool:
+    try:
+        parameters = inspect.signature(call).parameters.values()
+    except (TypeError, ValueError):
+        return True
+    return any(p.kind is p.VAR_KEYWORD or p.name == "schema" for p in parameters)
+
+
 def call_json(
     *,
     model: str,
@@ -352,6 +361,10 @@ def call_json(
     which = provider_of(model)
     custom = _CUSTOM_PROVIDERS.get(which)
     if custom:
+        if not _accepts_schema(custom[1]):
+            # Written for the extraction contract only. Calling it anyway raised
+            # a TypeError that was charged as a possibly billed failure.
+            return ProviderResult(error=f"unsupported: {which} provider takes no schema")
         return custom[1](
             model=model,
             prompt=prompt,
@@ -464,17 +477,6 @@ def merge_schema() -> dict[str, Any]:
     }
 
 
-def merge_tool() -> dict[str, Any]:
-    """Anthropic equivalent of `merge_schema`, strict mode."""
-    schema = merge_schema()
-    return {
-        "name": "emit_merge",
-        "description": "Emit one merged memory, or null if they must not merge.",
-        "strict": True,
-        "input_schema": schema,
-    }
-
-
 def call_merge(
     *,
     model: str,
@@ -485,72 +487,17 @@ def call_merge(
     location: str = "",
 ) -> ProviderResult:
     """One consolidation call. `raw` carries the merge object, `operations` is unused."""
-    which = provider_of(model)
-    if which == "gemini":
-        if not (gemini_api_key or project):
-            return ProviderResult(error="no GEMINI_API_KEY and no VERTEX_PROJECT")
-        from google.genai import types
-
-        client = _gemini_client(api_key=gemini_api_key, project=project, location=location)
-        response = client.models.generate_content(
-            model=model,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                thinking_config=types.ThinkingConfig(thinking_level="MINIMAL"),
-                response_mime_type="application/json",
-                response_json_schema=merge_schema(),
-                max_output_tokens=1024,
-            ),
-        )
-        usage = getattr(response, "usage_metadata", None)
-        result = ProviderResult(
-            input_tokens=getattr(usage, "prompt_token_count", 0) or 0,
-            output_tokens=(
-                (getattr(usage, "candidates_token_count", 0) or 0)
-                + (getattr(usage, "thoughts_token_count", 0) or 0)
-            ),
-        )
-        text = getattr(response, "text", None)
-        if not text:
-            result.error = "empty_response"
-            return result
-        try:
-            result.raw = json.loads(text)
-        except ValueError as exc:
-            result.error = f"json_decode_error: {exc}"
-        return result
-
-    if not anthropic_api_key:
-        return ProviderResult(error="no ANTHROPIC_API_KEY configured")
-    from anthropic import Anthropic
-
-    tool = merge_tool()
-    extra: dict[str, Any] = {}
-    if not model.startswith("claude-haiku"):
-        extra["output_config"] = {"effort": "low"}
-    response = Anthropic(
-        api_key=anthropic_api_key,
-        timeout=PROVIDER_TIMEOUT_SECONDS,
-        max_retries=1,
-    ).messages.create(
+    return call_json(
         model=model,
+        prompt=prompt,
+        schema=merge_schema(),
+        name="emit_merge",
+        anthropic_api_key=anthropic_api_key,
+        gemini_api_key=gemini_api_key,
+        project=project,
+        location=location,
         max_tokens=1024,
-        tools=[tool],
-        tool_choice={"type": "tool", "name": tool["name"]},
-        messages=[{"role": "user", "content": prompt}],
-        **extra,
     )
-    result = ProviderResult(
-        input_tokens=response.usage.input_tokens,
-        output_tokens=response.usage.output_tokens,
-    )
-    if response.stop_reason == "refusal":
-        result.error = "refusal"
-        return result
-    for block in response.content:
-        if block.type == "tool_use" and block.name == tool["name"]:
-            result.raw = block.input
-    return result
 
 
 # Errors that prove nothing was billed: the request never reached a model, or
@@ -559,6 +506,7 @@ def call_merge(
 UNBILLED_ERROR_PREFIXES = (
     "no GEMINI_API_KEY",
     "no ANTHROPIC_API_KEY",
+    "unsupported:",
 )
 UNBILLED_EXCEPTIONS = frozenset(
     {
