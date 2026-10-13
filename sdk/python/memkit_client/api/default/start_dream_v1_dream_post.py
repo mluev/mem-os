@@ -81,7 +81,9 @@ def sync_detailed(
      Link and infer across one scope's recent memories (decisions/0078).
 
     The caller must be able to write the scope: inferences are written into it
-    under their name, pending review.
+    under their name, pending review. A real dream joins one already waiting
+    for the scope rather than queueing a second that would write the same
+    inferences; a dry run only plans and is always queued.
 
     Args:
         x_requested_with (None | str | Unset):
@@ -121,7 +123,9 @@ def sync(
      Link and infer across one scope's recent memories (decisions/0078).
 
     The caller must be able to write the scope: inferences are written into it
-    under their name, pending review.
+    under their name, pending review. A real dream joins one already waiting
+    for the scope rather than queueing a second that would write the same
+    inferences; a dry run only plans and is always queued.
 
     Args:
         x_requested_with (None | str | Unset):
@@ -156,7 +160,9 @@ async def asyncio_detailed(
      Link and infer across one scope's recent memories (decisions/0078).
 
     The caller must be able to write the scope: inferences are written into it
-    under their name, pending review.
+    under their name, pending review. A real dream joins one already waiting
+    for the scope rather than queueing a second that would write the same
+    inferences; a dry run only plans and is always queued.
 
     Args:
         x_requested_with (None | str | Unset):
@@ -194,7 +200,9 @@ async def asyncio(
      Link and infer across one scope's recent memories (decisions/0078).
 
     The caller must be able to write the scope: inferences are written into it
-    under their name, pending review.
+    under their name, pending review. A real dream joins one already waiting
+    for the scope rather than queueing a second that would write the same
+    inferences; a dry run only plans and is always queued.
 
     Args:
         x_requested_with (None | str | Unset):
