@@ -362,13 +362,18 @@ def erase_user_indices(client: QdrantClient, *, user_id: str, private_scope_id: 
     for item in client.get_collections().collections:
         name = str(item.name)
         if re.fullmatch(r"memories(?:__g\d+)?", name):
-            condition = keyword("scope_id", private_scope_id)
+            # The private scope, and the shared inferences dreamt in the user's name.
+            selections = [
+                [keyword("scope_id", private_scope_id)],
+                [keyword("author_id", user_id), keyword("source_role", "inference")],
+            ]
         elif re.fullmatch(r"raw(?:__g\d+)?", name):
-            condition = keyword("user_id", user_id)
+            selections = [[keyword("user_id", user_id)]]
         else:
             continue
-        client.delete(
-            collection_name=name,
-            points_selector=models.FilterSelector(filter=models.Filter(must=[condition])),
-            wait=True,
-        )
+        for must in selections:
+            client.delete(
+                collection_name=name,
+                points_selector=models.FilterSelector(filter=models.Filter(must=must)),
+                wait=True,
+            )
