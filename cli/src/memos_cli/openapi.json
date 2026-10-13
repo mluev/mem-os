@@ -328,7 +328,7 @@
         "additionalProperties": false,
         "properties": {
           "dry_run": {
-            "default": false,
+            "default": true,
             "title": "Dry Run",
             "type": "boolean"
           },
@@ -4910,7 +4910,7 @@
             "type": "integer"
           },
           "policy_id": {
-            "default": "core-retrieval-v2",
+            "default": "neutral-v1",
             "title": "Policy Id",
             "type": "string"
           },

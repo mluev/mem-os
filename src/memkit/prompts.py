@@ -453,14 +453,13 @@ REGISTRY: dict[str, str] = {"v7": V7, "v8": V8, "v9": V9, "v10": V10, "v11": V11
 # the bill -- which is what the routing rules and the entity block weigh.
 # See docs/measurements.md#extractor-prompt-v8-against-v10.
 #
-# v11 is the default because the store now has somewhere to put what v10 threw
-# away -- event dates, episodes, supersession -- and a v10 extraction would leave
-# those columns empty forever. It is unmeasured on the golden set at the time of
-# writing; `memkit eval` and the LoCoMo/LongMemEval harness (eval/bench) are the
-# measurements that decide whether it stays. Rolling back is naming "v10" in
-# MEMKIT_PROMPT_VERSION; the new op fields are optional, so v10 output still
-# parses and applies.
-DEFAULT_VERSION = "v11"
+# v11 gives the store what v10 throws away -- event dates, episodes,
+# supersession -- but it is unmeasured on the golden set and on the public
+# benchmarks, so it is opt-in until `memkit eval` and the LoCoMo/LongMemEval
+# harness (eval/bench) decide it: MEMKIT_PROMPT_VERSION=v11. Its new op fields
+# are optional, so switching back and forth needs no migration; memories
+# extracted under v10 simply carry no event dates.
+DEFAULT_VERSION = "v10"
 
 CONSOLIDATE_V2 = """Compare the memories below. Return a merged text only when they
 state the same claim in the same context. Preserve the newest truth and all useful

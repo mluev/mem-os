@@ -1,6 +1,6 @@
 # Retrieval
 
-The default is `core-retrieval-v2` (decisions/0077): the fusion below, plus time, order, episode decay, mentions and inference, each described after it. `neutral-v1` still names the fusion alone.
+The default is `neutral-v1`: the fusion below. `core-retrieval-v2` (decisions/0077) adds time, order, episode decay, mentions and inference, each described after it; it is opt-in per request (`policy_id`) until the public benchmark (eval/bench) has measured it.
 
 Policy `core-retrieval-neutral-v1` fuses three bounded candidate arms:
 

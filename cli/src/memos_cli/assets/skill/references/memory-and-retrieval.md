@@ -49,7 +49,8 @@ memos search "pkg mgr" --rewrite-query --json
   defaults to now. The response's `temporal` field says what time the query
   was understood to mean.
 - `--since`/`--until` keep only memories whose event (or, without one, whose
-  saying) falls in the window. A time phrase in the query only boosts.
+  saying) falls in the window. A time phrase in the query only boosts, and
+  only under `core-retrieval-v2`.
 - `--include-history` attaches the values a result replaced ("lived in Porto
   until 2026-04-02"); `--include-related` attaches memories that extend it or
   that it was inferred from. Both spend the same token budget.
@@ -57,8 +58,9 @@ memos search "pkg mgr" --rewrite-query --json
   excerpt proves the claim, the passage carries the detail.
 - `--rewrite-query` searches up to three rephrasings too and merges the
   rankings. It costs a model call; use it when a plain search came back thin.
-- `--policy-id neutral-v1` reproduces the earlier ranking without time,
-  mention counts or inferences.
+- The default ranking is `neutral-v1`. `--policy-id core-retrieval-v2` adds
+  the time boost, first/latest ordering, mention counts and the inference
+  penalty; the response's `temporal` field is only filled under it.
 
 Each result includes its `scope`, `subject`, `kind`, `source_role`,
 `review_status`, `revision` and score. The response carries a `retrieval_id`
@@ -172,11 +174,13 @@ forgotten is what they reviewed. Only scopes you can write are touched.
 ### Dreaming: links and inferences
 
 ```bash
-memos memories dream --scope mem-os --dry-run --json
-memos memories dream --json
+memos memories dream --scope mem-os --json
+memos memories dream --scope mem-os --no-dry-run --json
 ```
 
-Dreaming runs automatically after extraction. It links a newer memory to one
+A dream is a dry run unless `--no-dry-run` is given; it needs a judge model on
+the server. Operators can also queue one after every extraction
+(`MEMKIT_DREAMING=after_extraction`). It links a newer memory to one
 it replaced or extends and may infer new claims from several memories.
 Inferences have `source_role` `inference`, start pending review, and rank below
 stated facts until confirmed — present them as inferences, never as something

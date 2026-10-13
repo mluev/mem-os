@@ -157,11 +157,11 @@ class PolicyV2RankingTest(unittest.TestCase):
 class SearchApiV2Test(ApiTestCase):
     def test_search_returns_dates_history_and_source_context(self) -> None:
         message = self.seed_message(
-            content="Last Saturday I ran the Lisbon half marathon in 1:52 and it rained throughout"
+            content="Last Saturday I moved to Lisbon from Porto and it rained the whole drive"
         )
         porto = self.seed_memory(text="Alice lives in Porto", kind="fact")
         lisbon = self.seed_memory(
-            text="Alice ran the Lisbon half marathon on 2026-03-14",
+            text="Alice moved to Lisbon on 2026-03-14",
             kind="episode",
             event_dates=["2026-03-14"],
         )
@@ -170,8 +170,8 @@ class SearchApiV2Test(ApiTestCase):
         )
         with self.db.transaction():
             store.supersede(self.db, old_id=porto, new_id=lisbon, scopes=[alice_scope])
-            quote = "ran the Lisbon half marathon"
-            start = "Last Saturday I ran".index("ran")
+            quote = "moved to Lisbon"
+            start = "Last Saturday I moved".index("moved")
             self.db.execute(
                 """INSERT INTO memory_evidence
                    (memory_id,message_id,start_char,end_char,excerpt_sha256)
@@ -188,7 +188,8 @@ class SearchApiV2Test(ApiTestCase):
             "/v1/memories/search",
             headers=self.auth,
             json={
-                "query": "Lisbon half marathon last march",
+                "query": "moved to Lisbon last march",
+                "policy_id": "core-retrieval-v2",
                 "as_of": "2026-04-10T00:00:00Z",
                 "include_sources": True,
                 "source_context_chars": 200,
@@ -204,8 +205,8 @@ class SearchApiV2Test(ApiTestCase):
         self.assertGreater(hit["temporal"], 0)
         self.assertEqual([h["id"] for h in hit["history"]], [porto])
         [source] = hit["sources"]
-        self.assertEqual(source["excerpt"], "ran the Lisbon half marathon")
-        self.assertIn("1:52", source["context"])
+        self.assertEqual(source["excerpt"], "moved to Lisbon")
+        self.assertIn("rained", source["context"])
 
     def test_the_v1_policy_is_still_available_by_name(self) -> None:
         self.seed_memory(text="Alice prefers pnpm")

@@ -30,7 +30,7 @@ class SearchIn:
         include_untrusted (bool | Unset):  Default: False.
         kinds (list[str] | None | Unset):
         limit (int | Unset):  Default: 30.
-        policy_id (str | Unset):  Default: 'core-retrieval-v2'.
+        policy_id (str | Unset):  Default: 'neutral-v1'.
         rewrite_query (bool | Unset):  Default: False.
         scopes (list[str] | None | Unset):
         since (datetime.datetime | None | Unset):
@@ -50,7 +50,7 @@ class SearchIn:
     include_untrusted: bool | Unset = False
     kinds: list[str] | None | Unset = UNSET
     limit: int | Unset = 30
-    policy_id: str | Unset = "core-retrieval-v2"
+    policy_id: str | Unset = "neutral-v1"
     rewrite_query: bool | Unset = False
     scopes: list[str] | None | Unset = UNSET
     since: datetime.datetime | None | Unset = UNSET

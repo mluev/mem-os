@@ -22,8 +22,8 @@ what every relative phrase in it was resolved against. `event_dates` is when
 the described thing happened, at the precision the speaker gave (`2026`,
 `2026-03`, `2026-03-14`); `event_start`/`event_end` index their interval.
 Invalid dates are dropped rather than guessed. Candidates show the model when
-each was said. `MEMKIT_PROMPT_VERSION` names an older prompt to roll back
-without a deploy.
+each was said. v11 is opt-in (`MEMKIT_PROMPT_VERSION=v11`) until the golden
+set and eval/bench have measured it; v10 stays the default.
 
 ## Alternatives and why not
 

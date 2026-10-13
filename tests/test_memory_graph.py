@@ -27,6 +27,11 @@ def _said(conn, message_ids, when: str) -> None:
 
 
 class GraphExtractionTest(PipelineCase):
+    def run_extraction(self, handler, **kw):
+        # The graph is v11's; v10 stays the default until it is measured.
+        kw.setdefault("prompt_version", "v11")
+        return super().run_extraction(handler, **kw)
+
     def memory(self, text: str):
         return self.conn.execute("SELECT * FROM memories WHERE text=%s", (text,)).fetchone()
 

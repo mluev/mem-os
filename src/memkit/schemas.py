@@ -184,9 +184,9 @@ class SearchIn(StrictModel):
     # caller can read; naming one they cannot is a 403, not an empty result.
     scopes: list[Slug] | None = None
     subject: Slug | None = None
-    # v2 adds time, reinforcement and inference to v1's fusion; "neutral-v1"
-    # still names the previous ranking exactly (decisions/0077).
-    policy_id: str = "core-retrieval-v2"
+    # "core-retrieval-v2" adds time, reinforcement and inference to v1's fusion.
+    # It is opt-in per request until measured (decisions/0077).
+    policy_id: str = "neutral-v1"
     include_untrusted: bool = False
     include_raw: bool = False
     include_sources: bool = False
@@ -284,8 +284,9 @@ class DreamIn(StrictModel):
     # The scope to dream over; omitted means the caller's own.
     scope: Slug | None = None
     max_clusters: int = Field(default=8, ge=1, le=50)
-    # Plan clusters without calling a model.
-    dry_run: bool = False
+    # Plan clusters without calling a model. On by default, like forget and the
+    # CLI: a dream writes links and inferences that change what search returns.
+    dry_run: bool = True
 
 
 class ReplayIn(StrictModel):

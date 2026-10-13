@@ -17,7 +17,7 @@ Before deployment, retain a verified schema-v2-compatible application rollback a
 
 Schema v3 (decisions/0075–0078) is additive and applied on start like v2. It adds nullable time columns and backfills two of them in one statement each: `document_date` from each memory's earliest cited message, and `source_count` from the distinct sessions it cites. On a large store run the upgrade with traffic withheld and take a protected archive first, exactly as for v2. A schema-v2 binary refuses a v3 database, so retain a v3-compatible build for application rollback. After the upgrade, run `memkit reindex` so every Qdrant payload carries the new date fields; retrieval reads them from Postgres either way, so search is correct before the reindex finishes.
 
-Behaviour changes that need no migration: the extractor defaults to prompt v11 (`MEMKIT_PROMPT_VERSION=v10` restores the previous prompt); search defaults to `core-retrieval-v2` (callers can name `neutral-v1`); and, when a judge is configured, extraction queues dreaming for the scopes it wrote into (`MEMKIT_DREAMING=off` disables it). Dreaming and query rewriting spend the same monthly ceiling as extraction.
+Defaults do not change: the extractor stays on prompt v10, search on `neutral-v1`, and dreaming is off. Each new behaviour is opt-in until the public benchmark has measured it: `MEMKIT_PROMPT_VERSION=v11` for episodes, event dates and supersession; `policy_id: core-retrieval-v2` per search; `MEMKIT_DREAMING=after_extraction` to queue dreaming after each extraction. Dreaming and query rewriting spend the same monthly ceiling as extraction.
 
 ## Routine operation
 

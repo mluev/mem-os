@@ -14,12 +14,12 @@ T = TypeVar("T", bound="DreamIn")
 class DreamIn:
     """
     Attributes:
-        dry_run (bool | Unset):  Default: False.
+        dry_run (bool | Unset):  Default: True.
         max_clusters (int | Unset):  Default: 8.
         scope (None | str | Unset):
     """
 
-    dry_run: bool | Unset = False
+    dry_run: bool | Unset = True
     max_clusters: int | Unset = 8
     scope: None | str | Unset = UNSET
 

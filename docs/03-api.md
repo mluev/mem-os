@@ -18,7 +18,7 @@ A **session cookie** (`memkit_session`, HttpOnly, Secure, SameSite=Lax, sliding 
 - entities: list, create, get, patch, archive, aliases, members, `POST /v1/entities/resolve` (a conversational name to an entity), and `GET /v1/entities/{slug}/profile` (what the team knows *about* this entity, and what lives *in* its scope);
 - evidence: `POST /v1/evidence/events`, `POST /v1/evidence/events:batch` (up to 100), session close;
 - memory: create, patch, archive, restore, review, list, get, sources, history, `POST /v1/memories/search`, `POST /v1/memories/forget` (by request or ids, dry run by default), retrieval runs, and scoped feedback;
-- dreaming: `POST /v1/dream` queues a link-and-infer pass over one writable scope (decisions/0078);
+- dreaming: `POST /v1/dream` queues a link-and-infer pass over one writable scope (decisions/0078); a dry run unless `dry_run` is false, and refused when no judge model is configured;
 - review: `GET /v1/review` — pending memories, unresolved mentions, conflicts, failed jobs, and budget warnings in one queue, because they share one question;
 - attention: `POST /v1/attention/{id}/resolve` — link an unresolved name to an entity (which also teaches the alias, so the same name resolves by itself next time) or dismiss it;
 - profiles: `POST /v1/profiles/render`;

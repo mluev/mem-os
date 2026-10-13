@@ -9,7 +9,8 @@
 
 ## Decision
 
-`core-retrieval-v2` becomes the search default. It keeps v1's fusion weights
+`core-retrieval-v2` is seeded alongside v1 and is opt-in per request until
+eval/bench has measured it; `neutral-v1` stays the default. It keeps v1's fusion weights
 and relevance floor and adds signals that are all zero under v1: a time window
 parsed from the query (English and Russian, resolved against `as_of`, the
 question's date) boosts memories whose event — or, lacking one, whose saying —

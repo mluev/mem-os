@@ -1312,7 +1312,7 @@ export interface components {
         DreamIn: {
             /**
              * Dry Run
-             * @default false
+             * @default true
              */
             dry_run: boolean;
             /**
@@ -2834,7 +2834,7 @@ export interface components {
             limit: number;
             /**
              * Policy Id
-             * @default core-retrieval-v2
+             * @default neutral-v1
              */
             policy_id: string;
             /** Query */
