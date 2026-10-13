@@ -153,6 +153,64 @@ class PolicyV2RankingTest(unittest.TestCase):
         )[lisbon]
         self.assertEqual(theirs, {"history": [], "related": []})
 
+    def test_neighbours_bring_back_nothing_the_search_filtered_out(self) -> None:
+        porto = self.add("The user lives in Porto", kind="fact")
+        lisbon = self.add("The user lives in Lisbon", kind="fact")
+        echo = self.add("The user lives near the river", kind="fact", source_role="assistant")
+        with self.conn.transaction():
+            store.supersede(
+                self.conn, old_id=porto, new_id=lisbon, scopes=self.caller.writable_scope_ids
+            )
+            store.add_relation(self.conn, from_id=echo, to_id=lisbon, relation="extends")
+        trusted = graph.expand(
+            self.conn,
+            [lisbon],
+            scope_ids=self.caller.scopes(),
+            include_history=True,
+            include_related=True,
+            allowed_roles=self.v2.allowed_source_roles,
+        )[lisbon]
+        self.assertEqual(trusted["related"], [])
+        self.assertEqual([h["id"] for h in trusted["history"]], [porto])
+
+        with self.conn.transaction():
+            store.set_memory_status(
+                self.conn, memory_id=porto, scopes=self.caller.writable_scope_ids, status="archived"
+            )
+        history = store.history_of(self.conn, lisbon, scope_ids=self.caller.scopes())
+        self.assertEqual(history, [], "a deleted claim is not history")
+
+    def test_restoring_a_superseded_claim_makes_it_current_again(self) -> None:
+        porto = self.add("The user lives in Porto", kind="fact")
+        lisbon = self.add("The user lives in Lisbon", kind="fact")
+        with self.conn.transaction():
+            store.supersede(
+                self.conn, old_id=porto, new_id=lisbon, scopes=self.caller.writable_scope_ids
+            )
+            restored = store.set_memory_status(
+                self.conn, memory_id=porto, scopes=self.caller.writable_scope_ids, status="active"
+            )
+        self.assertIsNone(restored["valid_until"])
+        self.assertIsNone(restored["superseded_by"])
+        self.assertEqual(store.history_of(self.conn, lisbon, scope_ids=self.caller.scopes()), [])
+        self.assertIn(porto, [r.id for r in self.search("Porto", self.v1)])
+
+    def test_a_window_finds_old_claims_outside_the_unwindowed_top(self) -> None:
+        inside = self.add("The user ran a marathon", event_dates=["2019-04-07"])
+        # Each decoy outranks it lexically, and there are more of them than
+        # the Postgres arms fetch.
+        for index in range(60):
+            self.add(
+                f"Marathon {index}: the user ran the marathon again", event_dates=["2026-04-07"]
+            )
+        ranked = self.search(
+            "marathon",
+            self.v1,
+            limit=5,
+            time_range=(datetime(2019, 1, 1, tzinfo=UTC), datetime(2019, 12, 31, tzinfo=UTC)),
+        )
+        self.assertEqual([r.id for r in ranked], [inside])
+
 
 class SearchApiV2Test(ApiTestCase):
     def test_search_returns_dates_history_and_source_context(self) -> None:

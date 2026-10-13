@@ -143,8 +143,11 @@ class Settings(BaseSettings):
     # other memory in the profile ordering and removes its retrieval bonus.
     consolidate_importance_floor: float = 0.3
 
-    # Optional cross-encoder rerank. Empty means off; see rerank.py.
+    # Optional cross-encoder rerank. Empty means off; see rerank.py. Pin the
+    # revision like the embedder's, or the first search after a model push
+    # downloads different weights.
     rerank_model: str = ""
+    rerank_revision: str = ""
 
     # Dreaming (decisions/0078): after an extraction writes memories, link and
     # infer across the scopes it touched. Runs only when a judge is configured,

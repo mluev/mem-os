@@ -406,6 +406,29 @@ def _recency(row: Row, now: datetime, policy: RetrievalPolicy) -> float:
     return math.exp(-_age_days(row["updated_at"], now) / policy.default_half_life_days)
 
 
+def _range_sql(
+    time_range: tuple[datetime | None, datetime | None] | None,
+) -> tuple[str, list[Any]]:
+    """`_in_range` as a predicate, so the Postgres arms rank only in-window rows.
+
+    Applied after fetching instead, a window over an old period found only what
+    happened to rank in the unwindowed top candidates.
+    """
+    if time_range is None:
+        return "", []
+    since, until = time_range
+    end = "COALESCE(m.event_end, m.event_start, m.document_date)"
+    start = "COALESCE(m.event_start, m.event_end, m.document_date)"
+    clauses, values = [f"{start} IS NOT NULL"], []
+    if since is not None:
+        clauses.append(f"{end} >= %s")
+        values.append(since)
+    if until is not None:
+        clauses.append(f"{start} <= %s")
+        values.append(until)
+    return " AND ".join(clauses), values
+
+
 def _in_range(row: Row, time_range: tuple[datetime | None, datetime | None] | None) -> bool:
     if time_range is None:
         return True
@@ -483,6 +506,9 @@ def explain(
     criteria = eligibility.memory_sql(
         expression=expression, kinds=kinds, allowed_roles=allowed_roles, now=now
     )
+    window, window_values = _range_sql(time_range)
+    if window:
+        criteria = (f"{criteria[0]} AND {window}", [*criteria[1], *window_values])
     embed_started = time.perf_counter()
     dense_vector = embedder.encode_one(query)
     embed_ms = (time.perf_counter() - embed_started) * 1000
@@ -520,6 +546,7 @@ def explain(
             and (allowed_roles is None or row["source_role"] in allowed_roles)
             and (not kinds or row["kind"] in kinds)
             and filters.matches(eligibility.document(row), expression)
+            and _in_range(row, time_range)
             for row in rows.values()
         )
         if len(hits) < candidate_limit or eligible_count >= candidate_limit:

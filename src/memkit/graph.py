@@ -11,15 +11,15 @@ are cheap to fetch once the claims are chosen:
               inference.
 
 Both are bounded per result, re-check every far end against the caller's
-scopes (via `store.relations_for` / `store.history_of`), and never include a
-memory that is not active except as history, where being superseded is the
-point.
+scopes (via `store.relations_for` / `store.history_of`) and against the same
+trust policy the search applied, and never include a memory that is not active
+except as history, where being superseded is the point.
 """
 
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from typing import Any
 
 import psycopg
@@ -55,8 +55,15 @@ def expand(
     include_history: bool,
     include_related: bool,
     per_memory: int = 3,
+    allowed_roles: Iterable[str] | None = None,
 ) -> dict[str, dict[str, list[dict[str, Any]]]]:
-    """History and related neighbours for each result id, newest first."""
+    """History and related neighbours for each result id, newest first.
+
+    `allowed_roles` is the search's trust policy (None when the caller asked
+    for untrusted results): a neighbour must not bring back what the search
+    itself filtered out, such as an assistant's claim.
+    """
+    roles = sorted(allowed_roles) if allowed_roles is not None else None
     out: dict[str, dict[str, list[dict[str, Any]]]] = {
         memory_id: {"history": [], "related": []} for memory_id in memory_ids
     }
@@ -66,7 +73,9 @@ def expand(
         for memory_id in memory_ids:
             out[memory_id]["history"] = [
                 linked_view(row, "replaces")
-                for row in store.history_of(conn, memory_id, scope_ids=scope_ids, limit=per_memory)
+                for row in store.history_of(
+                    conn, memory_id, scope_ids=scope_ids, limit=per_memory, allowed_roles=roles
+                )
             ]
     if include_related:
         edges = store.relations_for(conn, memory_ids, scope_ids=scope_ids)
@@ -86,10 +95,13 @@ def expand(
                 for row in conn.execute(
                     """SELECT * FROM memories
                         WHERE id = ANY(%s) AND scope_id = ANY(%s) AND status = 'active'
-                          AND (valid_until IS NULL OR valid_until > now())""",
+                          AND (valid_until IS NULL OR valid_until > now())
+                          AND (%s::text[] IS NULL OR source_role = ANY(%s::text[]))""",
                     (
                         [uuid.UUID(other) for other in sorted(far)],
                         [uuid.UUID(str(scope)) for scope in scope_ids],
+                        roles,
+                        roles,
                     ),
                 )
             }

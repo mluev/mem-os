@@ -80,23 +80,36 @@ class CrossEncoderReranker:
             except Exception:
                 logger.exception("cross-encoder inference failed; keeping hybrid order")
                 return candidates
-        relevance = [1.0 / (1.0 + math.exp(-float(value))) for value in raw]
-        top = max(item.score for item in head)
-        low = min(item.score for item in head)
-        spread = (top - low) or 1.0
+        # Both sides are min-max scaled over the head before blending. Whether
+        # the model's output is a logit or already a probability depends on the
+        # model and the library version (sentence-transformers applies a
+        # sigmoid itself for one-label models); scaling makes the blend
+        # independent of that, where a second sigmoid squashed every score into
+        # a narrow band and gave the cross-encoder far less than its weight.
+        cross = _scaled([float(value) for value in raw])
+        hybrid = _scaled([item.score for item in head])
         blended = [
-            replace(
-                item,
-                score=self.blend * cross + (1 - self.blend) * (item.score - low) / spread,
-            )
-            for item, cross in zip(head, relevance, strict=True)
+            replace(item, score=self.blend * c + (1 - self.blend) * h)
+            for item, c, h in zip(head, cross, hybrid, strict=True)
         ]
         blended.sort(key=lambda item: (-item.score, item.id))
         return blended + tail
+
+
+def _scaled(values: list[float]) -> list[float]:
+    low, top = min(values), max(values)
+    spread = top - low
+    if not math.isfinite(spread) or spread <= 0:
+        return [0.0 for _ in values]
+    return [(value - low) / spread for value in values]
 
 
 def from_settings(settings: Any) -> CrossEncoderReranker | None:
     name = getattr(settings, "rerank_model", "")
     if not name:
         return None
-    return CrossEncoderReranker(name, device=getattr(settings, "embed_device", "cpu"))
+    return CrossEncoderReranker(
+        name,
+        device=getattr(settings, "embed_device", "cpu"),
+        revision=getattr(settings, "rerank_revision", "") or None,
+    )

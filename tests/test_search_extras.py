@@ -51,6 +51,26 @@ class CrossEncoderTest(unittest.TestCase):
         )
         self.assertEqual([item.id for item in ranked], ["b", "a", "c"])
 
+    def test_probabilities_carry_the_cross_encoders_full_weight(self) -> None:
+        # sentence-transformers already returns sigmoid probabilities for a
+        # one-label model; a second sigmoid flattened 0.52 vs 0.71 to a tie.
+        class Model:
+            def predict(self, pairs):
+                return [0.52 if "dislikes" in text else 0.71 for _, text in pairs]
+
+        ranked = rerank.CrossEncoderReranker("fake", model=Model()).rerank(
+            "does the user like dark mode",
+            [
+                scored("a", 0.9, "The user dislikes dark mode"),
+                scored("b", 0.8, "The user likes dark mode"),
+            ],
+        )
+        self.assertEqual([item.id for item in ranked], ["b", "a"])
+
+    def test_the_configured_revision_is_pinned(self) -> None:
+        settings = config.Settings(rerank_model="some/model", rerank_revision="abc123")
+        self.assertEqual(rerank.from_settings(settings).revision, "abc123")
+
     def test_a_failing_model_keeps_the_hybrid_order(self) -> None:
         class Broken:
             def predict(self, pairs):
@@ -187,6 +207,35 @@ class RewriteAndForgetApiTest(ApiTestCase):
         self.assertEqual(self.scalar("SELECT status FROM memories WHERE id=%s", other), "active")
         # The cat was a candidate the judge saw and declined.
         self.assertIn("named her cat Titan", seen["prompt"])
+
+    def test_a_failed_verification_forgets_nothing(self) -> None:
+        titan = self.seed_memory(text="Project Titan ships in Q3", kind="fact")
+        self.judge(lambda **_: providers.ProviderResult(error="ServerError: overloaded"))
+        response = self.client.post(
+            "/v1/memories/forget",
+            headers=self.auth,
+            json={"query": "Project Titan", "threshold": 0.0, "dry_run": False},
+        )
+        self.assertEqual(response.status_code, 503, response.text)
+        self.assertEqual(self.scalar("SELECT status FROM memories WHERE id=%s", titan), "active")
+        dry = self.client.post(
+            "/v1/memories/forget",
+            headers=self.auth,
+            json={"query": "Project Titan", "threshold": 0.0},
+        ).json()
+        self.assertFalse(dry["verified"])
+        self.assertEqual([c["id"] for c in dry["candidates"]], [titan])
+
+    def test_the_stored_reason_carries_no_secret(self) -> None:
+        target = self.seed_memory(text="Deploy token lives in the vault", kind="fact")
+        secret = "ghp_" + "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8"
+        self.client.post(
+            "/v1/memories/forget",
+            headers=self.auth,
+            json={"ids": [target], "dry_run": False, "reason": f"leaked {secret}"},
+        )
+        reason = self.scalar("SELECT forget_reason FROM memories WHERE id=%s", target)
+        self.assertNotIn(secret, reason)
 
     def test_exactly_one_selector_is_required(self) -> None:
         for payload in ({}, {"ids": ["x"], "query": "y"}):

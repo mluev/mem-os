@@ -168,25 +168,25 @@ _EN_MONTHS = {
     **{name.lower(): i for i, name in enumerate(calendar.month_abbr) if name},
     "sept": 9,
 }
-# Russian stems cover every case form (январь/января/январе). Order matters:
-# "март" must be tried before "ма", which is May's stem.
+# Russian months as (stem, case endings, number); the stems cover every case
+# form (январь/января/январе). Order matters: "март" must be tried before "ма",
+# which is May's stem.
 _RU_MONTHS = (
-    ("январ", 1),
-    ("феврал", 2),
-    ("март", 3),
-    ("апрел", 4),
-    ("ма", 5),
-    ("июн", 6),
-    ("июл", 7),
-    ("август", 8),
-    ("сентябр", 9),
-    ("октябр", 10),
-    ("ноябр", 11),
-    ("декабр", 12),
+    ("январ", "[ьяе]", 1),
+    ("феврал", "[ьяе]", 2),
+    ("март", "[ае]?", 3),
+    ("апрел", "[ьяе]", 4),
+    ("ма", "[йяе]", 5),
+    ("июн", "[ьяе]", 6),
+    ("июл", "[ьяе]", 7),
+    ("август", "[ае]?", 8),
+    ("сентябр", "[ьяе]", 9),
+    ("октябр", "[ьяе]", 10),
+    ("ноябр", "[ьяе]", 11),
+    ("декабр", "[ьяе]", 12),
 )
 _RU_MONTH = re.compile(
-    r"\b(январ[ьяе]|феврал[ьяе]|март[ае]?|апрел[ьяе]|ма[йяе]|июн[ьяе]|июл[ьяе]|"
-    r"август[ае]?|сентябр[ьяе]|октябр[ьяе]|ноябр[ьяе]|декабр[ьяе])\b(?:\s+(\d{4}))?",
+    r"\b(" + "|".join(stem + endings for stem, endings, _ in _RU_MONTHS) + r")\b(?:\s+(\d{4}))?",
     re.IGNORECASE,
 )
 _EN_MONTH = re.compile(
@@ -227,8 +227,19 @@ _LATEST = re.compile(
     re.IGNORECASE,
 )
 _EARLIEST = re.compile(
-    r"\b(first|earliest|initially|originally|at first|впервые|сначала|перв\w*|изначально)\b",
+    # "first name" asks for a name, not for the earliest claim.
+    r"\b(first(?!\s+name)|earliest|initially|originally|at first|впервые|сначала|перв\w*|"
+    r"изначально)\b",
     re.IGNORECASE,
+)
+# Queries carry years from typos and identifiers too; outside this range a
+# "date" is not one, and date() would raise on year 0.
+_YEARS = range(1900, 2201)
+# English month names that are also ordinary words ("may I", "march of the
+# penguins") only name a month after one of these, or with a year.
+_AMBIGUOUS_MONTHS = {"may", "march"}
+_MONTH_CUE = re.compile(
+    r"\b(in|during|since|until|by|before|after|of|early|late|mid|last|this|next)$"
 )
 _ASKS_TIME = re.compile(
     r"\b(when|what date|which day|how long|how many (?:days|weeks|months|years)|"
@@ -302,7 +313,7 @@ def _ago(today: date, amount: int, unit: str, phrase: str) -> TimeWindow | None:
 
 def _absolute_window(text: str, today: date) -> TimeWindow | None:
     match = _ISO_DAY.search(text)
-    if match:
+    if match and int(match.group(1)) in _YEARS:
         try:
             return _day_window(
                 date(int(match.group(1)), int(match.group(2)), int(match.group(3))), match.group(0)
@@ -310,26 +321,27 @@ def _absolute_window(text: str, today: date) -> TimeWindow | None:
         except ValueError:
             return None
     match = _ISO_MONTH.search(text)
-    if match and 1 <= int(match.group(2)) <= 12:
+    if match and int(match.group(1)) in _YEARS and 1 <= int(match.group(2)) <= 12:
         return _month_span(int(match.group(1)), int(match.group(2)), match.group(0))
     for pattern, russian in ((_EN_MONTH, False), (_RU_MONTH, True)):
         match = pattern.search(text)
         if match is None:
             continue
         word = match.group(1).casefold().rstrip(".")
-        # "may" is also a modal verb; only a year or a preposition makes it a month.
-        if word == "may" and not match.group(2):
+        if not russian and word in _AMBIGUOUS_MONTHS and not match.group(2):
             before = text[: match.start()].casefold().rstrip()
-            if not re.search(r"\b(in|during|since|until|of|early|late|mid)$", before):
+            if not _MONTH_CUE.search(before):
                 continue
         if russian:
-            month = next((number for stem, number in _RU_MONTHS if word.startswith(stem)), None)
+            month = next((n for stem, _, n in _RU_MONTHS if word.startswith(stem)), None)
         else:
             month = _EN_MONTHS.get(word)
         if month is None:
             continue
         if match.group(2):
             year = int(match.group(2))
+            if year not in _YEARS:
+                continue
         else:
             # A bare month means its most recent occurrence not after today.
             year = today.year if month <= today.month else today.year - 1
@@ -337,7 +349,7 @@ def _absolute_window(text: str, today: date) -> TimeWindow | None:
     match = _YEAR.search(text)
     if match:
         year = int(match.group(1))
-        if 1900 <= year <= 2200:
+        if year in _YEARS:
             return _span(date(year, 1, 1), date(year, 12, 31), match.group(0))
     return None
 

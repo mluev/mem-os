@@ -13,7 +13,7 @@ import hashlib
 import json
 import re
 import uuid
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime
 from typing import Any
 
@@ -869,6 +869,21 @@ def set_memory_status(
     revision = int(current["revision"])
     if expected_revision is not None and revision != expected_revision:
         raise RuntimeError("memory revision conflict")
+    if status == "active" and current["status"] == "superseded":
+        # Undoing a supersession: `supersede` ended the claim's validity at the
+        # replacement's date and linked the two. Restoring only the status left
+        # it expired -- invisible everywhere -- and still listed as replaced.
+        conn.execute(
+            "DELETE FROM memory_relations WHERE to_id=%s AND relation='updates'", (memory_id,)
+        )
+        if isinstance(valid_until, _Unchanged):
+            before = conn.execute(
+                """SELECT valid_until FROM memory_revisions
+                    WHERE memory_id=%s AND revision<%s AND status<>'superseded'
+                    ORDER BY revision DESC LIMIT 1""",
+                (memory_id, revision),
+            ).fetchone()
+            valid_until = before["valid_until"] if before else None
     reason = (forget_reason or "").strip()[:500] or None
     changed = conn.execute(
         """UPDATE memories SET status=%s,superseded_by=%s,updated_at=%s,revision=revision+1,
@@ -1076,13 +1091,17 @@ def history_of(
     *,
     scope_ids: Sequence[str],
     limit: int = 5,
+    allowed_roles: Iterable[str] | None = None,
 ) -> list[Row]:
     """The memories this one replaced, newest first, following `updates` edges.
 
     A state change keeps its past: "moved to Lisbon" updates "lives in Porto",
     and a question about where someone lived before needs the older fact with
     the dates it held -- which a revision list of corrections cannot answer.
+    Only superseded claims are history: one somebody since deleted stays
+    deleted. `allowed_roles` is the search's trust policy; None admits all.
     """
+    roles = sorted(allowed_roles) if allowed_roles is not None else None
     rows = conn.execute(
         """WITH RECURSIVE chain(id, depth) AS (
                SELECT r.to_id, 1 FROM memory_relations r
@@ -1093,10 +1112,18 @@ def history_of(
                 WHERE r.relation = 'updates' AND c.depth < %s
            )
            SELECT m.*, c.depth FROM chain c JOIN memories m ON m.id = c.id
-            WHERE m.scope_id = ANY(%s)
+            WHERE m.scope_id = ANY(%s) AND m.status = 'superseded'
+              AND (%s::text[] IS NULL OR m.source_role = ANY(%s::text[]))
             ORDER BY c.depth, m.document_date DESC
             LIMIT %s""",
-        (memory_id, limit, [uuid.UUID(str(s)) for s in scope_ids], limit),
+        (
+            memory_id,
+            limit,
+            [uuid.UUID(str(s)) for s in scope_ids],
+            roles,
+            roles,
+            limit,
+        ),
     ).fetchall()
     return list(rows)
 

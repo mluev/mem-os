@@ -30,6 +30,7 @@ from .. import (
     prompts,
     retrieval,
     rewrite,
+    security,
     store,
     telemetry,
     vectors,
@@ -738,6 +739,7 @@ def search_memories(
         scope_ids=scopes,
         include_history=body.include_history,
         include_related=body.include_related,
+        allowed_roles=None if body.include_untrusted else policy.allowed_source_roles,
     )
     with conn.transaction():
         retrieval_id = telemetry.record_retrieval_run(
@@ -795,6 +797,7 @@ def forget_memories(
     else:
         scopes = sorted(principal.writable_scope_ids)
     verified = False
+    unverified = False
     if body.ids is not None:
         try:
             ids = [uuid.UUID(item) for item in body.ids]
@@ -859,6 +862,15 @@ def forget_memories(
                         keep.add(index)
                 candidates = [c for i, c in enumerate(candidates) if i in keep]
                 verified = True
+            else:
+                unverified = True
+    if unverified and not body.dry_run:
+        # Verification was asked for and could not happen. Archiving every
+        # candidate above a similarity threshold instead is the broad match
+        # verification exists to prevent.
+        raise HTTPException(
+            503, "the judge could not verify the candidates; retry, or review a dry run"
+        )
     candidates = candidates[: body.max_forget]
     if body.dry_run or not candidates:
         return {
@@ -869,6 +881,8 @@ def forget_memories(
             "reason": body.reason,
         }
     reason = body.reason or (f"forget request: {body.query}" if body.query else "forget request")
+    # Stored on the row; a request can quote what it wants forgotten verbatim.
+    reason = security.redact(reason).text
     forgotten: list[str] = []
     try:
         with conn.transaction():

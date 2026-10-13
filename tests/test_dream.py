@@ -11,7 +11,6 @@ from __future__ import annotations
 import re
 import unittest
 from types import SimpleNamespace
-
 from unittest.mock import patch
 
 from psycopg.types.json import Jsonb

@@ -48,12 +48,21 @@ def test_query_windows(query, expected):
     ["may I ask about pnpm", "what is my favourite editor", "march of the penguins documentary"],
 )
 def test_no_window_is_better_than_a_wrong_one(query):
-    # "march of the penguins" still names a month; the parser only refuses the
-    # modal "may". The other two carry no time at all.
-    if query.startswith("march"):
-        assert window(query) is not None
-    else:
-        assert window(query) is None
+    # "march" and "may" are words before they are months: without a year or a
+    # cue like "in" or "last" they name no time.
+    assert window(query) is None
+
+
+@pytest.mark.parametrize(
+    "query", ["notes from 0000-01", "what happened in January 0000", "on 0000-01-01"]
+)
+def test_an_impossible_year_is_no_window_not_an_error(query):
+    assert window(query) is None
+
+
+def test_a_first_name_is_not_a_first_time():
+    assert temporal.parse_intent("what is my first name", now=NOW).order is None
+    assert window("what did I do last march") is not None
 
 
 def test_ordering_and_time_questions():
