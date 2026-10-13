@@ -21,5 +21,6 @@ operation the design promises is always safe into the one that silently undoes
 every correction ever made. Deletion is soft precisely so the row survives for
 re-extraction; the index is where the fact stops being visible.
 
-`tests/test_invariants.py` asserts it: delete a fact, rebuild, and the point must
-not come back while the row must still be there.
+`tests/test_reindex_v4.py::test_an_inactive_memory_is_left_out_of_the_generation`
+asserts it: delete a fact, rebuild, and the point must not come back while the
+row must still be there.

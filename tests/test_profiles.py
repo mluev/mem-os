@@ -20,8 +20,9 @@ def _backdate(conn, memory_id: str, days: int) -> None:
     stamp = datetime.now(UTC) - timedelta(days=days)
     with conn.transaction():
         conn.execute(
-            "UPDATE memories SET created_at=%s, updated_at=%s WHERE id=%s",
-            (stamp, stamp, memory_id),
+            # A memory written long ago was also said long ago.
+            "UPDATE memories SET created_at=%s, updated_at=%s, document_date=%s WHERE id=%s",
+            (stamp, stamp, stamp, memory_id),
         )
 
 
@@ -95,6 +96,49 @@ class ProfileBlocksTest(unittest.TestCase):
         self._add("An old decision nobody revisits", "decision", days_old=200)
         blocks = self._render()["blocks"]
         self.assertEqual([item["id"] for item in blocks["recent"]], [fresh])
+
+    def test_an_upcoming_event_is_recent_whenever_it_was_mentioned(self) -> None:
+        trip = self._add("Alice flies to Tokyo on 2099-05-03", "episode", days_old=60)
+        with self.conn.transaction():
+            self.conn.execute(
+                """UPDATE memories SET event_dates='["2099-05-03"]',
+                          event_start='2099-05-03', event_end='2099-05-03T23:59:59Z'
+                    WHERE id=%s""",
+                (trip,),
+            )
+        self._add("Deploys moved to Coolify", "decision", days_old=3)
+        recent = [item["id"] for item in self._render()["blocks"]["recent"]]
+        self.assertEqual(recent[0], trip)
+
+    def test_static_traits_lead_the_about_block_whatever_their_kind(self) -> None:
+        self._add("Alice's GitHub handle is aivanova", "fact")
+        with self.conn.transaction():
+            native = store.add_memory(
+                self.conn,
+                scope_id=self.team.scope_of("alice"),
+                author_id=self.team.alice_id,
+                text="Alice's native language is Russian",
+                kind="language",
+                source_role="user",
+                review_status="confirmed",
+                is_static=True,
+                importance=0.5,
+            )
+        about = self._render()["blocks"]["about"]
+        self.assertEqual(about[0]["id"], native)
+        self.assertTrue(about[0]["is_static"])
+
+    def test_an_unconfirmed_inference_stays_out_of_the_preamble(self) -> None:
+        with self.conn.transaction():
+            store.add_memory(
+                self.conn,
+                scope_id=self.team.scope_of("alice"),
+                author_id=self.team.alice_id,
+                text="Alice probably prefers Linux",
+                kind="preference",
+                source_role="inference",
+            )
+        self.assertEqual(self._render()["blocks"]["style"], [])
 
     def test_a_memory_appears_in_one_block_only(self) -> None:
         self._add("Prefers pnpm over npm", "preference")

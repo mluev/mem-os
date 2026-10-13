@@ -15,7 +15,7 @@ from psycopg.conninfo import make_conninfo
 
 from memkit import db, privacy, store
 from tests.conftest import _pg_bin
-from tests.fixtures import StubQdrant, seed_team
+from tests.fixtures import StubQdrant, downgrade_to_v2, seed_team
 
 
 def payload(name):
@@ -121,6 +121,7 @@ def test_remote_restore_migrates_v1_then_replays_latest_erasure(managed_database
         store.add_memory(
             conn, scope_id=scope, author_id=team.alice_id, text="erase this", kind="fact"
         )
+        downgrade_to_v2(conn)
         conn.execute("DROP TABLE memory_revision_evidence")
         conn.execute("ALTER TABLE jobs DROP COLUMN available_at")
         conn.execute("DELETE FROM schema_migrations WHERE version=2")
@@ -257,6 +258,7 @@ def test_legacy_image_restore_refuses_receipts_it_cannot_replay(
 ):
     target = managed_database
     with db.connect(target) as conn:
+        downgrade_to_v2(conn)
         conn.execute("DROP TABLE memory_revision_evidence")
         conn.execute("ALTER TABLE jobs DROP COLUMN available_at")
         conn.execute("DELETE FROM schema_migrations WHERE version=2")

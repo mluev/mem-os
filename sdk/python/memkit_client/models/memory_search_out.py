@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from ..models.memory_search_out_raw_item import MemorySearchOutRawItem
     from ..models.memory_search_out_timings import MemorySearchOutTimings
     from ..models.search_memory import SearchMemory
+    from ..models.temporal_intent_view import TemporalIntentView
 
 
 T = TypeVar("T", bound="MemorySearchOut")
@@ -31,6 +32,8 @@ class MemorySearchOut:
         used_tokens (int):
         raw (list[MemorySearchOutRawItem] | Unset):
         retrieval_id (None | str | Unset):
+        rewrites (list[str] | Unset):
+        temporal (None | TemporalIntentView | Unset):
     """
 
     dropped_filter: list[str]
@@ -44,8 +47,12 @@ class MemorySearchOut:
     used_tokens: int
     raw: list[MemorySearchOutRawItem] | Unset = UNSET
     retrieval_id: None | str | Unset = UNSET
+    rewrites: list[str] | Unset = UNSET
+    temporal: None | TemporalIntentView | Unset = UNSET
 
     def to_dict(self) -> dict[str, Any]:
+        from ..models.temporal_intent_view import TemporalIntentView
+
         dropped_filter = self.dropped_filter
 
         dropped_relevance = self.dropped_relevance
@@ -80,6 +87,18 @@ class MemorySearchOut:
         else:
             retrieval_id = self.retrieval_id
 
+        rewrites: list[str] | Unset = UNSET
+        if not isinstance(self.rewrites, Unset):
+            rewrites = self.rewrites
+
+        temporal: dict[str, Any] | None | Unset
+        if isinstance(self.temporal, Unset):
+            temporal = UNSET
+        elif isinstance(self.temporal, TemporalIntentView):
+            temporal = self.temporal.to_dict()
+        else:
+            temporal = self.temporal
+
         field_dict: dict[str, Any] = {}
 
         field_dict.update(
@@ -99,6 +118,10 @@ class MemorySearchOut:
             field_dict["raw"] = raw
         if retrieval_id is not UNSET:
             field_dict["retrieval_id"] = retrieval_id
+        if rewrites is not UNSET:
+            field_dict["rewrites"] = rewrites
+        if temporal is not UNSET:
+            field_dict["temporal"] = temporal
 
         return field_dict
 
@@ -107,6 +130,7 @@ class MemorySearchOut:
         from ..models.memory_search_out_raw_item import MemorySearchOutRawItem
         from ..models.memory_search_out_timings import MemorySearchOutTimings
         from ..models.search_memory import SearchMemory
+        from ..models.temporal_intent_view import TemporalIntentView
 
         d = dict(src_dict)
         dropped_filter = cast(list[str], d.pop("dropped_filter"))
@@ -150,6 +174,25 @@ class MemorySearchOut:
 
         retrieval_id = _parse_retrieval_id(d.pop("retrieval_id", UNSET))
 
+        rewrites = cast(list[str], d.pop("rewrites", UNSET))
+
+        def _parse_temporal(data: object) -> None | TemporalIntentView | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                temporal_type_0 = TemporalIntentView.from_dict(data)
+
+                return temporal_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(None | TemporalIntentView | Unset, data)
+
+        temporal = _parse_temporal(d.pop("temporal", UNSET))
+
         memory_search_out = cls(
             dropped_filter=dropped_filter,
             dropped_relevance=dropped_relevance,
@@ -162,6 +205,8 @@ class MemorySearchOut:
             used_tokens=used_tokens,
             raw=raw,
             retrieval_id=retrieval_id,
+            rewrites=rewrites,
+            temporal=temporal,
         )
 
         return memory_search_out

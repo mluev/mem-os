@@ -14,6 +14,7 @@ from .batch_out import BatchOut
 from .batch_out_items_item import BatchOutItemsItem
 from .consolidate_in import ConsolidateIn
 from .database_health import DatabaseHealth
+from .dream_in import DreamIn
 from .embedder_health import EmbedderHealth
 from .entities_out import EntitiesOut
 from .entity_created_out import EntityCreatedOut
@@ -41,6 +42,9 @@ from .evidence_span_evidence_status import EvidenceSpanEvidenceStatus
 from .feedback_in import FeedbackIn
 from .feedback_out import FeedbackOut
 from .flexible_out import FlexibleOut
+from .forget_candidate import ForgetCandidate
+from .forget_in import ForgetIn
+from .forget_out import ForgetOut
 from .health_out import HealthOut
 from .http_validation_error import HTTPValidationError
 from .index_counts import IndexCounts
@@ -56,6 +60,8 @@ from .judge_run_out import JudgeRunOut
 from .judge_run_view import JudgeRunView
 from .judge_runs_out import JudgeRunsOut
 from .key_created_out import KeyCreatedOut
+from .linked_memory import LinkedMemory
+from .linked_memory_relation import LinkedMemoryRelation
 from .login_in import LoginIn
 from .member_in import MemberIn
 from .member_in_role import MemberInRole
@@ -157,6 +163,9 @@ from .session_out import SessionOut
 from .session_view import SessionView
 from .session_view_context import SessionViewContext
 from .sessions_out import SessionsOut
+from .temporal_intent_view import TemporalIntentView
+from .temporal_intent_view_order_type_0 import TemporalIntentViewOrderType0
+from .temporal_window import TemporalWindow
 from .user_in import UserIn
 from .user_in_role import UserInRole
 from .user_patch import UserPatch
@@ -198,6 +207,7 @@ __all__ = (
     "BatchOutItemsItem",
     "ConsolidateIn",
     "DatabaseHealth",
+    "DreamIn",
     "EmbedderHealth",
     "EntitiesOut",
     "EntityCreatedOut",
@@ -225,6 +235,9 @@ __all__ = (
     "FeedbackIn",
     "FeedbackOut",
     "FlexibleOut",
+    "ForgetCandidate",
+    "ForgetIn",
+    "ForgetOut",
     "HealthOut",
     "HTTPValidationError",
     "IndexCounts",
@@ -240,6 +253,8 @@ __all__ = (
     "JudgeRunsOut",
     "JudgeRunView",
     "KeyCreatedOut",
+    "LinkedMemory",
+    "LinkedMemoryRelation",
     "LoginIn",
     "MemberIn",
     "MemberInRole",
@@ -341,6 +356,9 @@ __all__ = (
     "SessionsOut",
     "SessionView",
     "SessionViewContext",
+    "TemporalIntentView",
+    "TemporalIntentViewOrderType0",
+    "TemporalWindow",
     "UserIn",
     "UserInRole",
     "UserPatch",

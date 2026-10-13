@@ -448,3 +448,24 @@ def apply(conn, team: Team, ops, **kw):
         entity_map=kw.get("entity_map"),
         dedup_hits=kw.get("dedup_hits"),
     )
+
+
+def downgrade_to_v2(conn) -> None:
+    """Remove schema v3 objects so a test database is exactly schema v2."""
+    conn.execute("DROP TABLE memory_relations")
+    conn.execute(
+        """ALTER TABLE memories
+             DROP COLUMN document_date, DROP COLUMN event_dates, DROP COLUMN event_start,
+             DROP COLUMN event_end, DROP COLUMN is_static, DROP COLUMN source_count,
+             DROP COLUMN forget_reason"""
+    )
+    conn.execute("ALTER TABLE memories DROP CONSTRAINT memories_source_role_check")
+    conn.execute(
+        """ALTER TABLE memories ADD CONSTRAINT memories_source_role_check
+           CHECK (source_role IN ('user','assistant','tool','manual','agent'))"""
+    )
+    conn.execute(
+        """ALTER TABLE memory_revisions
+             DROP COLUMN document_date, DROP COLUMN event_dates, DROP COLUMN is_static"""
+    )
+    conn.execute("DELETE FROM schema_migrations WHERE version=3")

@@ -11,6 +11,7 @@ from ..models.search_memory_source_role import SearchMemorySourceRole
 from ..types import UNSET, Unset
 
 if TYPE_CHECKING:
+    from ..models.linked_memory import LinkedMemory
     from ..models.search_evidence import SearchEvidence
     from ..models.search_memory_context import SearchMemoryContext
 
@@ -41,7 +42,14 @@ class SearchMemory:
         tags (list[str]):
         text (str):
         updated_at (str):
+        document_date (None | str | Unset):
+        event_dates (list[str] | Unset):
+        history (list[LinkedMemory] | Unset):
+        is_static (bool | Unset):
+        related (list[LinkedMemory] | Unset):
+        source_count (int | Unset):
         sources (list[SearchEvidence] | Unset):
+        temporal (float | Unset):
     """
 
     context: SearchMemoryContext
@@ -63,7 +71,14 @@ class SearchMemory:
     tags: list[str]
     text: str
     updated_at: str
+    document_date: None | str | Unset = UNSET
+    event_dates: list[str] | Unset = UNSET
+    history: list[LinkedMemory] | Unset = UNSET
+    is_static: bool | Unset = UNSET
+    related: list[LinkedMemory] | Unset = UNSET
+    source_count: int | Unset = UNSET
     sources: list[SearchEvidence] | Unset = UNSET
+    temporal: float | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -109,12 +124,42 @@ class SearchMemory:
 
         updated_at = self.updated_at
 
+        document_date: None | str | Unset
+        if isinstance(self.document_date, Unset):
+            document_date = UNSET
+        else:
+            document_date = self.document_date
+
+        event_dates: list[str] | Unset = UNSET
+        if not isinstance(self.event_dates, Unset):
+            event_dates = self.event_dates
+
+        history: list[dict[str, Any]] | Unset = UNSET
+        if not isinstance(self.history, Unset):
+            history = []
+            for history_item_data in self.history:
+                history_item = history_item_data.to_dict()
+                history.append(history_item)
+
+        is_static = self.is_static
+
+        related: list[dict[str, Any]] | Unset = UNSET
+        if not isinstance(self.related, Unset):
+            related = []
+            for related_item_data in self.related:
+                related_item = related_item_data.to_dict()
+                related.append(related_item)
+
+        source_count = self.source_count
+
         sources: list[dict[str, Any]] | Unset = UNSET
         if not isinstance(self.sources, Unset):
             sources = []
             for sources_item_data in self.sources:
                 sources_item = sources_item_data.to_dict()
                 sources.append(sources_item)
+
+        temporal = self.temporal
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
@@ -141,13 +186,28 @@ class SearchMemory:
                 "updated_at": updated_at,
             }
         )
+        if document_date is not UNSET:
+            field_dict["document_date"] = document_date
+        if event_dates is not UNSET:
+            field_dict["event_dates"] = event_dates
+        if history is not UNSET:
+            field_dict["history"] = history
+        if is_static is not UNSET:
+            field_dict["is_static"] = is_static
+        if related is not UNSET:
+            field_dict["related"] = related
+        if source_count is not UNSET:
+            field_dict["source_count"] = source_count
         if sources is not UNSET:
             field_dict["sources"] = sources
+        if temporal is not UNSET:
+            field_dict["temporal"] = temporal
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+        from ..models.linked_memory import LinkedMemory
         from ..models.search_evidence import SearchEvidence
         from ..models.search_memory_context import SearchMemoryContext
 
@@ -210,6 +270,39 @@ class SearchMemory:
 
         updated_at = d.pop("updated_at")
 
+        def _parse_document_date(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        document_date = _parse_document_date(d.pop("document_date", UNSET))
+
+        event_dates = cast(list[str], d.pop("event_dates", UNSET))
+
+        _history = d.pop("history", UNSET)
+        history: list[LinkedMemory] | Unset = UNSET
+        if _history is not UNSET:
+            history = []
+            for history_item_data in _history:
+                history_item = LinkedMemory.from_dict(history_item_data)
+
+                history.append(history_item)
+
+        is_static = d.pop("is_static", UNSET)
+
+        _related = d.pop("related", UNSET)
+        related: list[LinkedMemory] | Unset = UNSET
+        if _related is not UNSET:
+            related = []
+            for related_item_data in _related:
+                related_item = LinkedMemory.from_dict(related_item_data)
+
+                related.append(related_item)
+
+        source_count = d.pop("source_count", UNSET)
+
         _sources = d.pop("sources", UNSET)
         sources: list[SearchEvidence] | Unset = UNSET
         if _sources is not UNSET:
@@ -218,6 +311,8 @@ class SearchMemory:
                 sources_item = SearchEvidence.from_dict(sources_item_data)
 
                 sources.append(sources_item)
+
+        temporal = d.pop("temporal", UNSET)
 
         search_memory = cls(
             context=context,
@@ -239,7 +334,14 @@ class SearchMemory:
             tags=tags,
             text=text,
             updated_at=updated_at,
+            document_date=document_date,
+            event_dates=event_dates,
+            history=history,
+            is_static=is_static,
+            related=related,
+            source_count=source_count,
             sources=sources,
+            temporal=temporal,
         )
 
         search_memory.additional_properties = d

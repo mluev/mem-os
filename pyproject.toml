@@ -16,7 +16,6 @@ dependencies = [
     "google-genai>=1.0",
     "pyyaml>=6.0",
     "httpx>=0.28",
-    "jsonschema>=4.25",
     "tiktoken>=0.11",
     "numpy>=2.0",
     "cryptography>=50.0.0",
@@ -26,6 +25,7 @@ dependencies = [
 [dependency-groups]
 dev = [
     "build>=1.2",
+    "jsonschema>=4.25",
     "openapi-python-client>=0.26",
     "pytest>=8.3",
     "pytest-cov>=6.0",

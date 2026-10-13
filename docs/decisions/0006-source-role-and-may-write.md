@@ -53,8 +53,8 @@ window to every fact it creates, and `fast_forward_to_user_turn` guarantees each
 window holds a user turn, so the roles are always `{user, assistant}`. There it is
 a fail-closed regression detector, not a running defence. It starts doing real
 work the day the judge cites its own evidence per operation, or the day someone
-narrows the window to save money. `tests/test_provenance.py` asserts this limit
-explicitly, so nobody reads the passing assistant-only test and concludes the
+narrows the window to save money. `tests/test_provenance.py` asserted this limit
+explicitly until the single-owner pipeline was retired, so nobody reads the passing assistant-only test and concludes the
 system is defended.
 
 **The retrospective backfill is honest but blind.** It derives each label from

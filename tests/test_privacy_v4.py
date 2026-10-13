@@ -13,6 +13,7 @@ because its author left is not privacy, it is data loss for other people.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import unittest
 from pathlib import Path
@@ -248,6 +249,74 @@ class ErasureTest(PrivacyTestCase):
         self.assertIsNotNone(
             self.conn.execute("SELECT id FROM memories WHERE id=%s", (note,)).fetchone()
         )
+
+    def test_inferences_dreamt_in_the_users_name_are_erased_not_blocking(self) -> None:
+        """A dream writes shared inferences under its trigger's name; nobody wrote them."""
+        premise = self.add_memory(
+            text="Bob leads the payments team", scope=self.team.team_id, who="bob"
+        )
+        with transaction(self.conn):
+            guess = store.add_memory(
+                self.conn,
+                scope_id=self.team.team_id,
+                author_id=self.team.alice_id,
+                text="Bob works on payments",
+                kind="fact",
+                source_role="inference",
+                review_status="pending",
+            )
+            store.add_relation(self.conn, from_id=guess, to_id=premise, relation="derives")
+        outbox.drain(self.conn, self.qdrant, self.embedder, limit=100)
+        self.assertIn(guess, self.qdrant._store[vectors.MEMORIES])
+
+        counts = privacy.erase_user(
+            self.conn,
+            self.qdrant,
+            user_id=self.team.alice_id,
+            private_scope_id=self.alice_scope,
+        )
+
+        self.assertEqual(counts["inferences"], 1)
+        self.assertIsNone(
+            self.conn.execute("SELECT 1 FROM memories WHERE id=%s", (guess,)).fetchone()
+        )
+        self.assertIsNotNone(
+            self.conn.execute("SELECT 1 FROM memories WHERE id=%s", (premise,)).fetchone()
+        )
+        self.assertNotIn(guess, self.qdrant._store[vectors.MEMORIES])
+        self.assertIn(premise, self.qdrant._store[vectors.MEMORIES])
+
+    def test_a_shared_memory_stops_counting_the_erased_users_mentions(self) -> None:
+        note = self.add_memory(
+            text="The team deploys on Fridays", scope=self.team.team_id, who="bob"
+        )
+        message_id = self.add_message(content="We deploy on Fridays, always have")
+        excerpt = "deploy on Fridays"
+        start = "We deploy on Fridays, always have".index(excerpt)
+        with transaction(self.conn):
+            self.conn.execute(
+                """INSERT INTO memory_evidence
+                   (memory_id,message_id,start_char,end_char,excerpt_sha256)
+                   VALUES (%s,%s,%s,%s,%s)""",
+                (
+                    note,
+                    message_id,
+                    start,
+                    start + len(excerpt),
+                    hashlib.sha256(excerpt.encode()).hexdigest(),
+                ),
+            )
+            self.conn.execute("UPDATE memories SET source_count=2 WHERE id=%s", (note,))
+
+        privacy.erase_user(
+            self.conn,
+            self.qdrant,
+            user_id=self.team.alice_id,
+            private_scope_id=self.alice_scope,
+        )
+
+        row = self.conn.execute("SELECT source_count FROM memories WHERE id=%s", (note,)).fetchone()
+        self.assertEqual(row["source_count"], 1)
 
 
 class VectorCollectionsTest(PrivacyTestCase):

@@ -31,11 +31,14 @@ logged where they are rather than into an events journal.
 
 from __future__ import annotations
 
-import psycopg
-
 # The vocabulary from the original spec, kept verbatim so an archived document
 # and a live column mean the same thing.
-ROLES: tuple[str, ...] = ("user", "assistant", "agent", "tool", "manual")
+ROLES: tuple[str, ...] = ("user", "assistant", "agent", "tool", "manual", "inference")
+
+# A claim the service derived from other memories. Messages never carry this
+# role, so no extraction produces it; it exists only where a derivation wrote
+# it, and it is never cited as evidence for another claim.
+INFERENCE = "inference"
 
 # Authority order, highest first. A window containing one user turn is sourced by
 # the user regardless of how much assistant text surrounds it -- the assistant's
@@ -44,25 +47,9 @@ ROLES: tuple[str, ...] = ("user", "assistant", "agent", "tool", "manual")
 # 'tool' is unreachable today: MessageIn.role is Literal["user","assistant"] and
 # the transcript importer emits only those two. It stays in the vocabulary so a
 # tool-output ingest path is a code change and not a migration.
-_AUTHORITY: tuple[str, ...] = ("user", "tool", "assistant", "agent")
+_AUTHORITY: tuple[str, ...] = ("user", "tool", "assistant", "agent", "inference")
 
 DEFAULT_ROLE = "manual"
-
-# Reason string for a refused write. Matches the action name the archived spec
-# gave its rejection event, so the log line and that document are greppable
-# together even though the events table was never built.
-REJECTED_ASSISTANT_ONLY = "assistant_only_source"
-
-
-def roles_of(conn: psycopg.Connection, message_ids: list[int] | None) -> set[str]:
-    """The distinct roles of the messages a write cites. One query."""
-    if not message_ids:
-        return set()
-    rows = conn.execute(
-        "SELECT DISTINCT role FROM messages WHERE id = ANY(%s)",
-        (list(message_ids),),
-    ).fetchall()
-    return {str(row["role"]) for row in rows}
 
 
 def source_role_for(roles: set[str]) -> str:
@@ -81,7 +68,7 @@ def source_role_for(roles: set[str]) -> str:
 # _AUTHORITY: 'manual' sits above 'assistant' but below 'user' on purpose.
 # 'manual' means an API-key holder asserted it with no message behind it, which
 # is weaker evidence than a user turn and stronger than a model's own sentence.
-_WEAKEST_FIRST: tuple[str, ...] = ("agent", "assistant", "manual", "tool", "user")
+_WEAKEST_FIRST: tuple[str, ...] = ("agent", "assistant", "inference", "manual", "tool", "user")
 
 
 def weakest(roles: set[str]) -> str:

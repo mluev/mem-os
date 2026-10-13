@@ -53,7 +53,11 @@ def pack_context(
     for row in facts:
         sources[row.id] = []
         for source in excerpts.get(row.id, []):
+            # Both are returned: the excerpt proves the claim, the chunk around
+            # it carries the detail, so both are spent.
             cost = retrieval._token_count(str(source["excerpt"])) + 6
+            if source.get("context"):
+                cost += retrieval._token_count(str(source["context"]))
             if used + cost <= budget_tokens:
                 sources[row.id].append(source)
                 used += cost

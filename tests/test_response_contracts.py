@@ -45,6 +45,7 @@ def test_search_optional_sources_and_arbitrary_context_survive_typed_roundtrip()
         "future_extension": {"enabled": True},
     }
     payload = {
+        "temporal": None,
         "memories": [memory],
         "used_tokens": 5,
         "dropped_trust": [],
@@ -56,6 +57,7 @@ def test_search_optional_sources_and_arbitrary_context_survive_typed_roundtrip()
         "timings": {"total_ms": 10},
         "raw": [],
         "retrieval_id": None,
+        "rewrites": [],
     }
     rendered = MemorySearchOut.model_validate(payload).model_dump(mode="json")
     assert rendered == payload

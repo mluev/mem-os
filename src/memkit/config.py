@@ -8,8 +8,10 @@ import sys
 from pathlib import Path
 from typing import Literal
 
-from pydantic import AliasChoices, Field, model_validator
+from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from memkit import prompts
 
 DEFAULT_CONFIG_DIR = Path.home() / ".config" / "memkit"
 DEFAULT_DATA_DIR = (
@@ -100,7 +102,6 @@ class Settings(BaseSettings):
     allow_remote: bool = False
     export_dir: Path = DEFAULT_DATA_DIR / "exports"
     backup_dir: Path = DEFAULT_DATA_DIR / "backups"
-    qdrant_version: str = "1.18.2"
 
     monthly_cost_limit_usd: float = 15.0
     improvement_budget_usd: float = 10.0
@@ -108,6 +109,17 @@ class Settings(BaseSettings):
     # Cheapest option. Swap for a claude-* model to compare on the same eval;
     # see providers.py.
     judge_model: str = "gemini-3.5-flash-lite"
+    # Extractor prompt version; empty means prompts.DEFAULT_VERSION. Naming an
+    # older version is how a prompt change is rolled back without a deploy.
+    prompt_version: str = ""
+
+    @field_validator("prompt_version")
+    @classmethod
+    def known_prompt(cls, value: str) -> str:
+        # An unknown name would only surface as every extraction job failing.
+        if value and value not in prompts.REGISTRY:
+            raise ValueError(f"unknown prompt version {value!r}; known: {sorted(prompts.REGISTRY)}")
+        return value
 
     # Write-time dedup threshold on the extraction path (decisions/0055): an ADD
     # whose text is closer than this to an existing active memory in the same
@@ -130,8 +142,18 @@ class Settings(BaseSettings):
     # other memory in the profile ordering and removes its retrieval bonus.
     consolidate_importance_floor: float = 0.3
 
-    # Optional cross-encoder rerank. Empty means off; see rerank.py.
+    # Optional cross-encoder rerank. Empty means off; see rerank.py. Pin the
+    # revision like the embedder's, or the first search after a model push
+    # downloads different weights.
     rerank_model: str = ""
+    rerank_revision: str = ""
+
+    # Dreaming (decisions/0078): after an extraction writes memories, link and
+    # infer across the scopes it touched. Runs only when a judge is configured,
+    # under the same monthly ceiling; each cluster is one call. Off until the
+    # benchmark shows the extra calls pay for themselves.
+    dreaming: Literal["off", "after_extraction"] = "off"
+    dream_max_clusters: int = Field(default=8, ge=1, le=50)
 
     @model_validator(mode="after")
     def derive_secrets(self) -> Settings:

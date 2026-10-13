@@ -22,7 +22,9 @@ jobs:
       - uses: astral-sh/setup-uv@v6
       - run: uv python install ${{ matrix.python }}
       - run: uv venv --python ${{ matrix.python }} /tmp/memos-client
-      - run: uv pip install --python /tmp/memos-client/bin/python ./cli pytest ruff
+      # Pinned to the version uv.lock resolves for the server, so the CLI and
+      # backend jobs format alike and a ruff release cannot turn master red.
+      - run: uv pip install --python /tmp/memos-client/bin/python ./cli pytest ruff==0.16.2
       - run: /tmp/memos-client/bin/python tools/sync_cli_assets.py --check
       - run: /tmp/memos-client/bin/ruff check cli tools/sync_cli_assets.py
       - run: /tmp/memos-client/bin/ruff format --check cli tools/sync_cli_assets.py

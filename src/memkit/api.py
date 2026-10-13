@@ -260,7 +260,12 @@ async def lifespan(app: FastAPI):
     from .semantic_runtime import from_settings
 
     app.state.semantic = from_settings(settings)
-    app.state.reranker = app.state.semantic
+    # A semantic reranker, when configured, owns ordering; otherwise an
+    # optional local cross-encoder may (rerank.py). Neither is on by default.
+    from . import rerank
+
+    semantic_ranks = app.state.semantic is not None and app.state.semantic.retrieval != "off"
+    app.state.reranker = app.state.semantic if semantic_ranks else rerank.from_settings(settings)
     _start_durable_worker(app)
     yield
     app.state.worker.stop()
@@ -357,34 +362,6 @@ async def _unknown_scope(_request: Request, exc: UnknownScope) -> JSONResponse:
 
 def _dispatch_job(job_id: str, kind: str) -> None:
     job_runner.run(app, job_id)
-
-
-# Internal compatibility entrypoints used by operator integrations and tests.
-def _run_extraction(job_id: str) -> None:
-    job_runner.run(app, job_id)
-
-
-def _run_export(job_id: str) -> None:
-    job_runner.run(app, job_id)
-
-
-def _run_erase(job_id: str) -> None:
-    job_runner.run(app, job_id)
-
-
-def _run_reindex(job_id: str) -> None:
-    job_runner.run(app, job_id)
-
-
-def _run_consolidation(job_id: str) -> None:
-    job_runner.run(app, job_id)
-
-
-def _run_reextract_report(job_id: str) -> None:
-    job_runner.run(app, job_id)
-
-
-_queue_extraction = job_runner.queue_extraction
 
 
 class SPAStaticFiles(StaticFiles):

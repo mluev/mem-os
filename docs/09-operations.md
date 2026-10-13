@@ -13,6 +13,12 @@ These procedures target one self-hosted team. PostgreSQL is authoritative; Qdran
 
 Before deployment, retain a verified schema-v2-compatible application rollback artifact and its checksum. The [20 September build manifest](releases/2026-09-20-build.json) identifies the locally built, clean-install-tested wheel at `dist/readiness/schema-v2-rollback/memkit-0.3.0-py3-none-any.whl`, matching application source `f1e523d`, and its locked dependencies. These local binaries are not stored in Git; retain them in your release storage before deployment. A source checkpoint alone is not a deployable recovery artifact. A pre-v2 binary can reject the newer schema and is unsuitable for an application rollback. Never remove migration records or rewrite an applied migration to force an old binary to start. A database rollback is a separate offline recovery with erasure replay.
 
+## Upgrade from schema v2 to v3
+
+Schema v3 (decisions/0075–0078) is additive and applied on start like v2. It adds nullable time columns and backfills two of them in one statement each: `document_date` from each memory's earliest cited message, and `source_count` from the distinct sessions it cites. On a large store run the upgrade with traffic withheld and take a protected archive first, exactly as for v2. A schema-v2 binary refuses a v3 database, so retain a v3-compatible build for application rollback. After the upgrade, run `memkit reindex` so every Qdrant payload carries the new date fields; retrieval reads them from Postgres either way, so search is correct before the reindex finishes.
+
+Defaults do not change: the extractor stays on prompt v10, search on `neutral-v1`, and dreaming is off. Each new behaviour is opt-in until the public benchmark has measured it: `MEMKIT_PROMPT_VERSION=v11` for episodes, event dates and supersession; `policy_id: core-retrieval-v2` per search; `MEMKIT_DREAMING=after_extraction` to queue dreaming after each extraction. Dreaming and query rewriting spend the same monthly ceiling as extraction.
+
 ## Routine operation
 
 - Backups: `memkit backup create`, `list`, `verify <archive>`, and `prune`. Verification checks the checksum when supplied and fully decodes the archive; a successful isolated restore drill provides stronger evidence. Protected pre-migration backups are not pruned. Schedule backups and off-host copying through your existing operator tooling.

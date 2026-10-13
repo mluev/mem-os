@@ -1,4 +1,6 @@
 .env
+.env.*
+!.env.example
 data/
 *.db
 *.db-wal
@@ -8,12 +10,18 @@ __pycache__/
 .venv/
 .ruff_cache/
 .pytest_cache/
+.mypy_cache/
 .coverage
+coverage.xml
+htmlcov/
+*.egg-info/
+build/
+node_modules/
 .idea/
 .DS_Store
-web/node_modules/
 web/dist/
 web/test-results/
+web/playwright-report/
 src/memkit/web_dist/*
 !src/memkit/web_dist/.gitkeep
 !src/memkit/web_dist/assets/

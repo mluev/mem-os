@@ -1,7 +1,8 @@
 """Score extractor variants against the golden set.
 
-`experiment.py` measures what a variant *did* on the real corpus. This measures
-whether it was *right*, against hand-written windows with a known answer.
+`eval/bench` measures what a variant does to answers on public conversations.
+This measures whether it was *right*, against hand-written windows with a
+known answer.
 
     uv run python -m eval.golden \
         --variant gemini-3.5-flash-lite:v7

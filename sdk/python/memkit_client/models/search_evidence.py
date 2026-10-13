@@ -7,6 +7,7 @@ from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
 from ..models.search_evidence_evidence_status import SearchEvidenceEvidenceStatus
+from ..types import UNSET, Unset
 
 T = TypeVar("T", bound="SearchEvidence")
 
@@ -21,6 +22,9 @@ class SearchEvidence:
         message_id (int):
         revision (int | None):
         role (str):
+        context (str | Unset):
+        context_end (int | Unset):
+        context_start (int | Unset):
     """
 
     created_at: None | str
@@ -29,6 +33,9 @@ class SearchEvidence:
     message_id: int
     revision: int | None
     role: str
+    context: str | Unset = UNSET
+    context_end: int | Unset = UNSET
+    context_start: int | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -46,6 +53,12 @@ class SearchEvidence:
 
         role = self.role
 
+        context = self.context
+
+        context_end = self.context_end
+
+        context_start = self.context_start
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -58,6 +71,12 @@ class SearchEvidence:
                 "role": role,
             }
         )
+        if context is not UNSET:
+            field_dict["context"] = context
+        if context_end is not UNSET:
+            field_dict["context_end"] = context_end
+        if context_start is not UNSET:
+            field_dict["context_start"] = context_start
 
         return field_dict
 
@@ -87,6 +106,12 @@ class SearchEvidence:
 
         role = d.pop("role")
 
+        context = d.pop("context", UNSET)
+
+        context_end = d.pop("context_end", UNSET)
+
+        context_start = d.pop("context_start", UNSET)
+
         search_evidence = cls(
             created_at=created_at,
             evidence_status=evidence_status,
@@ -94,6 +119,9 @@ class SearchEvidence:
             message_id=message_id,
             revision=revision,
             role=role,
+            context=context,
+            context_end=context_end,
+            context_start=context_start,
         )
 
         search_evidence.additional_properties = d

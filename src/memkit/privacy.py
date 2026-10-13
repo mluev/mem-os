@@ -188,6 +188,15 @@ def _export_user(
             "SELECT * FROM memory_revision_evidence WHERE memory_id = ANY(%s::uuid[]) ORDER BY memory_id,revision,message_id,start_char",
             (memory_ids,),
         )
+        # Edges between two exported memories: an edge to a memory outside the
+        # export would name something that is not this user's data.
+        relations = _rows(
+            conn,
+            """SELECT * FROM memory_relations
+                WHERE from_id = ANY(%s::uuid[]) AND to_id = ANY(%s::uuid[])
+                ORDER BY from_id,to_id,relation""",
+            (memory_ids, memory_ids),
+        )
         attention = _rows(
             conn,
             "SELECT * FROM needs_attention WHERE user_id=%s ORDER BY created_at",
@@ -230,6 +239,7 @@ def _export_user(
         "memory_sources": sources,
         "memory_evidence": evidence,
         "memory_revision_evidence": revision_evidence,
+        "memory_relations": relations,
         "needs_attention": attention,
         "retrieval_runs": runs,
         "retrieval_run_feedback": run_feedback,
@@ -249,6 +259,7 @@ def _export_user(
         "memory_sources": len(sources),
         "memory_evidence": len(evidence),
         "memory_revision_evidence": len(revision_evidence),
+        "memory_relations": len(relations),
         "needs_attention": len(attention),
         "retrieval_runs": len(runs),
         "retrieval_run_feedback": len(run_feedback),
@@ -282,12 +293,17 @@ def _write_private_json(path: Path, payload: dict[str, Any]) -> None:
 def _authored_elsewhere(
     conn: psycopg.Connection, *, user_id: str, private_scope_id: str
 ) -> list[dict[str, Any]]:
-    """Scopes outside the user's own where this user's writing survives."""
+    """Scopes outside the user's own where this user's writing survives.
+
+    Inferences do not count: a dream writes them under the name of whoever's
+    extraction queued it, but nobody wrote them, so they are erased with the
+    user rather than holding the erasure hostage.
+    """
     return _rows(
         conn,
         """SELECT m.scope_id,e.slug,count(*) AS memories
              FROM memories m JOIN entities e ON e.id = m.scope_id
-            WHERE m.author_id = %s AND m.scope_id <> %s
+            WHERE m.author_id = %s AND m.scope_id <> %s AND m.source_role <> 'inference'
             GROUP BY m.scope_id,e.slug ORDER BY e.slug""",
         (user_id, private_scope_id),
     )
@@ -316,21 +332,42 @@ def _erase_database(
             str(row["id"])
             for row in conn.execute("SELECT id FROM messages WHERE user_id=%s", (user_id,))
         ]
+        # Shared inferences dreamt on this user's behalf; see _authored_elsewhere.
+        inferred = [
+            str(row["id"])
+            for row in conn.execute(
+                """SELECT id FROM memories
+                    WHERE author_id=%s AND scope_id<>%s AND source_role='inference'""",
+                (user_id, private_scope_id),
+            )
+        ]
+        # Shared memories citing this user's messages lose those citations, so
+        # their mention counts are recomputed once the messages are gone.
+        recount = [
+            str(row["memory_id"])
+            for row in conn.execute(
+                """SELECT DISTINCT e.memory_id FROM memory_evidence e
+                     JOIN memories m ON m.id = e.memory_id
+                    WHERE e.message_id = ANY(%s::bigint[]) AND m.scope_id <> %s""",
+                (message_ids, private_scope_id),
+            )
+        ]
 
         # Shared records survive. Their current references must still become
         # a new revision and index event; old revisions retain team history.
         surviving = conn.execute(
-            """SELECT id FROM memories WHERE scope_id<>%s AND (
+            """SELECT id FROM memories WHERE scope_id<>%s AND NOT (id = ANY(%s::uuid[])) AND (
                    subject_id=%s OR
                    superseded_by IN (SELECT id FROM memories WHERE scope_id=%s) OR
                    judge_run_id IN (SELECT id FROM judge_runs WHERE user_id=%s))""",
-            (private_scope_id, private_scope_id, private_scope_id, user_id),
+            (private_scope_id, inferred, private_scope_id, private_scope_id, user_id),
         ).fetchall()
         # Self-reference: a surviving memory may point at one being deleted.
         conn.execute(
             """UPDATE memories SET superseded_by=NULL
-                WHERE superseded_by IN (SELECT id FROM memories WHERE scope_id=%s)""",
-            (private_scope_id,),
+                WHERE superseded_by IN (SELECT id FROM memories WHERE scope_id=%s)
+                   OR superseded_by = ANY(%s::uuid[])""",
+            (private_scope_id, inferred),
         )
         conn.execute(
             """UPDATE memories SET judge_run_id=NULL
@@ -358,6 +395,7 @@ def _erase_database(
         conn.execute("UPDATE entities SET created_by=NULL WHERE created_by=%s", (user_id,))
 
         conn.execute("DELETE FROM memories WHERE scope_id=%s", (private_scope_id,))
+        conn.execute("DELETE FROM memories WHERE id = ANY(%s::uuid[])", (inferred,))
         dropped_evidence = conn.execute(
             "DELETE FROM memory_evidence WHERE message_id = ANY(%s::bigint[])", (message_ids,)
         )
@@ -366,6 +404,8 @@ def _erase_database(
         )
         orphaned = max(0, dropped_evidence.rowcount) + max(0, dropped_sources.rowcount)
         conn.execute("DELETE FROM messages WHERE user_id=%s", (user_id,))
+        for memory_id in recount:
+            store.recount_mentions(conn, memory_id=memory_id)
         conn.execute("DELETE FROM sessions WHERE user_id=%s", (user_id,))
         conn.execute(
             """DELETE FROM budget_reservations
@@ -383,7 +423,7 @@ def _erase_database(
         # be retried until it exhausts its attempts.
         conn.execute(
             "DELETE FROM index_outbox WHERE collection=%s AND entity_id = ANY(%s)",
-            (vectors.MEMORIES, memory_ids),
+            (vectors.MEMORIES, memory_ids + inferred),
         )
         conn.execute(
             "DELETE FROM index_outbox WHERE collection=%s AND entity_id = ANY(%s)",
@@ -399,6 +439,7 @@ def _erase_database(
             "export_paths": export_paths,
             "counts": {
                 "memories": len(memory_ids),
+                "inferences": len(inferred),
                 "messages": len(message_ids),
                 "orphaned_citations": orphaned,
             },

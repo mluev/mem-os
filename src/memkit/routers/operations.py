@@ -18,6 +18,7 @@ from fastapi import (
 from fastapi.responses import FileResponse, JSONResponse
 
 from .. import (
+    dream,
     jobs,
     operations,
     outbox,
@@ -31,12 +32,20 @@ from .. import (
 )
 from ..config import Settings, get_settings
 from ..db import iso
-from ..http import _memory_summary, _wake_worker, get_conn, get_principal, require_admin
+from ..http import (
+    _memory_summary,
+    _wake_worker,
+    get_conn,
+    get_principal,
+    judge_configured,
+    require_admin,
+)
 from ..principal import Principal
 from ..schemas import (
     AdminHealthOut,
     BackupsOut,
     ConsolidateIn,
+    DreamIn,
     EntityOut,
     EntityStatsOut,
     HealthOut,
@@ -203,6 +212,45 @@ def start_consolidation(
             },
             call_limit=0 if body.dry_run else 20,
             user_id=principal.user_id,
+        )
+    _wake_worker(request)
+    return {"job_id": job_id, "status": "queued"}
+
+
+@router.post("/v1/dream", status_code=202)
+def start_dream(
+    request: Request,
+    body: DreamIn,
+    principal: Principal = Depends(get_principal),
+    conn: psycopg.Connection = Depends(get_conn),
+) -> JobQueuedOut:
+    """Link and infer across one scope's recent memories (decisions/0078).
+
+    The caller must be able to write the scope: inferences are written into it
+    under their name, pending review. A real dream joins one already waiting
+    for the scope rather than queueing a second that would write the same
+    inferences; a dry run only plans and is always queued.
+    """
+    scope_id = principal_module.resolve_scope(conn, principal, body.scope, write=True)
+    if body.dry_run:
+        with conn.transaction():
+            job_id = jobs.create(
+                conn,
+                kind="dream",
+                input_data={
+                    "scope_id": scope_id,
+                    "max_clusters": body.max_clusters,
+                    "dry_run": True,
+                },
+                call_limit=0,
+                user_id=principal.user_id,
+            )
+    else:
+        if not judge_configured(get_settings()):
+            # Every cluster would fail unbilled and the job would still finish.
+            raise HTTPException(409, "dreaming needs a judge model; none is configured")
+        job_id, _ = dream.queue(
+            conn, scope_id=scope_id, user_id=principal.user_id, max_clusters=body.max_clusters
         )
     _wake_worker(request)
     return {"job_id": job_id, "status": "queued"}

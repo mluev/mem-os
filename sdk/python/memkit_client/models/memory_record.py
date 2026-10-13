@@ -41,11 +41,15 @@ class MemoryRecord:
         text (str):
         updated_at (None | str):
         valid_until (None | str):
+        document_date (None | str | Unset):
+        event_dates (list[str] | Unset):
         extraction_version (str | Unset):
+        is_static (bool | Unset):
         judge_run_id (int | None | Unset):
         last_retrieved_at (None | str | Unset):
         retrieval_count (int | Unset):
         sessions (list[str] | Unset):
+        source_count (int | Unset):
         writable (bool | Unset):
     """
 
@@ -68,11 +72,15 @@ class MemoryRecord:
     text: str
     updated_at: None | str
     valid_until: None | str
+    document_date: None | str | Unset = UNSET
+    event_dates: list[str] | Unset = UNSET
     extraction_version: str | Unset = UNSET
+    is_static: bool | Unset = UNSET
     judge_run_id: int | None | Unset = UNSET
     last_retrieved_at: None | str | Unset = UNSET
     retrieval_count: int | Unset = UNSET
     sessions: list[str] | Unset = UNSET
+    source_count: int | Unset = UNSET
     writable: bool | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -123,7 +131,19 @@ class MemoryRecord:
         valid_until: None | str
         valid_until = self.valid_until
 
+        document_date: None | str | Unset
+        if isinstance(self.document_date, Unset):
+            document_date = UNSET
+        else:
+            document_date = self.document_date
+
+        event_dates: list[str] | Unset = UNSET
+        if not isinstance(self.event_dates, Unset):
+            event_dates = self.event_dates
+
         extraction_version = self.extraction_version
+
+        is_static = self.is_static
 
         judge_run_id: int | None | Unset
         if isinstance(self.judge_run_id, Unset):
@@ -142,6 +162,8 @@ class MemoryRecord:
         sessions: list[str] | Unset = UNSET
         if not isinstance(self.sessions, Unset):
             sessions = self.sessions
+
+        source_count = self.source_count
 
         writable = self.writable
 
@@ -170,8 +192,14 @@ class MemoryRecord:
                 "valid_until": valid_until,
             }
         )
+        if document_date is not UNSET:
+            field_dict["document_date"] = document_date
+        if event_dates is not UNSET:
+            field_dict["event_dates"] = event_dates
         if extraction_version is not UNSET:
             field_dict["extraction_version"] = extraction_version
+        if is_static is not UNSET:
+            field_dict["is_static"] = is_static
         if judge_run_id is not UNSET:
             field_dict["judge_run_id"] = judge_run_id
         if last_retrieved_at is not UNSET:
@@ -180,6 +208,8 @@ class MemoryRecord:
             field_dict["retrieval_count"] = retrieval_count
         if sessions is not UNSET:
             field_dict["sessions"] = sessions
+        if source_count is not UNSET:
+            field_dict["source_count"] = source_count
         if writable is not UNSET:
             field_dict["writable"] = writable
 
@@ -269,7 +299,20 @@ class MemoryRecord:
 
         valid_until = _parse_valid_until(d.pop("valid_until"))
 
+        def _parse_document_date(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        document_date = _parse_document_date(d.pop("document_date", UNSET))
+
+        event_dates = cast(list[str], d.pop("event_dates", UNSET))
+
         extraction_version = d.pop("extraction_version", UNSET)
+
+        is_static = d.pop("is_static", UNSET)
 
         def _parse_judge_run_id(data: object) -> int | None | Unset:
             if data is None:
@@ -293,6 +336,8 @@ class MemoryRecord:
 
         sessions = cast(list[str], d.pop("sessions", UNSET))
 
+        source_count = d.pop("source_count", UNSET)
+
         writable = d.pop("writable", UNSET)
 
         memory_record = cls(
@@ -315,11 +360,15 @@ class MemoryRecord:
             text=text,
             updated_at=updated_at,
             valid_until=valid_until,
+            document_date=document_date,
+            event_dates=event_dates,
             extraction_version=extraction_version,
+            is_static=is_static,
             judge_run_id=judge_run_id,
             last_retrieved_at=last_retrieved_at,
             retrieval_count=retrieval_count,
             sessions=sessions,
+            source_count=source_count,
             writable=writable,
         )
 

@@ -28,6 +28,7 @@ from typing import Any
 from qdrant_client import QdrantClient, models
 
 from .embed import DIM
+from .provenance import INFERENCE
 
 logger = logging.getLogger(__name__)
 
@@ -166,19 +167,6 @@ def keyword(field: str, value: str | list[str]) -> models.FieldCondition:
     return models.FieldCondition(key=field, match=models.MatchValue(value=value))
 
 
-def drop_collection(client: QdrantClient, collection: str) -> None:
-    client.delete_collection(collection_name=collection)
-
-
-def drop_generations(client: QdrantClient, generations: dict[str, str]) -> list[str]:
-    """Delete unactivated candidate generations after deterministic validation."""
-    removed: list[str] = []
-    for generation in generations.values():
-        client.delete_collection(collection_name=generation)
-        removed.append(generation)
-    return removed
-
-
 def prune_retired_generations(
     client: QdrantClient, *, retention_days: int = 7, now_ns: int | None = None
 ) -> list[str]:
@@ -286,21 +274,6 @@ def scroll_vectors(
             return found
 
 
-def delete_by_filter(
-    client: QdrantClient, collection: str, *, must: list[models.FieldCondition]
-) -> None:
-    """Delete every point matching a filter, in one request.
-
-    Erasure needs this: enumerating a user's point ids first would race with
-    concurrent delivery, and the ids are exactly what is being removed.
-    """
-    client.delete(
-        collection_name=resolve_collection(client, collection),
-        points_selector=models.FilterSelector(filter=models.Filter(must=must)),
-        wait=True,
-    )
-
-
 def exact_ids(client: QdrantClient, collection: str) -> set[str]:
     """Read every point ID for post-build validation."""
     if hasattr(client, "_store"):
@@ -362,13 +335,18 @@ def erase_user_indices(client: QdrantClient, *, user_id: str, private_scope_id: 
     for item in client.get_collections().collections:
         name = str(item.name)
         if re.fullmatch(r"memories(?:__g\d+)?", name):
-            condition = keyword("scope_id", private_scope_id)
+            # The private scope, and the shared inferences dreamt in the user's name.
+            selections = [
+                [keyword("scope_id", private_scope_id)],
+                [keyword("author_id", user_id), keyword("source_role", INFERENCE)],
+            ]
         elif re.fullmatch(r"raw(?:__g\d+)?", name):
-            condition = keyword("user_id", user_id)
+            selections = [[keyword("user_id", user_id)]]
         else:
             continue
-        client.delete(
-            collection_name=name,
-            points_selector=models.FilterSelector(filter=models.Filter(must=[condition])),
-            wait=True,
-        )
+        for must in selections:
+            client.delete(
+                collection_name=name,
+                points_selector=models.FilterSelector(filter=models.Filter(must=must)),
+                wait=True,
+            )

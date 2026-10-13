@@ -14,7 +14,7 @@ Current state, generated from the code:
 <!-- generated:prompt-versions -->
 | | |
 |---|---|
-| registry | `v10`, `v7`, `v8`, `v9` |
+| registry | `v10`, `v11`, `v7`, `v8`, `v9` |
 | active extractor prompt | `v10` |
 | consolidator prompt | `c2` |
 | stamped on new facts | `v10` |
@@ -52,16 +52,18 @@ same failure the whole documentation reconciliation was about, one layer down.
 
 ## Two benches, and why both
 
-`eval/experiment.py` runs the same real windows through several model×prompt
-combinations and **writes nothing** to the store. It shows what a variant *did*.
-
 `eval/golden.py` with `eval/golden/conversations.yaml` runs hand-written windows
 with known answers. It shows whether a variant was *right*. Without it, comparing
 versions is looking at output and forming an impression.
 
+`eval/bench` runs public conversations (LoCoMo, LongMemEval) through a deployed
+service end to end. It shows what a variant *does* to answers. The earlier
+single-owner corpus runner (`eval/experiment.py`) was removed: it still used
+the SQLite-era settings and could not run against the current store.
+
 ```bash
-uv run python -m eval.golden --variant gemini-3.5-flash-lite:v6
-uv run python -m eval.experiment --windows 20 --variant gemini-3.5-flash-lite:v6
+uv run python -m eval.golden --variant gemini-3.5-flash-lite:v10
+uv run python -m eval.bench run --dataset locomo --data data/bench/locomo10.json --limit 200
 ```
 
 The golden set validates through `judge.Op.parse` — the production gate — rather

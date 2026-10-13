@@ -15,7 +15,6 @@ import yaml
 from . import config
 from .errors import ClientError
 
-
 TARGETS = ("claude", "hermes", "codex")
 
 

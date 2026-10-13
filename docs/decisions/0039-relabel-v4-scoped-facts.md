@@ -5,15 +5,16 @@
     Supersedes:    —
     Superseded by: 0051
     Evidence:      ../measurements.md#snapshot-corpus-and-store
-    Code:          eval/context_review.py
+    Code:          eval/context_review.py (removed; it needed the SQLite store)
     Contract:      ../06-roadmap.md#open-work
 
 ## Decision
 
 Facts extracted under prompt v4 carry `scope='project'` more often than they
 should, which makes them unreachable unless the caller names that project.
-Reclassifying them was a manual review. The current `eval/context_review.py`
-only lists neutral-context candidates and their revisions; it mutates nothing.
+Reclassifying them was a manual review. `eval/context_review.py` listed
+neutral-context candidates and their revisions and mutated nothing; it was
+removed once the SQLite store it read was gone.
 
 ## Why not automate it
 

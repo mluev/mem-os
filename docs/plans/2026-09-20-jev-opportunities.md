@@ -29,7 +29,7 @@ Mem OS remains a memory service. The workflows discussed here are its ingestion,
 - `integrations/claude-code/hooks/memkit_hooks.py::recall_reason` uses English/Russian patterns and entity aliases; recall is opt-in.
 - `src/memkit/profiles.py` builds five profile sections using bounded queries ordered by importance and recency.
 - `eval/golden.py` and `eval/run.py` provide extraction and retrieval evaluation entry points. Their text matching is regex-based, with deterministic checks for other fields.
-- Some older tooling needs repair before reuse: `eval/experiment.py` still refers to the former owner/SQLite-shaped interface, and `eval/context_review.py` imports SQLite. Their presence is not evidence of a working current experiment platform.
+- The older SQLite-era tooling (`eval/experiment.py`, `eval/context_review.py`) has been removed rather than repaired; `eval/golden` and `eval/bench` are the current experiment platform.
 - ADR 0068 explicitly parks the replay/promotion program. Historical analysis and promotion into live Postgres must be treated as separate projects.
 
 ## Runtime opportunities

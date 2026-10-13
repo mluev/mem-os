@@ -24,7 +24,9 @@ class MemoryPatch:
         clear_valid_until (bool | Unset):  Default: False.
         confidence (float | None | Unset):
         context (MemoryPatchContextType0 | None | Unset):
+        event_dates (list[str] | None | Unset):
         importance (float | None | Unset):
+        is_static (bool | None | Unset):
         kind (None | str | Unset):
         move_context (bool | Unset):  Default: False.
         move_scope (bool | Unset):  Default: False.
@@ -40,7 +42,9 @@ class MemoryPatch:
     clear_valid_until: bool | Unset = False
     confidence: float | None | Unset = UNSET
     context: MemoryPatchContextType0 | None | Unset = UNSET
+    event_dates: list[str] | None | Unset = UNSET
     importance: float | None | Unset = UNSET
+    is_static: bool | None | Unset = UNSET
     kind: None | str | Unset = UNSET
     move_context: bool | Unset = False
     move_scope: bool | Unset = False
@@ -73,11 +77,26 @@ class MemoryPatch:
         else:
             context = self.context
 
+        event_dates: list[str] | None | Unset
+        if isinstance(self.event_dates, Unset):
+            event_dates = UNSET
+        elif isinstance(self.event_dates, list):
+            event_dates = self.event_dates
+
+        else:
+            event_dates = self.event_dates
+
         importance: float | None | Unset
         if isinstance(self.importance, Unset):
             importance = UNSET
         else:
             importance = self.importance
+
+        is_static: bool | None | Unset
+        if isinstance(self.is_static, Unset):
+            is_static = UNSET
+        else:
+            is_static = self.is_static
 
         kind: None | str | Unset
         if isinstance(self.kind, Unset):
@@ -139,8 +158,12 @@ class MemoryPatch:
             field_dict["confidence"] = confidence
         if context is not UNSET:
             field_dict["context"] = context
+        if event_dates is not UNSET:
+            field_dict["event_dates"] = event_dates
         if importance is not UNSET:
             field_dict["importance"] = importance
+        if is_static is not UNSET:
+            field_dict["is_static"] = is_static
         if kind is not UNSET:
             field_dict["kind"] = kind
         if move_context is not UNSET:
@@ -197,6 +220,23 @@ class MemoryPatch:
 
         context = _parse_context(d.pop("context", UNSET))
 
+        def _parse_event_dates(data: object) -> list[str] | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, list):
+                    raise TypeError()
+                event_dates_type_0 = cast(list[str], data)
+
+                return event_dates_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(list[str] | None | Unset, data)
+
+        event_dates = _parse_event_dates(d.pop("event_dates", UNSET))
+
         def _parse_importance(data: object) -> float | None | Unset:
             if data is None:
                 return data
@@ -205,6 +245,15 @@ class MemoryPatch:
             return cast(float | None | Unset, data)
 
         importance = _parse_importance(d.pop("importance", UNSET))
+
+        def _parse_is_static(data: object) -> bool | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(bool | None | Unset, data)
+
+        is_static = _parse_is_static(d.pop("is_static", UNSET))
 
         def _parse_kind(data: object) -> None | str | Unset:
             if data is None:
@@ -286,7 +335,9 @@ class MemoryPatch:
             clear_valid_until=clear_valid_until,
             confidence=confidence,
             context=context,
+            event_dates=event_dates,
             importance=importance,
+            is_static=is_static,
             kind=kind,
             move_context=move_context,
             move_scope=move_scope,
