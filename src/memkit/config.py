@@ -102,7 +102,6 @@ class Settings(BaseSettings):
     allow_remote: bool = False
     export_dir: Path = DEFAULT_DATA_DIR / "exports"
     backup_dir: Path = DEFAULT_DATA_DIR / "backups"
-    qdrant_version: str = "1.18.2"
 
     monthly_cost_limit_usd: float = 15.0
     improvement_budget_usd: float = 10.0

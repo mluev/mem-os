@@ -49,7 +49,7 @@ It is not yet a safe general-purpose memory substrate for arbitrary agents. Four
 
 Require `source_message_ids` per operation, validate that they are members of the presented window, and derive provenance from those cited messages. Reject assistant-only ADD/UPDATE by default. For direct writes, either separate human/manual and agent credentials or require an explicit writer class with a restrictive default.
 
-Put `source_role` on the read path: return it in search, expose it to the consuming agent, and make retrieval policy able to exclude/down-rank assistant-authored facts. Today Hermes correctly sends `source_role="assistant"` ([client.py:132](/Users/mlutfullaev/dev/indie/mem-os/integrations/hermes/memkit/client.py:132)), but the Qdrant payload omits it ([store.py:333](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/store.py:333)) and ranking does not use it ([retrieval.py:251](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/retrieval.py:251)).
+Put `source_role` on the read path: return it in search, expose it to the consuming agent, and make retrieval policy able to exclude/down-rank assistant-authored facts. Today Hermes correctly sends `source_role="assistant"` ([client.py:132](../../integrations/hermes/memkit/client.py#L132)), but the Qdrant payload omits it ([store.py:333](../../src/memkit/store.py#L333)) and ranking does not use it ([retrieval.py:251](../../src/memkit/retrieval.py#L251)).
 
 Acceptance cases:
 
@@ -59,32 +59,32 @@ Acceptance cases:
 
 #### 2. Make correction and consolidation scope-safe
 
-Use the same owner/scope constraints for extraction candidates as for retrieval, or at minimum include `scope` and `scope_key` in the candidate prompt and reject cross-scope UPDATEs unless the operation explicitly changes scope. Apply a returned scope on UPDATE—or remove it from UPDATE schema and make the limitation explicit. Candidate selection currently filters only owner and active status ([extract.py:223](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/extract.py:223)), returns no scope fields ([extract.py:238](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/extract.py:238)), and UPDATE does not apply `op.scope` ([extract.py:357](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/extract.py:357)).
+Use the same owner/scope constraints for extraction candidates as for retrieval, or at minimum include `scope` and `scope_key` in the candidate prompt and reject cross-scope UPDATEs unless the operation explicitly changes scope. Apply a returned scope on UPDATE—or remove it from UPDATE schema and make the limitation explicit. Candidate selection currently filters only owner and active status ([extract.py:223](../../src/memkit/extract.py#L223)), returns no scope fields ([extract.py:238](../../src/memkit/extract.py#L238)), and UPDATE does not apply `op.scope` ([extract.py:357](../../src/memkit/extract.py#L357)).
 
-Partition consolidation by at least `(owner_id, type, scope, scope_key)`, or show scope to the merge judge and require an explicit target scope. Current clustering searches by owner+type ([consolidate.py:159](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/consolidate.py:159)), selects no scope columns ([consolidate.py:197](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/consolidate.py:197)), and inherits the newest fact's scope ([consolidate.py:405](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/consolidate.py:405)). Add cross-project and user-vs-project consolidation tests; none are present in the consolidation suite.
+Partition consolidation by at least `(owner_id, type, scope, scope_key)`, or show scope to the merge judge and require an explicit target scope. Current clustering searches by owner+type ([consolidate.py:159](../../src/memkit/consolidate.py#L159)), selects no scope columns ([consolidate.py:197](../../src/memkit/consolidate.py#L197)), and inherits the newest fact's scope ([consolidate.py:405](../../src/memkit/consolidate.py#L405)). Add cross-project and user-vs-project consolidation tests; none are present in the consolidation suite.
 
 #### 3. Make “no useful memory” and validity hard read-path properties
 
 Add eval cases first for irrelevant/degenerate queries, then calibrate a relevance policy using precision, false-injection rate, and answer quality—not recall alone. A threshold, calibrated score margin, query classifier, or adaptive mode is acceptable; unconditional nearest-neighbor fill is not.
 
-Also exclude expired-by-date facts during search, independent of a nightly job. The consolidator explicitly says the read path does not enforce `valid_until` ([consolidate.py:1](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/consolidate.py:1)); scope filtering only requires owner/status/scope ([retrieval.py:199](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/retrieval.py:199)). A missed launchd run must not make an expired plan true again.
+Also exclude expired-by-date facts during search, independent of a nightly job. The consolidator explicitly says the read path does not enforce `valid_until` ([consolidate.py:1](../../src/memkit/consolidate.py#L1)); scope filtering only requires owner/status/scope ([retrieval.py:199](../../src/memkit/retrieval.py#L199)). A missed launchd run must not make an expired plan true again.
 
 ### P1 — repair quality and operational consistency
 
-1. **Repair the live store after P0 changes.** Dry-run and review a v6 re-extraction/relabel pass. Current read-only aggregates: 60 active v4 facts, one v6 fact, 60 project-scoped vs 37 user-scoped, and 18 active texts over 200 characters. Preserve rollback through the existing supersession path ([reextract.py:274](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/reextract.py:274)).
-2. **Complete UPDATE semantics.** Support scope correction, allow `valid_until` to be explicitly cleared (current `or` preserves it: [extract.py:368](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/extract.py:368)), validate timestamps, and enforce fact length in code/schema rather than only in prompt text.
-3. **Shorten database write transactions and make jobs durable.** Extraction starts a transaction around embedding and the cloud call ([api.py:196](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/api.py:196)); re-extraction and consolidation wrap entire multi-call runs in one transaction ([admin.py:1009](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/admin.py:1009), [admin.py:1058](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/admin.py:1058)). Stage model calls outside short write transactions, add job identity/status, and serialize maintenance work.
-4. **Fix raw-index delivery consistency.** `POST /v1/messages` commits SQLite, then indexes Qdrant ([api.py:222](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/api.py:222)); a retry with the same external id returns early as deduplicated ([api.py:233](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/api.py:233)). If the first indexing call fails, that message stays unindexed until a manual reindex. Record index-dirty state or use a retryable outbox.
-5. **Add hybrid retrieval behind an eval.** Exact terms, identifiers, filenames, and acronyms are the visible dense-retrieval weakness. The collection already reserves a sparse slot ([vectors.py:49](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/vectors.py:49)); implement BM25 plus fusion only with arm-by-arm metrics and exact-term cases.
-6. **Use confidence and provenance in ranking.** The model writes `confidence`, but the composite score uses similarity, importance, recency, and scope only ([retrieval.py:188](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/retrieval.py:188)). Calibrate whether confidence helps; do not add it by intuition.
+1. **Repair the live store after P0 changes.** Dry-run and review a v6 re-extraction/relabel pass. Current read-only aggregates: 60 active v4 facts, one v6 fact, 60 project-scoped vs 37 user-scoped, and 18 active texts over 200 characters. Preserve rollback through the existing supersession path ([reextract.py:274](../../src/memkit/reextract.py#L274)).
+2. **Complete UPDATE semantics.** Support scope correction, allow `valid_until` to be explicitly cleared (current `or` preserves it: [extract.py:368](../../src/memkit/extract.py#L368)), validate timestamps, and enforce fact length in code/schema rather than only in prompt text.
+3. **Shorten database write transactions and make jobs durable.** Extraction starts a transaction around embedding and the cloud call ([api.py:196](../../src/memkit/api.py#L196)); re-extraction and consolidation wrap entire multi-call runs in one transaction ([admin.py:1009](../../src/memkit/admin.py#L1009), [admin.py:1058](../../src/memkit/admin.py#L1058)). Stage model calls outside short write transactions, add job identity/status, and serialize maintenance work.
+4. **Fix raw-index delivery consistency.** `POST /v1/messages` commits SQLite, then indexes Qdrant ([api.py:222](../../src/memkit/api.py#L222)); a retry with the same external id returns early as deduplicated ([api.py:233](../../src/memkit/api.py#L233)). If the first indexing call fails, that message stays unindexed until a manual reindex. Record index-dirty state or use a retryable outbox.
+5. **Add hybrid retrieval behind an eval.** Exact terms, identifiers, filenames, and acronyms are the visible dense-retrieval weakness. The collection already reserves a sparse slot ([vectors.py:49](../../src/memkit/vectors.py#L49)); implement BM25 plus fusion only with arm-by-arm metrics and exact-term cases.
+6. **Use confidence and provenance in ranking.** The model writes `confidence`, but the composite score uses similarity, importance, recency, and scope only ([retrieval.py:188](../../src/memkit/retrieval.py#L188)). Calibrate whether confidence helps; do not add it by intuition.
 7. **Expand evals to correction and long-run memory health.** Add contradiction/update, expiry, supersession, cross-scope, multi-session temporal, assistant-poisoning, and store-growth cases. Run at multiple corpus sizes.
 
 ### P2 — turn the service into a reusable memory platform
 
 1. Add namespaces/container tags and free-form validated metadata; allow application-defined categories and lifecycle policies without schema migrations.
 2. Add a profile endpoint that returns compact stable/dynamic context, with configurable sections. Retrieval alone cannot guarantee that identity and standing preferences appear when the query is unrelated.
-3. Publish a small typed Python/TypeScript SDK. Generate and check clients from OpenAPI; the repository already admits the checked-in web schema can drift ([08-testing.md:219](/Users/mlutfullaev/dev/indie/mem-os/docs/08-testing.md:219)).
-4. Remove or implement API ambiguities: `agent_id` is accepted but unused, and `scope_key`/`project` are overlapping ways to state context ([03-api.md:82](/Users/mlutfullaev/dev/indie/mem-os/docs/03-api.md:82)).
+3. Publish a small typed Python/TypeScript SDK. Generate and check clients from OpenAPI; the repository already admits the checked-in web schema can drift ([08-testing.md:219](../../docs/08-testing.md#L219)).
+4. Remove or implement API ambiguities: `agent_id` is accepted but unused, and `scope_key`/`project` are overlapping ways to state context ([03-api.md:82](../../docs/03-api.md#L82)).
 5. Add tokenizer-aware budgeting with a conservative fallback, response-envelope models, cursor pagination, batch ingest, and an extraction job/status API.
 6. Benchmark concurrency and 10k/100k-memory behavior; define when to enable HNSW, and report p50/p95/p99 end-to-end search latency rather than embedding latency alone.
 
@@ -94,62 +94,62 @@ Also exclude expired-by-date facts during search, independent of a nightly job. 
 
 **What works**
 
-- Ten-message windows preserve conversational context, while assistant-only runs are fast-forwarded and three lead-in turns are retained ([extract.py:79](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/extract.py:79), [extract.py:97](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/extract.py:97)).
-- Candidate embeddings use user turns only, reducing work-log dilution ([extract.py:172](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/extract.py:172)).
-- The active v6 prompt is concrete about durability, atomicity, self-contained facts, correction signals, negative cases, scope, credentials, and importance calibration ([prompts.py:454](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/prompts.py:454)).
-- Provider schemas are strict and `Op.parse` enforces cross-field validity ([providers.py:83](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/providers.py:83), [judge.py:166](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/judge.py:166)).
-- Prompt versions are replayable and stamped on facts ([prompts.py:554](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/prompts.py:554), [reextract.py:195](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/reextract.py:195)).
-- Calls log model, prompt version, input/output, tokens, cost, latency, and error ([judge.py:450](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/judge.py:450)).
-- Cost and failure controls are practical: an extraction gate, no-user fast-forward, three-attempt abandonment, and a monthly spend check ([judge.py:316](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/judge.py:316), [extract.py:478](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/extract.py:478)).
+- Ten-message windows preserve conversational context, while assistant-only runs are fast-forwarded and three lead-in turns are retained ([extract.py:79](../../src/memkit/extract.py#L79), [extract.py:97](../../src/memkit/extract.py#L97)).
+- Candidate embeddings use user turns only, reducing work-log dilution ([extract.py:172](../../src/memkit/extract.py#L172)).
+- The active v6 prompt is concrete about durability, atomicity, self-contained facts, correction signals, negative cases, scope, credentials, and importance calibration ([prompts.py:454](../../src/memkit/prompts.py#L454)).
+- Provider schemas are strict and `Op.parse` enforces cross-field validity ([providers.py:83](../../src/memkit/providers.py#L83), [judge.py:166](../../src/memkit/judge.py#L166)).
+- Prompt versions are replayable and stamped on facts ([prompts.py:554](../../src/memkit/prompts.py#L554), [reextract.py:195](../../src/memkit/reextract.py#L195)).
+- Calls log model, prompt version, input/output, tokens, cost, latency, and error ([judge.py:450](../../src/memkit/judge.py#L450)).
+- Cost and failure controls are practical: an extraction gate, no-user fast-forward, three-attempt abandonment, and a monthly spend check ([judge.py:316](../../src/memkit/judge.py#L316), [extract.py:478](../../src/memkit/extract.py#L478)).
 
 **What is missing or risky**
 
-- Every operation cites every message in the window, rather than its actual evidence ([extract.py:291](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/extract.py:291)). This defeats per-fact provenance and makes the assistant-only guard unable to fire in normal extraction, as the repository itself acknowledges ([provenance.py:13](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/provenance.py:13)).
-- Candidate recall is capped at eight similar facts, dense-only, across all owner scopes ([extract.py:24](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/extract.py:24), [extract.py:205](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/extract.py:205)). Contradictions outside that pool become ADDs.
-- The 200-character rule is not schema-enforced. `Op.parse` only requires non-empty text ([judge.py:173](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/judge.py:173)); direct API text is also unbounded ([api.py:79](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/api.py:79)).
-- The monthly “hard ceiling” can overshoot by one call because it checks only already-recorded spend before calling the provider ([judge.py:390](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/judge.py:390)). This is small at current prices but should be described accurately.
+- Every operation cites every message in the window, rather than its actual evidence ([extract.py:291](../../src/memkit/extract.py#L291)). This defeats per-fact provenance and makes the assistant-only guard unable to fire in normal extraction, as the repository itself acknowledges ([provenance.py:13](../../src/memkit/provenance.py#L13)).
+- Candidate recall is capped at eight similar facts, dense-only, across all owner scopes ([extract.py:24](../../src/memkit/extract.py#L24), [extract.py:205](../../src/memkit/extract.py#L205)). Contradictions outside that pool become ADDs.
+- The 200-character rule is not schema-enforced. `Op.parse` only requires non-empty text ([judge.py:173](../../src/memkit/judge.py#L173)); direct API text is also unbounded ([api.py:79](../../src/memkit/api.py#L79)).
+- The monthly “hard ceiling” can overshoot by one call because it checks only already-recorded spend before calling the provider ([judge.py:390](../../src/memkit/judge.py#L390)). This is small at current prices but should be described accurately.
 - Background tasks are process-local, not durable. Messages remain recoverable, but a lost tail waits for a later trigger, session close, or manual backfill.
 
 ### 2. Provenance
 
 **What works**
 
-- Raw messages are append-only; facts link to source messages; judge runs and supersession chains remain inspectable ([db.py:48](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/db.py:48), [db.py:135](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/db.py:135)).
-- `source_role` is NOT NULL, constrained, and deliberately has no default in SQLite ([db.py:104](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/db.py:104)).
-- The sources API returns messages, role tallies, judge output, task metadata, and both sides of the supersession chain ([api.py:304](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/api.py:304)).
-- Consolidation preserves all source links and inherits the weakest authority label, avoiding provenance laundering during merges ([consolidate.py:416](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/consolidate.py:416), [consolidate.py:438](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/consolidate.py:438)).
+- Raw messages are append-only; facts link to source messages; judge runs and supersession chains remain inspectable ([db.py:48](../../src/memkit/db.py#L48), [db.py:135](../../src/memkit/db.py#L135)).
+- `source_role` is NOT NULL, constrained, and deliberately has no default in SQLite ([db.py:104](../../src/memkit/db.py#L104)).
+- The sources API returns messages, role tallies, judge output, task metadata, and both sides of the supersession chain ([api.py:304](../../src/memkit/api.py#L304)).
+- Consolidation preserves all source links and inherits the weakest authority label, avoiding provenance laundering during merges ([consolidate.py:416](../../src/memkit/consolidate.py#L416), [consolidate.py:438](../../src/memkit/consolidate.py#L438)).
 
 **What is missing or risky**
 
-- Empty-evidence direct writes are allowed and default to `manual` ([provenance.py:104](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/provenance.py:104), [store.py:250](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/store.py:250)). For an API primarily called by agents, a forgotten `source_role` overstates authority.
+- Empty-evidence direct writes are allowed and default to `manual` ([provenance.py:104](../../src/memkit/provenance.py#L104), [store.py:250](../../src/memkit/store.py#L250)). For an API primarily called by agents, a forgotten `source_role` overstates authority.
 - Assistant-authored facts are counted but neither rejected nor treated differently during search. The main self-poisoning threat is therefore observable after the fact, not prevented before prompt injection.
 - `source_role` is a single collapsed label. It cannot express “direct user statement,” “inferred from user behavior,” “agent observation,” “tool result,” or the exact evidence span. Per-operation citations would materially improve auditability.
-- Tool messages are mapped to assistant at ingest because the HTTP schema accepts only user/assistant ([Hermes provider:304](/Users/mlutfullaev/dev/indie/mem-os/integrations/hermes/memkit/__init__.py:304)). The `tool` provenance vocabulary is currently unreachable.
+- Tool messages are mapped to assistant at ingest because the HTTP schema accepts only user/assistant ([Hermes provider:304](../../integrations/hermes/memkit/__init__.py#L304)). The `tool` provenance vocabulary is currently unreachable.
 
 ### 3. Personalization
 
 **What works**
 
-- Owner isolation and user/project/task scope are first-class in SQLite and Qdrant ([db.py:84](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/db.py:84), [vectors.py:35](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/vectors.py:35)).
-- Foreign-project facts are filtered before ranking, not merely down-weighted ([retrieval.py:199](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/retrieval.py:199)).
-- Per-type decay distinguishes durable identity/preferences from short-lived tasks ([retrieval.py:40](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/retrieval.py:40)).
-- The prompt's “travel test” corrected a measured tendency to bind personal preferences to repositories ([judge.py:194](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/judge.py:194)).
+- Owner isolation and user/project/task scope are first-class in SQLite and Qdrant ([db.py:84](../../src/memkit/db.py#L84), [vectors.py:35](../../src/memkit/vectors.py#L35)).
+- Foreign-project facts are filtered before ranking, not merely down-weighted ([retrieval.py:199](../../src/memkit/retrieval.py#L199)).
+- Per-type decay distinguishes durable identity/preferences from short-lived tasks ([retrieval.py:40](../../src/memkit/retrieval.py#L40)).
+- The prompt's “travel test” corrected a measured tendency to bind personal preferences to repositories ([judge.py:194](../../src/memkit/judge.py#L194)).
 
 **What is missing or risky**
 
-- There is no maintained user profile or stable/dynamic summary. Search is query-dependent; identity may disappear when a turn is semantically unrelated. An unused `render_profile` helper exists ([prompts.py:673](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/prompts.py:673)), but production v6 does not consume it.
-- `agent_id` is stored and indexed but ignored by `/v1/search` semantics. The API accepts a control it does not honor ([api.py:58](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/api.py:58), [03-api.md:93](/Users/mlutfullaev/dev/indie/mem-os/docs/03-api.md:93)).
-- One static API key can request any `owner_id`; owner IDs are partitions, not an authorization boundary. The roadmap explicitly says second-user authentication is not started ([06-roadmap.md:69](/Users/mlutfullaev/dev/indie/mem-os/docs/06-roadmap.md:69)).
-- The v6 design explicitly accepts some cross-project leakage to avoid hiding personal facts ([prompts.py:565](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/prompts.py:565)). That trade needs a cross-project precision metric, not only scope-label recall.
+- There is no maintained user profile or stable/dynamic summary. Search is query-dependent; identity may disappear when a turn is semantically unrelated. An unused `render_profile` helper exists ([prompts.py:673](../../src/memkit/prompts.py#L673)), but production v6 does not consume it.
+- `agent_id` is stored and indexed but ignored by `/v1/search` semantics. The API accepts a control it does not honor ([api.py:58](../../src/memkit/api.py#L58), [03-api.md:93](../../docs/03-api.md#L93)).
+- One static API key can request any `owner_id`; owner IDs are partitions, not an authorization boundary. The roadmap explicitly says second-user authentication is not started ([06-roadmap.md:69](../../docs/06-roadmap.md#L69)).
+- The v6 design explicitly accepts some cross-project leakage to avoid hiding personal facts ([prompts.py:565](../../src/memkit/prompts.py#L565)). That trade needs a cross-project precision metric, not only scope-label recall.
 
 ### 4. Correction
 
 **What works**
 
-- The judge can ADD, UPDATE, and DELETE; hallucinated IDs are skipped; deletion is soft ([extract.py:357](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/extract.py:357), [extract.py:407](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/extract.py:407)).
-- Manual edits use optimistic concurrency, re-embed changed text, and update Qdrant after SQLite commit with dirty-index reporting ([mutate.py:148](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/mutate.py:148), [admin.py:162](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/admin.py:162)).
-- Supersession prevents cycles and preserves the old row ([mutate.py:273](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/mutate.py:273)).
-- Re-extraction creates a fresh set and retires old facts only after successful replacement, with rollback IDs returned ([reextract.py:218](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/reextract.py:218)).
+- The judge can ADD, UPDATE, and DELETE; hallucinated IDs are skipped; deletion is soft ([extract.py:357](../../src/memkit/extract.py#L357), [extract.py:407](../../src/memkit/extract.py#L407)).
+- Manual edits use optimistic concurrency, re-embed changed text, and update Qdrant after SQLite commit with dirty-index reporting ([mutate.py:148](../../src/memkit/mutate.py#L148), [admin.py:162](../../src/memkit/admin.py#L162)).
+- Supersession prevents cycles and preserves the old row ([mutate.py:273](../../src/memkit/mutate.py#L273)).
+- Re-extraction creates a fresh set and retires old facts only after successful replacement, with rollback IDs returned ([reextract.py:218](../../src/memkit/reextract.py#L218)).
 
 **What is missing or risky**
 
@@ -162,49 +162,49 @@ Also exclude expired-by-date facts during search, independent of a nightly job. 
 
 **What works**
 
-- Expiry, stale demotion, near-duplicate clustering, model-reviewed merge, and reporting are separated and observable ([consolidate.py:1](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/consolidate.py:1)).
-- Merges are reversible: a new survivor is written and inputs are superseded rather than deleted ([consolidate.py:396](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/consolidate.py:396)).
-- The model has an explicit “decline merge” result, important because semantic similarity is not equivalence ([prompts.py:586](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/prompts.py:586)).
-- Connected components catch transitive duplicate clusters; oversized clusters are skipped defensively ([consolidate.py:182](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/consolidate.py:182)).
+- Expiry, stale demotion, near-duplicate clustering, model-reviewed merge, and reporting are separated and observable ([consolidate.py:1](../../src/memkit/consolidate.py#L1)).
+- Merges are reversible: a new survivor is written and inputs are superseded rather than deleted ([consolidate.py:396](../../src/memkit/consolidate.py#L396)).
+- The model has an explicit “decline merge” result, important because semantic similarity is not equivalence ([prompts.py:586](../../src/memkit/prompts.py#L586)).
+- Connected components catch transitive duplicate clusters; oversized clusters are skipped defensively ([consolidate.py:182](../../src/memkit/consolidate.py#L182)).
 
 **What is missing or risky**
 
-- Same-type partitioning misses duplicates mislabeled with different types; the repository has measured exactly this failure ([measurements.md:187](/Users/mlutfullaev/dev/indie/mem-os/docs/measurements.md:187)).
+- Same-type partitioning misses duplicates mislabeled with different types; the repository has measured exactly this failure ([measurements.md:187](../../docs/measurements.md#L187)).
 - Conversely, same-type facts from different scopes/projects can merge because scope is absent from clustering and the merge prompt.
 - A connected component may contain A~B and B~C while A and C are meaningfully different. The judge can decline the whole cluster but cannot partition it into safe sub-merges.
 - Demotion is usage-only. A frequently retrieved wrong fact strengthens its operational persistence; no correctness feedback offsets retrieval count.
-- Scheduling is a hard-coded local launchd artifact, not a portable scheduler or durable worker ([README.md:89](/Users/mlutfullaev/dev/indie/mem-os/README.md:89)).
+- Scheduling is a hard-coded local launchd artifact, not a portable scheduler or durable worker ([README.md:89](../../README.md#L89)).
 
 ### 6. Retrieval relevance
 
 **What works**
 
-- Retrieval combines similarity, importance, per-type recency, and scope ([retrieval.py:33](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/retrieval.py:33)).
-- Qdrant enforces owner, active status, and valid scope before the top-50 pool, preventing foreign-project crowd-out ([retrieval.py:212](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/retrieval.py:212)).
-- Greedy vector dedup retains the highest-ranked near-duplicate ([retrieval.py:310](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/retrieval.py:310)).
-- The explainer exposes chosen facts and scope/dedup/budget drops plus live weights and embedding time ([retrieval.py:105](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/retrieval.py:105)).
-- Measured facts are much denser than raw turns: the repository reports MRR 0.728 vs 0.790 but 423 vs 1,674 mean tokens, a 3.7× MRR/token advantage ([measurements.md:143](/Users/mlutfullaev/dev/indie/mem-os/docs/measurements.md:143)).
+- Retrieval combines similarity, importance, per-type recency, and scope ([retrieval.py:33](../../src/memkit/retrieval.py#L33)).
+- Qdrant enforces owner, active status, and valid scope before the top-50 pool, preventing foreign-project crowd-out ([retrieval.py:212](../../src/memkit/retrieval.py#L212)).
+- Greedy vector dedup retains the highest-ranked near-duplicate ([retrieval.py:310](../../src/memkit/retrieval.py#L310)).
+- The explainer exposes chosen facts and scope/dedup/budget drops plus live weights and embedding time ([retrieval.py:105](../../src/memkit/retrieval.py#L105)).
+- Measured facts are much denser than raw turns: the repository reports MRR 0.728 vs 0.790 but 423 vs 1,674 mean tokens, a 3.7× MRR/token advantage ([measurements.md:143](../../docs/measurements.md#L143)).
 
 **What is missing or risky**
 
-- Dense cosine is the only retrieval signal. BM25 is declared but unused ([0050 ADR:11](/Users/mlutfullaev/dev/indie/mem-os/docs/decisions/0050-bm25-deferred.md:11)).
+- Dense cosine is the only retrieval signal. BM25 is declared but unused ([0050 ADR:11](../../docs/decisions/0050-bm25-deferred.md#L11)).
 - No minimum relevance or adaptive output size means unrelated queries normally receive the best available in-scope facts. Empty output is realistically reached only when scope excludes everything or the budget is too small; with user-scoped facts and the default budget, that is uncommon.
 - Importance is model-assigned and contributes a near-constant base score. High-importance generic facts can surface repeatedly even at low semantic similarity.
-- Retrieval feedback records exposure, not utility or correctness ([store.py:228](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/store.py:228)). It cannot tell helpful retrieval from harmful prompt pollution.
-- Current scale claims are not transferable: the measured store has 97 active facts and no built HNSW index; the docs warn latency will not hold at 10,000 facts ([measurements.md:213](/Users/mlutfullaev/dev/indie/mem-os/docs/measurements.md:213)).
+- Retrieval feedback records exposure, not utility or correctness ([store.py:228](../../src/memkit/store.py#L228)). It cannot tell helpful retrieval from harmful prompt pollution.
+- Current scale claims are not transferable: the measured store has 97 active facts and no built HNSW index; the docs warn latency will not hold at 10,000 facts ([measurements.md:213](../../docs/measurements.md#L213)).
 
 ### 7. Token efficiency
 
 **What works**
 
-- Read context is compact, locally generated, and bounded by caller budget. Oversized items are skipped rather than terminating the fill ([retrieval.py:355](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/retrieval.py:355)).
-- Assistant turns are truncated to 220 characters for judge prompts, while user turns remain intact ([judge.py:331](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/judge.py:331)).
+- Read context is compact, locally generated, and bounded by caller budget. Oversized items are skipped rather than terminating the fill ([retrieval.py:355](../../src/memkit/retrieval.py#L355)).
+- Assistant turns are truncated to 220 characters for judge prompts, while user turns remain intact ([judge.py:331](../../src/memkit/judge.py#L331)).
 - Assistant-only windows are skipped and candidate embeddings use only user turns, reducing both judge cost and duplicate-producing context dilution.
-- Current measured extraction averages about 2,990 input and 90 output tokens per call; local read context averages 423 tokens in the published eval ([measurements.md:118](/Users/mlutfullaev/dev/indie/mem-os/docs/measurements.md:118), [measurements.md:148](/Users/mlutfullaev/dev/indie/mem-os/docs/measurements.md:148)).
+- Current measured extraction averages about 2,990 input and 90 output tokens per call; local read context averages 423 tokens in the published eval ([measurements.md:118](../../docs/measurements.md#L118), [measurements.md:148](../../docs/measurements.md#L148)).
 
 **What is missing or risky**
 
-- `len(text)//3` is only a rough estimate and does not count bullet formatting, labels, or the target model's tokenizer ([retrieval.py:380](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/retrieval.py:380)).
+- `len(text)//3` is only a rough estimate and does not count bullet formatting, labels, or the target model's tokenizer ([retrieval.py:380](../../src/memkit/retrieval.py#L380)).
 - The 200-character extraction target is advisory. Current read-only data contains 18 active facts over 200 characters and three over 600; the longest is 2,161 characters.
 - A fixed 800-token budget is not query-adaptive. Narrow turns can receive avoidable memory; broad profile questions can be truncated.
 - No profile synthesis means frequently useful standing context is paid repeatedly as separate facts rather than periodically compacted.
@@ -213,17 +213,17 @@ Also exclude expired-by-date facts during search, independent of a nightly job. 
 
 **What works**
 
-- Embeddings and Qdrant are local; extraction is off the interactive message path ([01-architecture.md:24](/Users/mlutfullaev/dev/indie/mem-os/docs/01-architecture.md:24)).
-- The embedder is eagerly loaded and warmed before traffic, avoiding a 11–17 s first-request penalty ([api.py:98](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/api.py:98)).
-- Published embedding median is 36.9 ms on MPS; Hermes warm prefetch is reported at 75–93 ms with a 0.4 s bound ([measurements.md:78](/Users/mlutfullaev/dev/indie/mem-os/docs/measurements.md:78), [07-hermes-adapter.md:94](/Users/mlutfullaev/dev/indie/mem-os/docs/07-hermes-adapter.md:94)).
-- Hermes has warm-up, cache fallback, timeout, and a circuit breaker; prefetch never breaks the agent turn ([Hermes provider:213](/Users/mlutfullaev/dev/indie/mem-os/integrations/hermes/memkit/__init__.py:213), [client.py:73](/Users/mlutfullaev/dev/indie/mem-os/integrations/hermes/memkit/client.py:73)).
+- Embeddings and Qdrant are local; extraction is off the interactive message path ([01-architecture.md:24](../../docs/01-architecture.md#L24)).
+- The embedder is eagerly loaded and warmed before traffic, avoiding a 11–17 s first-request penalty ([api.py:98](../../src/memkit/api.py#L98)).
+- Published embedding median is 36.9 ms on MPS; Hermes warm prefetch is reported at 75–93 ms with a 0.4 s bound ([measurements.md:78](../../docs/measurements.md#L78), [07-hermes-adapter.md:94](../../docs/07-hermes-adapter.md#L94)).
+- Hermes has warm-up, cache fallback, timeout, and a circuit breaker; prefetch never breaks the agent turn ([Hermes provider:213](../../integrations/hermes/memkit/__init__.py#L213), [client.py:73](../../integrations/hermes/memkit/client.py#L73)).
 
 **What is missing or risky**
 
-- The MPS embedder is protected by one process-wide lock ([embed.py:77](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/embed.py:77)); concurrent searches serialize at embedding.
-- Cloud judge calls happen while a SQLite transaction is open. Current read-only judge aggregates show extraction averaging ~1.7 s, long enough to create write contention; SQLite permits one writer and has a 5 s busy timeout ([db.py:357](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/db.py:357)).
+- The MPS embedder is protected by one process-wide lock ([embed.py:77](../../src/memkit/embed.py#L77)); concurrent searches serialize at embedding.
+- Cloud judge calls happen while a SQLite transaction is open. Current read-only judge aggregates show extraction averaging ~1.7 s, long enough to create write contention; SQLite permits one writer and has a 5 s busy timeout ([db.py:357](../../src/memkit/db.py#L357)).
 - Search returns `took_ms`, but search latency is not persisted or summarized as p95/p99. Judge latency is logged; read-path SLOs are not.
-- Returning 50 full 1,024-dimensional vectors for dedup is acceptable locally but should be measured at concurrency and larger pools ([retrieval.py:449](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/retrieval.py:449)).
+- Returning 50 full 1,024-dimensional vectors for dedup is acceptable locally but should be measured at concurrency and larger pools ([retrieval.py:449](../../src/memkit/retrieval.py#L449)).
 
 ### 9. Extensibility for arbitrary agent-defined information
 
@@ -231,15 +231,15 @@ Also exclude expired-by-date facts during search, independent of a nightly job. 
 
 - The HTTP boundary lets multiple agents share one service, and `owner_id`, `agent_id`, scope, type, and raw session metadata exist from the start.
 - Direct writes allow agents to bypass extraction for explicit memories.
-- The separate task-board table demonstrates that specialized lifecycle metadata can coexist without corrupting memory recency ([02-data-model.md:60](/Users/mlutfullaev/dev/indie/mem-os/docs/02-data-model.md:60)).
+- The separate task-board table demonstrates that specialized lifecycle metadata can coexist without corrupting memory recency ([02-data-model.md:60](../../docs/02-data-model.md#L60)).
 
 **What is missing or risky**
 
-- The ontology is fixed to seven memory types and three scopes at API, schema, prompt, provider, retrieval, dashboard, and tests ([api.py:36](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/api.py:36), [providers.py:39](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/providers.py:39)). Adding an agent-defined kind is a cross-cutting release, not configuration.
+- The ontology is fixed to seven memory types and three scopes at API, schema, prompt, provider, retrieval, dashboard, and tests ([api.py:36](../../src/memkit/api.py#L36), [providers.py:39](../../src/memkit/providers.py#L39)). Adding an agent-defined kind is a cross-cutting release, not configuration.
 - Memories have no free-form metadata/tags, custom namespace, JSON value, schema ID, relation edge, or application-defined decay/importance policy.
 - Only conversational `user`/`assistant` messages are accepted; there is no generic event, observation, tool artifact, document, or structured-state ingest contract.
 - Task support is a bespoke vertical feature. It proves extension is possible, but also illustrates the cost: new table, routes, retrieval payload, migration, UI, and extensive tests.
-- The architecture intentionally excludes documents/code from memory ([01-architecture.md:77](/Users/mlutfullaev/dev/indie/mem-os/docs/01-architecture.md:77)). That boundary is sensible for quality, but means arbitrary agent knowledge requires another service today.
+- The architecture intentionally excludes documents/code from memory ([01-architecture.md:77](../../docs/01-architecture.md#L77)). That boundary is sensible for quality, but means arbitrary agent knowledge requires another service today.
 
 Recommended abstraction: keep durable personal memory strict, but add configurable **containers** with a declared purpose, allowed writers, extraction prompt/policy, metadata schema, retrieval policy, and retention. Do not collapse documents and personal facts into one untyped collection.
 
@@ -247,22 +247,22 @@ Recommended abstraction: keep durable personal memory strict, but add configurab
 
 **What works**
 
-- Four layers separate observability, deterministic plumbing, paid extraction quality, retrieval quality, and long-run health ([08-testing.md:20](/Users/mlutfullaev/dev/indie/mem-os/docs/08-testing.md:20)).
-- The extraction golden set scores leaks, recall, false positives, scope, importance, operation correctness, and over-emission; negative cases are first-class ([golden.py:10](/Users/mlutfullaev/dev/indie/mem-os/eval/golden.py:10), [golden.py:115](/Users/mlutfullaev/dev/indie/mem-os/eval/golden.py:115)).
-- Retrieval assertions use content regexes rather than unstable IDs ([run.py:1](/Users/mlutfullaev/dev/indie/mem-os/eval/run.py:1)).
-- Raw-vs-memory comparison uses exactly the shared answerable set; the harness explicitly prevents the previous mismatched-case error ([run.py:260](/Users/mlutfullaev/dev/indie/mem-os/eval/run.py:260)).
-- MRR, top-1, reject violations, mean/max tokens, and MRR/token provide a better view than recall alone ([run.py:293](/Users/mlutfullaev/dev/indie/mem-os/eval/run.py:293)).
-- The docs candidly state that the 21-case golden set has topped out as a discriminator ([08-testing.md:102](/Users/mlutfullaev/dev/indie/mem-os/docs/08-testing.md:102)).
+- Four layers separate observability, deterministic plumbing, paid extraction quality, retrieval quality, and long-run health ([08-testing.md:20](../../docs/08-testing.md#L20)).
+- The extraction golden set scores leaks, recall, false positives, scope, importance, operation correctness, and over-emission; negative cases are first-class ([golden.py:10](../../eval/golden.py#L10), [golden.py:115](../../eval/golden.py#L115)).
+- Retrieval assertions use content regexes rather than unstable IDs ([run.py:1](../../eval/run.py#L1)).
+- Raw-vs-memory comparison uses exactly the shared answerable set; the harness explicitly prevents the previous mismatched-case error ([run.py:260](../../eval/run.py#L260)).
+- MRR, top-1, reject violations, mean/max tokens, and MRR/token provide a better view than recall alone ([run.py:293](../../eval/run.py#L293)).
+- The docs candidly state that the 21-case golden set has topped out as a discriminator ([08-testing.md:102](../../docs/08-testing.md#L102)).
 
 **What is missing or risky**
 
-- The extraction golden set has only 5/21 empty-expectation cases against its own 50% target ([08-testing.md:90](/Users/mlutfullaev/dev/indie/mem-os/docs/08-testing.md:90)).
-- Retrieval has zero cases for stale/forgotten facts, irrelevant queries, degenerate queries, and many-relevant-fact adaptivity ([08-testing.md:132](/Users/mlutfullaev/dev/indie/mem-os/docs/08-testing.md:132)).
+- The extraction golden set has only 5/21 empty-expectation cases against its own 50% target ([08-testing.md:90](../../docs/08-testing.md#L90)).
+- Retrieval has zero cases for stale/forgotten facts, irrelevant queries, degenerate queries, and many-relevant-fact adaptivity ([08-testing.md:132](../../docs/08-testing.md#L132)).
 - There is no end-to-end measure of whether injected memory improves the final agent answer, nor a penalty for irrelevant facts that do not match a small reject list.
 - No benchmark covers knowledge updates, temporal questions, multi-hop/entity reasoning, conflicting sources, assistant-origin poisoning, or correction latency.
 - Results are one author's small live corpus. There are no confidence intervals, repeated retrieval runs, corpus-size sweeps, or held-out users/projects.
-- Long-run metrics are prescribed but manual; no CI or scheduled quality gate exists ([08-testing.md:159](/Users/mlutfullaev/dev/indie/mem-os/docs/08-testing.md:159), [08-testing.md:209](/Users/mlutfullaev/dev/indie/mem-os/docs/08-testing.md:209)).
-- Provider parsers lack realistic recorded-response tests, and CLI/web coverage is thin ([08-testing.md:213](/Users/mlutfullaev/dev/indie/mem-os/docs/08-testing.md:213)).
+- Long-run metrics are prescribed but manual; no CI or scheduled quality gate exists ([08-testing.md:159](../../docs/08-testing.md#L159), [08-testing.md:209](../../docs/08-testing.md#L209)).
+- Provider parsers lack realistic recorded-response tests, and CLI/web coverage is thin ([08-testing.md:213](../../docs/08-testing.md#L213)).
 
 Minimum next eval pack: 10 no-memory queries, 5 stale/superseded/expired cases, 5 cross-project collisions, 5 corrections, 5 assistant-poisoning cases, 5 exact-term cases, 5 multi-fact/profile queries, and a 10k synthetic distractor sweep. Gate on false injection, current-fact accuracy, cross-scope leakage, MRR/token, and p95 latency.
 
@@ -270,25 +270,25 @@ Minimum next eval pack: 10 no-memory queries, 5 stale/superseded/expired cases, 
 
 **What works**
 
-- The API is compact, authenticated, bounded by Pydantic, and documented through generated route/schema contracts ([03-api.md:6](/Users/mlutfullaev/dev/indie/mem-os/docs/03-api.md:6)).
-- External IDs make ingest idempotent ([store.py:26](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/store.py:26)).
+- The API is compact, authenticated, bounded by Pydantic, and documented through generated route/schema contracts ([03-api.md:6](../../docs/03-api.md#L6)).
+- External IDs make ingest idempotent ([store.py:26](../../src/memkit/store.py#L26)).
 - Search returns component scores, tokens, and latency; admin preview explains drops.
 - Dry-run-first re-extraction/consolidation, cost estimates, reversible soft deletes, bulk safety caps, optimistic locks, health/index drift, and reindex are excellent operator features.
-- The Hermes adapter handles caching, circuit breaking, secret scrubbing, read-only subagent/cron contexts, backup declaration, and explicit remember/search tools ([07-hermes-adapter.md:50](/Users/mlutfullaev/dev/indie/mem-os/docs/07-hermes-adapter.md:50)).
+- The Hermes adapter handles caching, circuit breaking, secret scrubbing, read-only subagent/cron contexts, backup declaration, and explicit remember/search tools ([07-hermes-adapter.md:50](../../docs/07-hermes-adapter.md#L50)).
 
 **What is missing or risky**
 
-- There is no public SDK; the only client is integration-specific stdlib `urllib` ([client.py:55](/Users/mlutfullaev/dev/indie/mem-os/integrations/hermes/memkit/client.py:55)).
+- There is no public SDK; the only client is integration-specific stdlib `urllib` ([client.py:55](../../integrations/hermes/memkit/client.py#L55)).
 - Several endpoints return untyped dictionaries, weakening OpenAPI response contracts and generated clients.
 - `extraction_queued` has no job ID, status, retry count, or completion endpoint. Operators must infer success from judge runs/backlog.
-- `scope_key` is “required in practice” but optional in schema; omission silently hides project facts ([03-api.md:82](/Users/mlutfullaev/dev/indie/mem-os/docs/03-api.md:82)).
+- `scope_key` is “required in practice” but optional in schema; omission silently hides project facts ([03-api.md:82](../../docs/03-api.md#L82)).
 - `agent_id` is accepted but ignored; `scope_key` and `project` overlap; `budget_tokens=0` means unlimited internally. These are learnability hazards.
-- API-key default is insecure (`change-me`) and becomes dangerous if bind address changes ([config.py:11](/Users/mlutfullaev/dev/indie/mem-os/src/memkit/config.py:11)).
-- Python is pinned to 3.12 and installation requires Docker/Qdrant plus a large local embedding model ([pyproject.toml:1](/Users/mlutfullaev/dev/indie/mem-os/pyproject.toml:1)). This is reasonable for the chosen hardware but a high adoption floor.
+- API-key default is insecure (`change-me`) and becomes dangerous if bind address changes ([config.py:11](../../src/memkit/config.py#L11)).
+- Python is pinned to 3.12 and installation requires Docker/Qdrant plus a large local embedding model ([pyproject.toml:1](../../pyproject.toml#L1)). This is reasonable for the chosen hardware but a high adoption floor.
 
 ## Current workspace observations (not source-controlled claims)
 
-These figures came from read-only aggregate SQL against `data/memkit.db` on 2026-08-09. They should not be confused with the dated, source-controlled 2026-07-31 snapshot in [measurements.md:33](/Users/mlutfullaev/dev/indie/mem-os/docs/measurements.md:33).
+These figures came from read-only aggregate SQL against `data/memkit.db` on 2026-08-09. They should not be confused with the dated, source-controlled 2026-07-31 snapshot in [measurements.md:33](../../docs/measurements.md#L33).
 
 | Observation | Current value | Product implication |
 |---|---:|---|

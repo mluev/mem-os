@@ -144,9 +144,6 @@ def build_prompt(
     )
 
 
-TOOL = providers.anthropic_tool()  # kept for tests and docs
-
-
 @dataclass
 class Op:
     """One memory operation returned by the judge."""
@@ -361,36 +358,6 @@ def month_spend_usd(conn: psycopg.Connection) -> float:
         (period,),
     ).fetchone()
     return float(row["s"]) if row else 0.0
-
-
-def estimate_backfill(conn: psycopg.Connection, *, model: str = DEFAULT_MODEL) -> dict[str, Any]:
-    """Shared backlog/cost estimate for the CLI and admin dashboard."""
-    pending = conn.execute(
-        """SELECT session_id, COUNT(*) AS n FROM messages
-            WHERE NOT processed GROUP BY session_id"""
-    ).fetchall()
-    messages = sum(int(row["n"]) for row in pending)
-    windows = sum(-(-int(row["n"]) // MESSAGES_PER_EXTRACTION) for row in pending)
-    measured = conn.execute(
-        """SELECT AVG(input_tokens) i, AVG(output_tokens) o, COUNT(*) n
-             FROM judge_runs WHERE error IS NULL AND input_tokens > 0"""
-    ).fetchone()
-    if measured["n"]:
-        per_in = float(measured["i"])
-        per_out = float(measured["o"])
-        basis = f"measured over {measured['n']} real calls"
-    else:
-        per_in, per_out = 1200.0, 150.0
-        basis = "docs estimate"
-    return {
-        "sessions": len(pending),
-        "messages": messages,
-        "windows": windows,
-        "input_tokens_per_call": round(per_in),
-        "output_tokens_per_call": round(per_out),
-        "basis": basis,
-        "estimated_cost_usd": round(windows * cost_of(int(per_in), int(per_out), model=model), 6),
-    }
 
 
 def should_extract(*, messages_since_last: int, session_closed: bool, text: str = "") -> bool:

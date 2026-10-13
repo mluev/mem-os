@@ -364,34 +364,6 @@ def _dispatch_job(job_id: str, kind: str) -> None:
     job_runner.run(app, job_id)
 
 
-# Internal compatibility entrypoints used by operator integrations and tests.
-def _run_extraction(job_id: str) -> None:
-    job_runner.run(app, job_id)
-
-
-def _run_export(job_id: str) -> None:
-    job_runner.run(app, job_id)
-
-
-def _run_erase(job_id: str) -> None:
-    job_runner.run(app, job_id)
-
-
-def _run_reindex(job_id: str) -> None:
-    job_runner.run(app, job_id)
-
-
-def _run_consolidation(job_id: str) -> None:
-    job_runner.run(app, job_id)
-
-
-def _run_reextract_report(job_id: str) -> None:
-    job_runner.run(app, job_id)
-
-
-_queue_extraction = job_runner.queue_extraction
-
-
 class SPAStaticFiles(StaticFiles):
     async def get_response(self, path: str, scope: dict[str, Any]):
         try:

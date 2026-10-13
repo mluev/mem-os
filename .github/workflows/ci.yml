@@ -33,8 +33,8 @@ jobs:
         with: { enable-cache: true }
       - run: uv python install 3.12
       - run: uv sync --all-groups --locked
-      - run: uv run ruff check src tests tools integrations/hermes eval
-      - run: uv run ruff format --check src tests tools integrations/hermes eval
+      - run: uv run ruff check src tests tools integrations eval
+      - run: uv run ruff format --check src tests tools integrations eval
       - run: uv run pytest -q --cov=memkit --cov-report=term-missing --cov-fail-under=75
       - run: uv run python -m eval.golden --schema-only
       - run: uv run python -m eval.semantic --schema-only
@@ -110,6 +110,8 @@ jobs:
       - run: uv run python tools/normalize_python_sdk.py
       - run: git diff --exit-code -- openapi.json web/src/api/schema.d.ts sdk/typescript/src/schema.d.ts sdk/python
       - run: pnpm --dir sdk/typescript build
+      # dist/ is committed so a git install works; a build must not change it.
+      - run: git diff --exit-code -- sdk/typescript/dist
       - run: pnpm --dir sdk/typescript pack --pack-destination /tmp
       - run: test -f sdk/typescript/dist/schema.d.ts
       - run: uv run python tools/smoke_typescript_sdk.py /tmp/memkit-sdk-*.tgz

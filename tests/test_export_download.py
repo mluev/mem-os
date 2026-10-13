@@ -1,7 +1,7 @@
 import tempfile
 from pathlib import Path
 
-from memkit import api, config, jobs
+from memkit import api, config, job_runner, jobs
 from tests.httpharness import ApiTestCase
 
 
@@ -36,7 +36,7 @@ class ExportDownloadTest(ApiTestCase):
     def test_real_export_worker_produces_downloadable_artifact(self):
         response = self.client.post("/v1/export", headers=self.auth)
         identifier = response.json()["job_id"]
-        api._run_export(identifier)
+        job_runner.run(api.app, identifier)
         job = jobs.get(self.db, identifier)
         self.assertEqual(job["status"], "complete", job.get("error"))
         downloaded = self.client.get(f"/v1/jobs/{identifier}/download", headers=self.auth)

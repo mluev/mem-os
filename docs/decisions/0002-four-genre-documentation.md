@@ -5,7 +5,7 @@
     Supersedes:    —
     Superseded by: —
     Evidence:      —
-    Code:          tools/docblocks.py, tests/test_docs_contract.py
+    Code:          tools/docblocks.py
     Contract:      ../README.md
 
 ## Decision
@@ -26,7 +26,8 @@ Three enforcement rules, which matter more than the taxonomy:
 produced three generations of contradictions — an annotation leaves the wrong
 statement standing next to the right one, and a reader cannot tell which is
 current. Edit the document; add a decision here if a choice was involved.
-`tests/test_docs_contract.py` fails on the specific words that were used.
+`tests/test_docs_contract.py` failed on the specific words that were used until
+it was retired with the single-owner documentation; the rule now stands on review.
 
 **Code comments cite decision ids, not document paths.** Roughly forty comments
 pointed at documents by path, one of them at a line number in a file that has

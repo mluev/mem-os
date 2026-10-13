@@ -134,14 +134,6 @@ def messages_since_last(conn: psycopg.Connection, session_id: str) -> int:
     return int(row["n"]) if row else 0
 
 
-def unprocessed_window(conn: psycopg.Connection, session_id: str) -> list[Row]:
-    return conn.execute(
-        """SELECT * FROM messages WHERE session_id=%s AND NOT processed
-            ORDER BY id LIMIT %s""",
-        (session_id, WINDOW_SIZE),
-    ).fetchall()
-
-
 def claim_window(
     conn: psycopg.Connection,
     *,
@@ -191,13 +183,6 @@ def release_window(conn: psycopg.Connection, rows: list[Row]) -> None:
              WHERE claim_token = ANY(%s) AND NOT processed""",
         (claims,),
     )
-
-
-def session_context(conn: psycopg.Connection, session_id: str) -> dict[str, Any]:
-    row = conn.execute("SELECT context FROM sessions WHERE id=%s", (session_id,)).fetchone()
-    if row is None:
-        raise ValueError("unknown session")
-    return dict(row["context"] or {})
 
 
 def session_identity(conn: psycopg.Connection, session_id: str) -> Row:
@@ -467,10 +452,6 @@ def plan_dedup(
         allowed = semantic.verify_duplicates(pairs)
         planned = {index: target for index, target in planned.items() if index in allowed}
     return planned
-
-
-def _context_allowed(operation: dict[str, str], session: dict[str, Any]) -> bool:
-    return all(key in session and str(session[key]) == value for key, value in operation.items())
 
 
 def reconcile_context(operation: dict[str, str], session: dict[str, Any]) -> dict[str, str] | None:

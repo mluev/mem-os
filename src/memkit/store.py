@@ -261,27 +261,6 @@ def raw_payload(row: Row | dict[str, Any]) -> dict[str, Any]:
     }
 
 
-@maintenance.write_transaction
-def ensure_raw_outbox(conn: psycopg.Connection, message_ids: list[int]) -> int:
-    if not message_ids:
-        return 0
-    rows = conn.execute(
-        """SELECT m.*,s.scope_id,s.agent_id FROM messages m
-             JOIN sessions s ON s.id=m.session_id
-            WHERE m.id = ANY(%s) AND m.role='user' AND length(m.content) >= %s""",
-        (list(message_ids), MIN_INDEX_CHARS),
-    ).fetchall()
-    for row in rows:
-        outbox.ensure_pending(
-            conn,
-            collection=vectors.RAW,
-            entity_id=int(row["id"]),
-            operation="upsert",
-            payload=raw_payload(row),
-        )
-    return len(rows)
-
-
 def raw_search_rows(
     conn: psycopg.Connection,
     client: QdrantClient,

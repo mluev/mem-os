@@ -28,7 +28,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import re
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
@@ -814,12 +813,6 @@ def _seed_core_policies(conn: psycopg.Connection) -> None:
         )
 
 
-def reset_schema(conn: psycopg.Connection) -> None:
-    """Drop and recreate everything. Test setup and `memkit erase --all` only."""
-    conn.execute("DROP SCHEMA public CASCADE")
-    conn.execute("CREATE SCHEMA public")
-
-
 def truncate_all(conn: psycopg.Connection) -> None:
     """Empty every table, keeping the schema. Test teardown.
 
@@ -900,7 +893,3 @@ def normalise_alias(value: str) -> str:
     SQLite build had to register a Python function to get it at all.
     """
     return re.sub(r"\s+", " ", value).strip().casefold()
-
-
-def dsn_from_env(default: str = "") -> str:
-    return os.environ.get("MEMKIT_DATABASE_URL", default)

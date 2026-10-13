@@ -31,8 +31,6 @@ logged where they are rather than into an events journal.
 
 from __future__ import annotations
 
-import psycopg
-
 # The vocabulary from the original spec, kept verbatim so an archived document
 # and a live column mean the same thing.
 ROLES: tuple[str, ...] = ("user", "assistant", "agent", "tool", "manual", "inference")
@@ -52,22 +50,6 @@ INFERENCE = "inference"
 _AUTHORITY: tuple[str, ...] = ("user", "tool", "assistant", "agent", "inference")
 
 DEFAULT_ROLE = "manual"
-
-# Reason string for a refused write. Matches the action name the archived spec
-# gave its rejection event, so the log line and that document are greppable
-# together even though the events table was never built.
-REJECTED_ASSISTANT_ONLY = "assistant_only_source"
-
-
-def roles_of(conn: psycopg.Connection, message_ids: list[int] | None) -> set[str]:
-    """The distinct roles of the messages a write cites. One query."""
-    if not message_ids:
-        return set()
-    rows = conn.execute(
-        "SELECT DISTINCT role FROM messages WHERE id = ANY(%s)",
-        (list(message_ids),),
-    ).fetchall()
-    return {str(row["role"]) for row in rows}
 
 
 def source_role_for(roles: set[str]) -> str:
