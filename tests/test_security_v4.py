@@ -9,12 +9,15 @@ would otherwise be sent to a third party and logged there.
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
-from memkit import judge, providers, store
+from memkit import judge, providers, security, store
 from memkit.db import transaction
+from memkit.limits import MIN_INDEX_CHARS
 from tests.fixtures import make_db, seed_team
 
 SECRET = "super-secret-token-value"
@@ -123,6 +126,78 @@ class SecretScrubbingTest(unittest.TestCase):
             "SELECT input FROM judge_runs WHERE id=%s", (result.judge_run_id,)
         ).fetchone()["input"]
         self.assertNotIn(SECRET, json.dumps(stored_input, default=str))
+
+
+class PrivateSpanTest(unittest.TestCase):
+    """What a person wraps in <private> never reaches a column or a provider."""
+
+    def setUp(self) -> None:
+        self.conn = make_db(seed=False)
+        self.team = seed_team(self.conn)
+        self.scope_id = self.team.scope_of("alice")
+
+    def add(self, content: str, role: str = "user") -> dict:
+        with transaction(self.conn):
+            message_id, _, _ = store.add_message(
+                self.conn,
+                session_id="private",
+                user_id=self.team.alice_id,
+                scope_id=self.scope_id,
+                agent_id="chat",
+                role=role,
+                content=content,
+            )
+        return dict(
+            self.conn.execute("SELECT * FROM messages WHERE id=%s", (message_id,)).fetchone()
+        )
+
+    def test_a_private_span_is_removed_whole_with_any_secret_inside(self) -> None:
+        row = self.add(f"My plan <private>salary 90k, API_KEY={SECRET}</private> stays mine")
+        self.assertEqual(row["content"], "My plan [PRIVATE] stays mine")
+        self.assertTrue(row["redacted"])
+
+    def test_a_private_span_never_reaches_the_judge(self) -> None:
+        captured: list[str] = []
+
+        def provider_stub(**kwargs):
+            captured.append(kwargs["prompt"])
+            return providers.ProviderResult(raw={"operations": []})
+
+        with patch("memkit.providers.call", side_effect=provider_stub):
+            judge.extract(
+                self.conn,
+                window=[{"id": 1, "role": "user", "content": "<private>divorce</private> ok"}],
+                candidates=[],
+                monthly_limit_usd=1,
+                model=judge.DEFAULT_MODEL,
+                user_id=self.team.alice_id,
+            )
+        self.assertNotIn("divorce", captured[0])
+
+    def test_injected_memory_blocks_are_never_stored_as_evidence(self) -> None:
+        """Retrieved memory captured back as a turn would become evidence for itself."""
+        row = self.add(
+            "<mem-os-context>\n- Alice prefers pnpm\n</mem-os-context>\nWhat should I use?"
+        )
+        self.assertNotIn("pnpm", row["content"])
+        self.assertIn("What should I use?", row["content"])
+        recall = self.add("<mem-os-recall>\n- Alice prefers pnpm\n</mem-os-recall>")
+        self.assertEqual(recall["content"], security.INJECTED_MARKER)
+        self.assertLess(len(security.INJECTED_MARKER), MIN_INDEX_CHARS)
+        queued = self.conn.execute(
+            "SELECT COUNT(*) AS n FROM index_outbox WHERE collection='raw' AND entity_id=%s",
+            (str(recall["id"]),),
+        ).fetchone()["n"]
+        self.assertEqual(queued, 0)
+
+    def test_the_client_scrub_removes_private_spans_like_the_server(self) -> None:
+        path = Path(__file__).resolve().parents[1] / "integrations/hermes/memkit/scrub.py"
+        spec = importlib.util.spec_from_file_location("hermes_scrub_under_test", path)
+        scrub = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(scrub)
+
+        text = f"keep <private>drop TOKEN={SECRET}</private> keep"
+        self.assertEqual(scrub.scrub(text), security.redact(text).text)
 
 
 if __name__ == "__main__":

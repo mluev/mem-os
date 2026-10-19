@@ -49,7 +49,7 @@ Results carry `document_date`, `event_dates`, `source_count`, `is_static` and `t
 
 ## Forgetting
 
-`POST /v1/memories/forget` finds candidates by request (hybrid search over the caller's writable scopes, bounded and thresholded, then verified by the judge by number when one is configured) or takes exact ids. It is a dry run unless asked otherwise; applying archives with a `forget_reason` (decisions/0080).
+`POST /v1/memories/forget` finds candidates by request (hybrid search over the caller's writable scopes, bounded and thresholded, then verified by the judge by number when one is configured) or takes exact ids. It is a dry run unless asked otherwise; applying archives with a `forget_reason` (decisions/0080). A query whose matches the judge did not verify — none configured, or `verify=false` — is never applied: it returns 409, and the dry run's ids are what gets applied (decisions/0086).
 
 ## Profiles
 

@@ -170,7 +170,7 @@ def add_message(
     strict_scope: bool = False,
 ) -> tuple[int, bool, bool]:
     """Persist redacted evidence and enqueue raw indexing in one transaction."""
-    content = content.strip()
+    content = security.strip_injected(content).strip()
     if not content:
         raise ValueError("message content is blank")
     if len(content) > MAX_MESSAGE_CHARS:

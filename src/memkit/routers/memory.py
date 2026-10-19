@@ -871,6 +871,13 @@ def forget_memories(
         raise HTTPException(
             503, "the judge could not verify the candidates; retry, or review a dry run"
         )
+    if body.ids is None and not body.dry_run and not verified and candidates:
+        # No judge, or verify=false: what remains is a similarity threshold,
+        # which is exactly the broad match a person has to look at first
+        # (decisions/0086). The ids from a dry run apply what was reviewed.
+        raise HTTPException(
+            409, "unverified matches are not applied; review a dry run and apply by ids"
+        )
     candidates = candidates[: body.max_forget]
     if body.dry_run or not candidates:
         return {

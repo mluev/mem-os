@@ -3,7 +3,7 @@
 All three are optional and all three must degrade to the plain behaviour: a
 reranker that cannot load keeps the hybrid order, a rewrite that fails searches
 the original query alone, and forgetting without a judge still bounds what it
-selects and defaults to a dry run.
+selects, defaults to a dry run, and applies only the ids a dry run returned.
 """
 
 from __future__ import annotations
@@ -239,6 +239,37 @@ class RewriteAndForgetApiTest(ApiTestCase):
         ).json()
         self.assertFalse(dry["verified"])
         self.assertEqual([c["id"] for c in dry["candidates"]], [titan])
+
+    def test_an_unverified_query_forgets_nothing_without_ids(self) -> None:
+        """No judge, or verify=false: a threshold alone is not a decision."""
+        titan = self.seed_memory(text="Project Titan ships in Q3", kind="fact")
+        for payload in (
+            {"query": "Project Titan", "threshold": 0.0, "dry_run": False},
+            {"query": "Project Titan", "threshold": 0.0, "dry_run": False, "verify": False},
+        ):
+            response = self.client.post("/v1/memories/forget", headers=self.auth, json=payload)
+            self.assertEqual(response.status_code, 409, payload)
+            self.assertIn("apply by ids", response.json()["detail"])
+        self.assertEqual(self.scalar("SELECT status FROM memories WHERE id=%s", titan), "active")
+        dry = self.client.post(
+            "/v1/memories/forget",
+            headers=self.auth,
+            json={"query": "Project Titan", "threshold": 0.0},
+        ).json()
+        ids = [c["id"] for c in dry["candidates"]]
+        applied = self.client.post(
+            "/v1/memories/forget", headers=self.auth, json={"ids": ids, "dry_run": False}
+        ).json()
+        self.assertEqual(applied["forgotten"], [titan])
+
+    def test_an_unverified_query_matching_nothing_is_not_an_error(self) -> None:
+        response = self.client.post(
+            "/v1/memories/forget",
+            headers=self.auth,
+            json={"query": "nothing stored about this", "threshold": 0.99, "dry_run": False},
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["forgotten"], [])
 
     def test_the_stored_reason_carries_no_secret(self) -> None:
         target = self.seed_memory(text="Deploy token lives in the vault", kind="fact")

@@ -169,7 +169,9 @@ memos memories forget-matching --ids '["ID1","ID2"]' --no-dry-run --reason "proj
 It dry-runs by default and returns `candidates`; when a judge model is
 configured it keeps only candidates really about the request (`verified`).
 Show the user the candidates, then apply with exactly those `--ids`, so what is
-forgotten is what they reviewed. Only scopes you can write are touched.
+forgotten is what they reviewed. Applying a `--query` directly works only when
+the judge verified it; an unverified match is refused with 409 and must be
+applied by ids. Only scopes you can write are touched.
 
 ### Dreaming: links and inferences
 
