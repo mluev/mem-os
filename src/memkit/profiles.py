@@ -28,7 +28,7 @@ from typing import Any
 import psycopg
 
 from .db import Row, iso, utcnow
-from .provenance import INFERENCE
+from .provenance import ASSISTANT, INFERENCE
 from .retrieval import DEFAULT_TRUST, _token_count
 from .store import memory_active
 
@@ -82,7 +82,10 @@ def _rows(
     """
     if not scope_ids:
         return []
-    trust = None if include_untrusted else sorted(DEFAULT_TRUST | {INFERENCE})
+    # Derived and assistant-sourced claims join a profile only once a person
+    # confirms them: a profile is read before the user has typed anything, so
+    # nothing in it should be the service's or the model's own unreviewed word.
+    trust = None if include_untrusted else sorted(DEFAULT_TRUST | {INFERENCE, ASSISTANT})
     order = _RECENT_ORDER if recent else _DURABLE_ORDER
     return list(
         conn.execute(
@@ -104,6 +107,8 @@ def _rows(
                                            OR m.event_end >= now())))
                   AND (%(trust)s::text[] IS NULL OR m.source_role = ANY(%(trust)s))
                   AND (m.source_role <> 'inference' OR m.review_status = 'confirmed')
+                  AND (%(trust)s::text[] IS NULL OR m.source_role <> 'assistant'
+                       OR m.review_status = 'confirmed')
                 ORDER BY {order}
                 LIMIT %(limit)s""",
             {

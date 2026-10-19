@@ -236,7 +236,12 @@ def _execute(application, conn, job, guard, cancelled) -> dict[str, Any]:
             )
         case "reindex":
             return reindex.rebuild(
-                conn, state.qdrant, state.embedder, cancelled=cancelled, guard=guard
+                conn,
+                state.qdrant,
+                state.embedder,
+                cancelled=cancelled,
+                guard=guard,
+                index_roles=store.index_roles_for(settings.index_assistant_turns),
             )
         case "consolidation":
 

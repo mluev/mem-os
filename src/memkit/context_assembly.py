@@ -95,6 +95,7 @@ def raw_candidates(
     scope_ids: Sequence[str],
     expression: dict[str, Any] | None = None,
     kinds: list[str] | None = None,
+    roles: Sequence[str] = store.USER_ONLY,
 ) -> tuple[list[Scored], dict[str, dict[str, Any]]]:
     rows = store.raw_search_rows(
         conn,
@@ -104,6 +105,7 @@ def raw_candidates(
         limit=MAX_CANDIDATES,
         expression=expression,
         kinds=kinds,
+        roles=roles,
     )
     candidates, references = [], {}
     # Round-robin passages prevents one long turn from filling the candidate cap.
@@ -124,7 +126,7 @@ def raw_candidates(
                 "text": excerpt,
                 "start_char": start,
                 "end_char": end,
-                "source_role": "user",
+                "source_role": row["role"],
                 "scope": row["scope_name"],
                 "session_id": row["session_id"],
                 "created_at": iso(row["created_at"]),
@@ -138,7 +140,7 @@ def raw_candidates(
                     kind="evidence",
                     context=dict(row["context"] or {}),
                     tags=[],
-                    source_role="user",
+                    source_role=row["role"],
                     similarity=max(0.0, float(row["similarity"])),
                     lexical=0,
                     entity=0,
@@ -166,6 +168,7 @@ def assemble(
     select: Callable[[str, list[Scored]], list[Scored]],
     expression: dict[str, Any] | None = None,
     kinds: list[str] | None = None,
+    roles: Sequence[str] = store.USER_ONLY,
 ) -> tuple[retrieval.Explain, list[dict[str, Any]]]:
     raw, references = raw_candidates(
         conn,
@@ -174,6 +177,7 @@ def assemble(
         scope_ids=scope_ids,
         expression=expression,
         kinds=kinds,
+        roles=roles,
     )
     # Alternate candidate arms instead of comparing cosine and hybrid scores
     # as if they had the same scale. Unused quota transfers to the other arm.

@@ -50,6 +50,7 @@ from ..http import (
     judge_configured,
 )
 from ..principal import Principal, ScopeForbidden, UnknownScope
+from ..provenance import ASSISTANT
 from ..schemas import (
     AttentionResolveIn,
     EntityOut,
@@ -635,6 +636,12 @@ def search_memories(
         expression = {"all": [expression, subject_clause]} if expression else subject_clause
     try:
         policy = retrieval.load_policy(conn, body.policy_id or settings.default_policy)
+        # Raw assistant passages follow the same trust as assistant memories.
+        raw_roles = (
+            store.WITH_ASSISTANT
+            if body.include_untrusted or ASSISTANT in policy.allowed_source_roles
+            else store.USER_ONLY
+        )
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
     started = time.perf_counter()
@@ -693,6 +700,7 @@ def search_memories(
                 kinds=body.kinds,
                 budget_tokens=body.budget_tokens,
                 limit=body.limit,
+                roles=raw_roles,
                 select=lambda query, candidates: semantic.select_context(
                     query, candidates, budget_tokens=body.budget_tokens, max_results=body.limit
                 ),
@@ -710,6 +718,7 @@ def search_memories(
                 vector=result.query_vector,
                 expression=expression,
                 kinds=body.kinds,
+                roles=raw_roles,
             )
             result.timings["total_ms"] = (time.perf_counter() - started) * 1000
     except ValueError as exc:

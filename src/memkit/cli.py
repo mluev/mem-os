@@ -302,6 +302,7 @@ def cmd_import(args: argparse.Namespace) -> int:
                 external_source="claude-code",
                 external_id=turn.external_id,
                 context={"source_workspace": turn.project, "source_branch": turn.git_branch},
+                index_roles=store.index_roles_for(settings.index_assistant_turns),
             )
             inserted += int(not duplicate)
             deduplicated += int(duplicate)
@@ -355,7 +356,8 @@ def cmd_drain(args: argparse.Namespace) -> int:
 
 def cmd_reindex(_args: argparse.Namespace) -> int:
     conn, client = _ready()
-    _json(reindex.rebuild(conn, client, get_embedder()))
+    roles = store.index_roles_for(get_settings().index_assistant_turns)
+    _json(reindex.rebuild(conn, client, get_embedder(), index_roles=roles))
     return 0
 
 

@@ -143,10 +143,12 @@ def _authoritative_payload(
         current = conn.execute("SELECT * FROM memories WHERE id=%s", (entity_id,)).fetchone()
         return store.mem_payload(current) if current and store.memory_active(current) else None
     if collection == vectors.RAW:
+        # Which roles are indexed is decided at enqueue (store.raw_indexable);
+        # delivery only re-reads, so it accepts every role that can be indexed.
         current = conn.execute(
             """SELECT m.*,s.scope_id,s.agent_id FROM messages m
                JOIN sessions s ON s.id=m.session_id
-               WHERE m.id=%s AND m.role='user' AND length(m.content)>=%s""",
+               WHERE m.id=%s AND m.role IN ('user','assistant') AND length(m.content)>=%s""",
             (int(entity_id), MIN_INDEX_CHARS),
         ).fetchone()
         return store.raw_payload(current) if current else None

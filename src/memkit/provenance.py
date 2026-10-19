@@ -40,6 +40,11 @@ ROLES: tuple[str, ...] = ("user", "assistant", "agent", "tool", "manual", "infer
 # it, and it is never cited as evidence for another claim.
 INFERENCE = "inference"
 
+# Words the assistant itself said. Under prompt v12 they may support a memory
+# written as assistant info (decisions/0082); such a memory is labelled so, is
+# never a premise for dreaming, and cannot revise what a person stated.
+ASSISTANT = "assistant"
+
 # Authority order, highest first. A window containing one user turn is sourced by
 # the user regardless of how much assistant text surrounds it -- the assistant's
 # words are the context that made the user's turn legible, not the claim.

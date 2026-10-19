@@ -41,6 +41,7 @@ def post_message(
     conn: psycopg.Connection = Depends(get_conn),
     settings: Settings = Depends(get_settings),
 ) -> MessageOut:
+    index_roles = store.index_roles_for(settings.index_assistant_turns)
     scope_id = (
         principal_module.resolve_scope(conn, principal, body.scope, write=True)
         if body.scope
@@ -63,6 +64,7 @@ def post_message(
                 context=body.context,
                 created_at=body.created_at,
                 strict_scope=body.scope is not None,
+                index_roles=index_roles,
             )
     except store.SessionNotAvailable as exc:
         raise HTTPException(404, "unknown session") from exc
@@ -74,7 +76,7 @@ def post_message(
     # `stored`, which is what that distinction is for.
     _wake_worker(request)
     indexed, index_job_id = _outbox_state(conn, vectors.RAW, message_id)
-    applicable = body.role == "user" and len(body.content) >= store.MIN_INDEX_CHARS
+    applicable = store.raw_indexable(body.role, body.content, index_roles)
     extraction_job_id = None
     pending = extract.messages_since_last(conn, body.session_id)
     if judge_configured(settings) and extract.judge.should_extract(
@@ -111,6 +113,7 @@ def post_evidence_batch(
     conn: psycopg.Connection = Depends(get_conn),
     settings: Settings = Depends(get_settings),
 ) -> BatchOut:
+    index_roles = store.index_roles_for(settings.index_assistant_turns)
     stored: list[tuple[MessageIn, int, bool, bool]] = []
     try:
         with conn.transaction():
@@ -135,6 +138,7 @@ def post_evidence_batch(
                     context=event.context,
                     created_at=event.created_at,
                     strict_scope=event.scope is not None,
+                    index_roles=index_roles,
                 )
                 stored.append((event, message_id, duplicate, redacted))
     except store.SessionNotAvailable as exc:
@@ -145,7 +149,7 @@ def post_evidence_batch(
     results: list[dict[str, Any]] = []
     queued_sessions: set[tuple[str, str]] = set()
     for event, message_id, duplicate, redacted in stored:
-        applicable = event.role == "user" and len(event.content) >= store.MIN_INDEX_CHARS
+        applicable = store.raw_indexable(event.role, event.content, index_roles)
         indexed, index_job_id = _outbox_state(conn, vectors.RAW, message_id)
         results.append(
             MessageOut(

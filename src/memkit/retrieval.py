@@ -26,7 +26,7 @@ from qdrant_client import QdrantClient
 from . import eligibility, filters, temporal, vectors
 from .db import Row, as_datetime, iso
 from .embed import Embedder
-from .provenance import INFERENCE
+from .provenance import ASSISTANT, INFERENCE
 from .store import memory_active
 
 WORD_RE = re.compile(r"[\w./:@#-]+", re.UNICODE)
@@ -61,6 +61,8 @@ class RetrievalPolicy:
     reinforcement_weight: float = 0.0
     # A derived claim nobody has confirmed ranks below stated ones.
     inference_penalty: float = 0.0
+    # So does one only the assistant's own words support (decisions/0082).
+    assistant_penalty: float = 0.0
 
 
 def load_policy(conn: psycopg.Connection, policy_id: str) -> RetrievalPolicy:
@@ -92,6 +94,7 @@ def load_policy(conn: psycopg.Connection, policy_id: str) -> RetrievalPolicy:
         order_weight=float(config.get("order_weight", 0.0)),
         reinforcement_weight=float(config.get("reinforcement_weight", 0.0)),
         inference_penalty=float(config.get("inference_penalty", 0.0)),
+        assistant_penalty=float(config.get("assistant_penalty", 0.0)),
     )
 
 
@@ -624,6 +627,8 @@ def explain(
         )
         if row["source_role"] == INFERENCE and row["review_status"] != "confirmed":
             score -= policy.inference_penalty
+        if row["source_role"] == ASSISTANT and row["review_status"] != "confirmed":
+            score -= policy.assistant_penalty
         scored.append(
             Scored(
                 id=memory_id,
