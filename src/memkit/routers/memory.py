@@ -634,7 +634,7 @@ def search_memories(
         subject_clause = {"field": "subject_id", "op": "eq", "value": subject_id}
         expression = {"all": [expression, subject_clause]} if expression else subject_clause
     try:
-        policy = retrieval.load_policy(conn, body.policy_id)
+        policy = retrieval.load_policy(conn, body.policy_id or settings.default_policy)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
     started = time.perf_counter()

@@ -148,12 +148,32 @@ class Settings(BaseSettings):
     rerank_model: str = ""
     rerank_revision: str = ""
 
-    # Dreaming (decisions/0078): after an extraction writes memories, link and
-    # infer across the scopes it touched. Runs only when a judge is configured,
-    # under the same monthly ceiling; each cluster is one call. Off until the
-    # benchmark shows the extra calls pay for themselves.
-    dreaming: Literal["off", "after_extraction"] = "off"
+    # Dreaming (decisions/0078, 0085): link and infer across a scope's new
+    # memories. `after_extraction` dreams every scope an extraction touched;
+    # `dynamic` waits until a scope goes quiet, a session closes, or enough new
+    # memories pile up, so one dream sees a coherent batch. Runs only when a
+    # judge is configured, under the same monthly ceiling; each cluster is one
+    # call. Off until the benchmark shows the extra calls pay for themselves.
+    dreaming: Literal["off", "after_extraction", "dynamic"] = "off"
     dream_max_clusters: int = Field(default=8, ge=1, le=50)
+    dream_idle_minutes: int = Field(default=15, ge=1, le=1440)
+    dream_batch: int = Field(default=20, ge=1, le=200)
+    dream_min_interval_minutes: int = Field(default=30, ge=0, le=1440)
+
+    # The retrieval policy a search uses when the caller names none
+    # (decisions/0084). Validated at startup: a typo would otherwise surface as
+    # every search failing.
+    default_policy: str = "neutral-v1"
+
+    # Index assistant turns as raw passages (decisions/0082). They are returned
+    # only to a policy that trusts the `assistant` role. Off by default because
+    # it embeds every assistant turn, roughly doubling raw-index work.
+    index_assistant_turns: bool = False
+
+    # Scheduled maintenance (decisions/0085): once a day, a consolidation pass
+    # that expires lapsed memories, demotes stale ones and folds exact
+    # duplicates. Never merges semantically; that stays an explicit command.
+    maintenance: Literal["off", "daily"] = "off"
 
     @model_validator(mode="after")
     def derive_secrets(self) -> Settings:

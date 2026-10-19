@@ -1,7 +1,7 @@
 import type { components } from "../src/api/schema";
 
 type Schema = components["schemas"];
-export const health = { database: { schema_version: 2 }, qdrant: { available: true, memories: 1, raw: 1, error: null }, embedder: { ready: true, device: "cpu", revision: "revision" }, outbox: { pending: 0 }, jobs: {} } satisfies Schema["AdminHealthOut"];
+export const health = { database: { schema_version: 2 }, qdrant: { available: true, memories: 1, raw: 1, error: null }, embedder: { ready: true, device: "cpu", revision: "revision" }, outbox: { pending: 0 }, jobs: {}, config: { prompt_version: "v10", judge_model: "gemini-3.5-flash-lite", default_policy: "neutral-v1", dreaming: "off", rerank_model: "", index_assistant_turns: false, maintenance: "off", dedup_cosine: 0.9 } } satisfies Schema["AdminHealthOut"];
 export const scope = { id: "alice-space", slug: "alice", name: "Alice", kind: "user", writable: true } satisfies Schema["ScopeView"];
 export const me = { id: "alice-id", handle: "alice", display_name: "Alice", role: "admin", auth_kind: "session", own_entity_id: scope.id, team_entity_id: null, scopes: [scope] } satisfies Schema["PrincipalView"];
 export const memory = { id: "m1", text: "Use pnpm for this project", kind: "preference", context: {}, tags: [], source_role: "user", status: "active", review_status: "pending", importance: 0.6, confidence: 0.9, revision: 1, scope: "Alice", scope_slug: "alice", subject: null, subject_slug: null, author: "Alice", created_at: "2026-09-20T00:00:00Z", updated_at: "2026-09-20T00:00:00Z", valid_until: null, writable: true } satisfies Schema["MemoryRecord"];

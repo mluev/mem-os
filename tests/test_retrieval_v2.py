@@ -12,8 +12,9 @@ from __future__ import annotations
 import hashlib
 import unittest
 from datetime import UTC, datetime
+from unittest.mock import patch
 
-from memkit import graph, retrieval, store
+from memkit import api, config, graph, retrieval, store
 from tests.fixtures import StubEmbedder, StubQdrant, make_db, seed_team
 from tests.httpharness import ApiTestCase
 
@@ -276,6 +277,28 @@ class SearchApiV2Test(ApiTestCase):
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json()["policy_id"], "core-retrieval-neutral-v1")
         self.assertIsNone(response.json()["temporal"])
+
+    def test_a_search_naming_no_policy_uses_the_server_default(self) -> None:
+        self.seed_memory(text="Alice prefers pnpm")
+        settings = config.get_settings().model_copy(update={"default_policy": "temporal-v2"})
+        with patch.object(config, "_settings", settings):
+            response = self.client.post(
+                "/v1/memories/search", headers=self.auth, json={"query": "pnpm"}
+            )
+            named = self.client.post(
+                "/v1/memories/search",
+                headers=self.auth,
+                json={"query": "pnpm", "policy_id": "neutral-v1"},
+            )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["policy_id"], "core-retrieval-v2")
+        self.assertEqual(named.json()["policy_id"], "core-retrieval-neutral-v1")
+
+    def test_an_unknown_default_policy_refuses_to_start(self) -> None:
+        settings = config.get_settings().model_copy(update={"default_policy": "nuetral-v1"})
+        with self.assertRaisesRegex(RuntimeError, "nuetral-v1"):
+            api.check_default_policy(self.db, settings)
+        api.check_default_policy(self.db, config.get_settings())
 
     def test_an_inverted_time_range_is_refused(self) -> None:
         response = self.client.post(

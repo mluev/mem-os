@@ -157,6 +157,15 @@ class TestMaintenanceRoutes(ApiTestCase):
         for path in ("/v1/admin/judge-runs", "/v1/admin/health", "/v1/admin/metrics"):
             self.assertEqual(self.client.get(path, headers=self.auth).status_code, 200, path)
 
+    def test_health_reports_the_settings_a_measurement_depends_on(self) -> None:
+        """A benchmark records this block; it must name what decided the run."""
+        config = self.client.get("/v1/admin/health", headers=self.auth).json()["config"]
+        self.assertEqual(config["prompt_version"], "v10")
+        self.assertEqual(config["default_policy"], "neutral-v1")
+        self.assertEqual(config["dreaming"], "off")
+        self.assertIs(config["index_assistant_turns"], False)
+        self.assertNotIn("gemini_api_key", config)
+
     def test_metrics_report_the_index_parity_an_operator_watches(self) -> None:
         """A store and an index that disagree is the failure worth catching."""
         self.seed_memory(text="Prefers concise answers")

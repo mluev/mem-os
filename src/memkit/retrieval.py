@@ -64,7 +64,11 @@ class RetrievalPolicy:
 
 
 def load_policy(conn: psycopg.Connection, policy_id: str) -> RetrievalPolicy:
-    aliases = {"neutral-v1": "core-retrieval-neutral-v1", "temporal-v2": "core-retrieval-v2"}
+    aliases = {
+        "neutral-v1": "core-retrieval-neutral-v1",
+        "temporal-v2": "core-retrieval-v2",
+        "assistant-v3": "core-retrieval-v3",
+    }
     resolved = aliases.get(policy_id, policy_id)
     row = conn.execute(
         "SELECT id,config FROM policies WHERE id=%s AND kind='retrieval'", (resolved,)
