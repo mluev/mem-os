@@ -10,6 +10,7 @@ from ..types import UNSET, Unset
 if TYPE_CHECKING:
     from ..models.profile_out_blocks import ProfileOutBlocks
     from ..models.profile_out_scope_type_0 import ProfileOutScopeType0
+    from ..models.profile_out_timings import ProfileOutTimings
 
 
 T = TypeVar("T", bound="ProfileOut")
@@ -25,6 +26,7 @@ class ProfileOut:
         policy_id (str):
         used_tokens (int):
         scope (None | ProfileOutScopeType0 | Unset):
+        timings (ProfileOutTimings | Unset):
     """
 
     blocks: ProfileOutBlocks
@@ -33,6 +35,7 @@ class ProfileOut:
     policy_id: str
     used_tokens: int
     scope: None | ProfileOutScopeType0 | Unset = UNSET
+    timings: ProfileOutTimings | Unset = UNSET
 
     def to_dict(self) -> dict[str, Any]:
         from ..models.profile_out_scope_type_0 import ProfileOutScopeType0
@@ -55,6 +58,10 @@ class ProfileOut:
         else:
             scope = self.scope
 
+        timings: dict[str, Any] | Unset = UNSET
+        if not isinstance(self.timings, Unset):
+            timings = self.timings.to_dict()
+
         field_dict: dict[str, Any] = {}
 
         field_dict.update(
@@ -68,6 +75,8 @@ class ProfileOut:
         )
         if scope is not UNSET:
             field_dict["scope"] = scope
+        if timings is not UNSET:
+            field_dict["timings"] = timings
 
         return field_dict
 
@@ -75,6 +84,7 @@ class ProfileOut:
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         from ..models.profile_out_blocks import ProfileOutBlocks
         from ..models.profile_out_scope_type_0 import ProfileOutScopeType0
+        from ..models.profile_out_timings import ProfileOutTimings
 
         d = dict(src_dict)
         blocks = ProfileOutBlocks.from_dict(d.pop("blocks"))
@@ -104,6 +114,13 @@ class ProfileOut:
 
         scope = _parse_scope(d.pop("scope", UNSET))
 
+        _timings = d.pop("timings", UNSET)
+        timings: ProfileOutTimings | Unset
+        if isinstance(_timings, Unset):
+            timings = UNSET
+        else:
+            timings = ProfileOutTimings.from_dict(_timings)
+
         profile_out = cls(
             blocks=blocks,
             budget_tokens=budget_tokens,
@@ -111,6 +128,7 @@ class ProfileOut:
             policy_id=policy_id,
             used_tokens=used_tokens,
             scope=scope,
+            timings=timings,
         )
 
         return profile_out

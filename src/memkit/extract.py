@@ -13,9 +13,10 @@ from typing import Any
 import psycopg
 from psycopg.types.json import Jsonb
 
-from . import entities, judge, maintenance, provenance, store
+from . import entities, judge, maintenance, prompts, provenance, store
 from .db import Row, advisory_lock, iso, utcnow
 from .principal import ScopeForbidden
+from .provenance import ASSISTANT
 from .semantic_runtime import SemanticBlocks
 
 logger = logging.getLogger(__name__)
@@ -69,6 +70,11 @@ class ExtractionOutcome:
     # `extends` links the model fabricated or that failed the same-scope rule.
     # The ADD itself was kept.
     dropped_links: int = 0
+    # Prompt v12 (decisions/0082): writes labelled `assistant`, and how many of
+    # them also cited user words -- the share that says whether the taint rule
+    # is costing user facts.
+    assistant_sourced: int = 0
+    assistant_mixed: int = 0
 
     @property
     def applied(self) -> int:
@@ -91,6 +97,8 @@ class ExtractionOutcome:
         self.extended += other.extended
         self.reinforced += other.reinforced
         self.dropped_links += other.dropped_links
+        self.assistant_sourced += other.assistant_sourced
+        self.assistant_mixed += other.assistant_mixed
         for key, value in other.semantic_support.items():
             self.semantic_support[key] = self.semantic_support.get(key, 0) + value
         self.declined = other.declined
@@ -98,6 +106,11 @@ class ExtractionOutcome:
             self.judge_run_id = other.judge_run_id
         if other.error:
             self.error = other.error
+
+    def count_source(self, source_role: str, roles: set[str]) -> None:
+        if source_role == ASSISTANT:
+            self.assistant_sourced += 1
+            self.assistant_mixed += int("user" in roles)
 
     def reject(self, op: Any, reason: str) -> None:
         self.rejected += 1
@@ -123,6 +136,8 @@ class ExtractionOutcome:
             "extended": self.extended,
             "reinforced": self.reinforced,
             "dropped_links": self.dropped_links,
+            "assistant_sourced": self.assistant_sourced,
+            "assistant_mixed": self.assistant_mixed,
         }
 
 
@@ -276,6 +291,26 @@ def find_candidates(
     return list(merged.values())[:limit]
 
 
+def prior_messages(
+    conn: psycopg.Connection, *, session_id: str, before: int, limit: int
+) -> list[Row]:
+    """The last `limit` user or assistant turns before a window, oldest first.
+
+    Prompt v12 shows them as EARLIER IN THIS SESSION (decisions/0083): context
+    for references that cross a window boundary, never evidence --
+    `_validated_evidence` accepts only the window's own message ids.
+    """
+    if limit <= 0:
+        return []
+    rows = conn.execute(
+        """SELECT id,role,content,created_at FROM messages
+            WHERE session_id=%s AND id < %s AND role IN ('user','assistant')
+            ORDER BY id DESC LIMIT %s""",
+        (session_id, before, limit),
+    ).fetchall()
+    return list(reversed(rows))
+
+
 def _validated_evidence(
     conn: psycopg.Connection,
     op: judge.Op,
@@ -371,6 +406,19 @@ def _link_extends(
 class DedupTarget:
     id: str
     revision: int
+    # False for an assistant-sourced duplicate: its evidence is linked, but the
+    # assistant restating a memory is not another independent mention.
+    reinforce: bool = True
+
+
+# What an assistant-sourced ADD may be folded into. Restating something already
+# remembered -- by anyone -- adds no memory; the role check that keeps user
+# duplicates within their role stays for everything else.
+_ASSISTANT_DEDUP_ROLES = ("user", "manual", "tool", ASSISTANT)
+
+
+def _dedup_roles(source_role: str) -> list[str]:
+    return list(_ASSISTANT_DEDUP_ROLES) if source_role == ASSISTANT else [source_role]
 
 
 def plan_dedup(
@@ -430,12 +478,13 @@ def plan_dedup(
         for hit in hits:
             if float(hit.score) < threshold:
                 continue
+            role = (source_roles or {}).get(index, "user")
             row = conn.execute(
                 """SELECT * FROM memories
                     WHERE id=%s AND scope_id=%s AND status='active'
                     AND (valid_until IS NULL OR valid_until > now())
-                    AND source_role=%s""",
-                (str(hit.id), target_scope, (source_roles or {}).get(index, "user")),
+                    AND source_role = ANY(%s)""",
+                (str(hit.id), target_scope, _dedup_roles(role)),
             ).fetchone()
             if (
                 row is not None
@@ -445,7 +494,9 @@ def plan_dedup(
                 and row["kind"] == (op.kind or "fact")
                 and iso(row["valid_until"]) == iso(op.valid_until)
             ):
-                planned[index] = DedupTarget(str(row["id"]), int(row["revision"]))
+                planned[index] = DedupTarget(
+                    str(row["id"]), int(row["revision"]), reinforce=role != ASSISTANT
+                )
                 pairs[index] = {"existing": row["text"], "incoming": op.text}
                 break
     if semantic is not None:
@@ -596,13 +647,16 @@ def apply_ops(
     outcome = ExtractionOutcome(judge_run_id=judge_run_id)
     allowed = set(source_message_ids)
     entity_map = entity_map or {}
+    # Keyed on the version that produced the ops, so replaying v10 or v11
+    # applies exactly the rules they were written under.
+    assistant_evidence = extraction_version in prompts.ASSISTANT_EVIDENCE
     for index, op in enumerate(ops):
         validated = _validated_evidence(conn, op, allowed_message_ids=allowed)
         if validated is None:
             outcome.reject(op, "evidence_invalid")
             continue
         evidence, roles = validated
-        if not provenance.may_write(op=op.op, roles=roles):
+        if not provenance.may_write(op=op.op, roles=roles, assistant_evidence=assistant_evidence):
             outcome.reject(op, "assistant_only_source")
             continue
         op_context = reconcile_context(op.context or {}, context)
@@ -628,7 +682,7 @@ def apply_ops(
             outcome.reject(op, "scope_not_allowed")
             continue
         op.scope_id = scope_id
-        source_role = provenance.source_role_for(roles)
+        source_role = provenance.source_role_for(roles, assistant_taints=assistant_evidence)
 
         if op.op == "ADD":
             target = (dedup_hits or {}).get(index)
@@ -637,7 +691,7 @@ def apply_ops(
                     """SELECT id FROM memories
                         WHERE id=%s AND scope_id=%s AND status='active' AND revision=%s
                         AND context=%s AND subject_id IS NOT DISTINCT FROM %s::uuid
-                        AND kind=%s AND source_role=%s
+                        AND kind=%s AND source_role = ANY(%s)
                         AND valid_until IS NOT DISTINCT FROM %s::timestamptz
                         AND (valid_until IS NULL OR valid_until > now()) FOR UPDATE""",
                     (
@@ -647,7 +701,7 @@ def apply_ops(
                         Jsonb(op_context),
                         subject_id,
                         op.kind or "fact",
-                        source_role,
+                        _dedup_roles(source_role),
                         op.valid_until,
                     ),
                 ).fetchone()
@@ -656,7 +710,7 @@ def apply_ops(
                 if row is not None:
                     # Counted before linking: a mention is new only if its
                     # session was not already cited.
-                    if store.reinforce(
+                    if target.reinforce and store.reinforce(
                         conn,
                         memory_id=target.id,
                         message_ids=[item["message_id"] for item in evidence],
@@ -664,6 +718,7 @@ def apply_ops(
                         outcome.reinforced += 1
                     _link_evidence(conn, target.id, evidence)
                     outcome.deduplicated += 1
+                    outcome.count_source(source_role, roles)
                     continue
             memory_id = store.add_memory(
                 conn,
@@ -689,6 +744,7 @@ def apply_ops(
             )
             _link_evidence(conn, memory_id, evidence)
             outcome.added += 1
+            outcome.count_source(source_role, roles)
             _link_extends(
                 conn,
                 outcome,
@@ -722,6 +778,11 @@ def apply_ops(
         existing_context = dict(existing["context"] or {})
         if existing_context != (op.context or {}):
             outcome.reject(op, "target_context_mismatch")
+            continue
+        if assistant_evidence and source_role == ASSISTANT and existing["source_role"] != ASSISTANT:
+            # Only a person corrects or retires what a person said; the
+            # assistant may revise its own assistant info, nothing else.
+            outcome.reject(op, "assistant_cannot_revise_stated")
             continue
         if op.op == "DELETE":
             store.set_memory_status(
@@ -775,6 +836,7 @@ def apply_ops(
                 judge_run_id=judge_run_id,
             )
             outcome.superseded += 1
+            outcome.count_source(source_role, roles)
             continue
 
         store.update_memory(
@@ -805,6 +867,7 @@ def apply_ops(
         )
         _link_evidence(conn, str(existing["id"]), evidence)
         outcome.updated += 1
+        outcome.count_source(source_role, roles)
     return outcome
 
 
@@ -880,6 +943,8 @@ def run_extraction(
     window = claim_window(conn, session_id=session_id, job_id=job_id or "inline")
     if not window:
         return ExtractionOutcome()
+    version = prompt_version or judge.PROMPT_VERSION
+    assistant_evidence = version in prompts.ASSISTANT_EVIDENCE
     window_text = "\n".join(str(row["content"] or "") for row in window if row["role"] == "user")
     if not force and not judge.should_extract(
         # Every user turn in the window, not just the last message: an explicit
@@ -891,7 +956,17 @@ def run_extraction(
     ):
         release_window(conn, window)
         return ExtractionOutcome(claimed=len(window), declined=True, windows=1)
-    if not any(row["role"] == "user" for row in window):
+    prior = prior_messages(
+        conn,
+        session_id=session_id,
+        before=min(int(row["id"]) for row in window),
+        limit=prompts.PRIOR_MESSAGES.get(version, 0),
+    )
+    # A window with no user turn has nothing to extract -- unless assistant
+    # info is evidence and the question it answers sits just before the
+    # window, where a ten-message boundary happened to fall between them.
+    answers_prior_question = assistant_evidence and any(row["role"] == "user" for row in prior)
+    if not any(row["role"] == "user" for row in window) and not answers_prior_question:
         try:
             with conn.transaction():
                 _require_window(conn, window, guard=guard)
@@ -904,6 +979,16 @@ def run_extraction(
             return ExtractionOutcome(error="extraction_lease_lost", claimed=len(window), windows=1)
         return ExtractionOutcome(skipped=len(window), claimed=len(window), windows=1)
     context = dict(session["context"] or {})
+    if assistant_evidence:
+        # Candidates for assistant info have to be findable from the
+        # assistant's words, or a recommendation already remembered is
+        # extracted again every time it is repeated.
+        clip = judge.assistant_chars_for(version)
+        window_text = "\n".join(
+            str(row["content"] or "")[: clip if row["role"] == "assistant" else None]
+            for row in window
+            if row["role"] in {"user", "assistant"}
+        )
     candidates = find_candidates(
         conn,
         scope_id=session_scope_id,
@@ -938,6 +1023,7 @@ def run_extraction(
         user_id=user_id,
         job_id=job_id,
         version=prompt_version or None,
+        prior=prior,
     )
     outcome = ExtractionOutcome(
         judge_run_id=result.judge_run_id,
@@ -969,7 +1055,9 @@ def run_extraction(
         if (
             evidence is None
             or op_context is None
-            or not provenance.may_write(op=op.op, roles=evidence[1])
+            or not provenance.may_write(
+                op=op.op, roles=evidence[1], assistant_evidence=assistant_evidence
+            )
         ):
             continue
         try:
@@ -986,7 +1074,9 @@ def run_extraction(
             continue
         prepared[index] = replace(op, scope_id=target_scope, context=op_context)
         subjects[index] = subject
-        source_roles[index] = provenance.source_role_for(evidence[1])
+        source_roles[index] = provenance.source_role_for(
+            evidence[1], assistant_taints=assistant_evidence
+        )
         if unresolved is None:
             eligible.add(index)
         if semantic is not None and semantic.support != "off":

@@ -152,13 +152,14 @@ def _longmemeval_date(text: str | None) -> datetime | None:
     return datetime(year, month, day, hour, minute, tzinfo=UTC)
 
 
-# Questions about what the assistant said. Assistant turns are never evidence
-# here (decisions/0006), so no mode can answer these; they are left out unless
-# asked for, rather than silently lowering every accuracy figure.
+# Questions about what the assistant said. Prompt v12 lets assistant turns
+# support memories (decisions/0082) and v10/v11 do not, so they are kept and
+# reported both ways: `accuracy` with them, `accuracy_excluding_assistant`
+# without, which is the figure comparable across prompt versions.
 ASSISTANT_ONLY = "single-session-assistant"
 
 
-def load_longmemeval(path: Path, *, include_assistant: bool = False) -> list[Conversation]:
+def load_longmemeval(path: Path, *, include_assistant: bool = True) -> list[Conversation]:
     data: list[dict[str, Any]] = json.loads(Path(path).read_text(encoding="utf-8"))
     conversations = []
     for item in data:

@@ -7,6 +7,10 @@ from dataclasses import dataclass
 from typing import Any
 
 PATTERNS: tuple[tuple[str, str], ...] = (
+    # Whatever a person wraps in <private>…</private> never leaves the request
+    # (decisions/0087). First, so a secret inside it is removed whole rather
+    # than half-redacted by a later pattern.
+    (r"(?is)<private>.*?</private>", "[PRIVATE]"),
     (r"(?i)\b(sk|pk)-[A-Za-z0-9_\-]{20,}", "[KEY]"),
     (r"\bAKIA[0-9A-Z]{16}\b", "[AWS_KEY]"),
     (r"\bgh[pousr]_[A-Za-z0-9]{36,}\b", "[GH_TOKEN]"),
@@ -32,6 +36,20 @@ _COMPILED = tuple((re.compile(pattern), replacement) for pattern, replacement in
 _SENSITIVE_KEY = re.compile(
     r"(?i)(secret|token|password|passwd|api[_-]?key|credential|private[_-]?key|access[_-]?key|authorization)"
 )
+
+
+# Blocks the memory service itself put into an agent's context: the session
+# profile, a recall strip, Hermes' prefetch. If one is ever captured back as a
+# turn, storing it would turn retrieved memory into fresh evidence for itself
+# (decisions/0087). The marker is shorter than the raw-index floor, so an
+# all-injected turn is kept as a non-blank row that is never indexed.
+_INJECTED = re.compile(r"(?is)<(mem-os-context|mem-os-recall|memory-context)>.*?</\1>")
+INJECTED_MARKER = "[context omitted]"
+
+
+def strip_injected(text: str) -> str:
+    """Replace memory blocks the service injected with a short marker."""
+    return _INJECTED.sub(INJECTED_MARKER, text)
 
 
 @dataclass(frozen=True)

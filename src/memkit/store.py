@@ -153,6 +153,21 @@ def _session(
     return existing
 
 
+# Raw passages are user turns unless an instance opts in to assistant turns
+# too (decisions/0082). Tool output is never indexed.
+USER_ONLY: tuple[str, ...] = ("user",)
+WITH_ASSISTANT: tuple[str, ...] = ("user", "assistant")
+
+
+def index_roles_for(index_assistant_turns: bool) -> tuple[str, ...]:
+    return WITH_ASSISTANT if index_assistant_turns else USER_ONLY
+
+
+def raw_indexable(role: str, text: str, index_roles: Sequence[str] = USER_ONLY) -> bool:
+    """Whether a stored turn becomes a raw passage. One predicate for every path."""
+    return role in index_roles and len(text) >= MIN_INDEX_CHARS
+
+
 @maintenance.write_transaction
 def add_message(
     conn: psycopg.Connection,
@@ -168,9 +183,14 @@ def add_message(
     external_id: str | None = None,
     context: dict[str, Any] | None = None,
     strict_scope: bool = False,
+    index_roles: Sequence[str] = USER_ONLY,
 ) -> tuple[int, bool, bool]:
-    """Persist redacted evidence and enqueue raw indexing in one transaction."""
-    content = content.strip()
+    """Persist redacted evidence and enqueue raw indexing in one transaction.
+
+    `index_roles` names the roles whose turns become raw passages; callers pass
+    `index_roles_for(settings.index_assistant_turns)` (decisions/0082).
+    """
+    content = security.strip_injected(content).strip()
     if not content:
         raise ValueError("message content is blank")
     if len(content) > MAX_MESSAGE_CHARS:
@@ -202,7 +222,7 @@ def add_message(
             (user_id, external_source, external_id),
         ).fetchone()
         if row is not None:
-            if row["role"] == "user" and len(str(row["content"])) >= MIN_INDEX_CHARS:
+            if raw_indexable(str(row["role"]), str(row["content"]), index_roles):
                 outbox.ensure_pending(
                     conn,
                     collection=vectors.RAW,
@@ -232,7 +252,7 @@ def add_message(
     ).fetchone()
     row = _returned(row, "message insert")
     message_id = int(row["id"])
-    if role == "user" and len(cleaned.text) >= MIN_INDEX_CHARS:
+    if raw_indexable(role, cleaned.text, index_roles):
         outbox.enqueue(
             conn,
             collection=vectors.RAW,
@@ -270,8 +290,13 @@ def raw_search_rows(
     limit: int,
     expression: dict[str, Any] | None = None,
     kinds: list[str] | None = None,
+    roles: Sequence[str] = USER_ONLY,
 ) -> list[dict[str, Any]]:
-    """Resolve raw index proposals to currently authorized evidence rows."""
+    """Resolve raw index proposals to currently authorized evidence rows.
+
+    `roles` is what the caller's retrieval policy trusts: assistant passages
+    are returned only to a policy that admits the assistant role.
+    """
     filters.validate(expression)
     if not scope_ids or (kinds and "evidence" not in kinds):
         return []
@@ -287,7 +312,7 @@ def raw_search_rows(
             limit=candidate_limit,
             must=[
                 vectors.keyword("scope_id", list(scope_ids)),
-                vectors.keyword("role", "user"),
+                vectors.keyword("role", list(roles)),
                 *eligibility.vector_filters(expression, raw=True),
             ],
             exclude_ids=list(scores) or None,
@@ -311,9 +336,14 @@ def raw_search_rows(
                   FROM messages evidence JOIN sessions session ON session.id=evidence.session_id
                   JOIN entities scope ON scope.id=session.scope_id
                  WHERE evidence.id=ANY(%s) AND session.scope_id=ANY(%s)
-                   AND evidence.role='user'
+                   AND evidence.role=ANY(%s)
             ) m WHERE {predicate}""",
-            (list(fresh), [uuid.UUID(str(scope)) for scope in scope_ids], *parameters),
+            (
+                list(fresh),
+                [uuid.UUID(str(scope)) for scope in scope_ids],
+                list(roles),
+                *parameters,
+            ),
         ).fetchall()
         selected.update(
             (int(row["id"]), {**row, "similarity": scores[int(row["id"])]}) for row in rows
@@ -334,8 +364,9 @@ def search_raw(
     vector: list[float] | None = None,
     expression: dict[str, Any] | None = None,
     kinds: list[str] | None = None,
+    roles: Sequence[str] = USER_ONLY,
 ) -> list[dict[str, Any]]:
-    """Semantic search over retained user turns, within the caller's scopes."""
+    """Semantic search over retained turns of `roles`, within the caller's scopes."""
     if not scope_ids or (kinds and "evidence" not in kinds):
         return []
     vector = vector if vector is not None else embedder.encode_one(query)
@@ -347,7 +378,7 @@ def search_raw(
             "context": dict(row["context"] or {}),
             "session_id": row["session_id"],
             "created_at": iso(row["created_at"]),
-            "source_role": "user",
+            "source_role": row["role"],
             "scope": row["scope_name"],
         }
         for row in raw_search_rows(
@@ -358,6 +389,7 @@ def search_raw(
             limit=limit,
             expression=expression,
             kinds=kinds,
+            roles=roles,
         )
     ]
 
@@ -1170,11 +1202,16 @@ def reinforce(conn: psycopg.Connection, *, memory_id: str, message_ids: Sequence
 
 
 def recount_mentions(conn: psycopg.Connection, *, memory_id: str) -> int:
-    """Set `source_count` from the distinct sessions a memory now cites."""
+    """Set `source_count` from the distinct sessions a memory now cites.
+
+    An assistant-sourced memory always counts once: the assistant saying the
+    same thing again is not a second witness (decisions/0082).
+    """
     row = conn.execute(
-        """UPDATE memories m SET source_count = GREATEST(1, (
+        """UPDATE memories m SET source_count = CASE WHEN m.source_role = 'assistant' THEN 1
+               ELSE GREATEST(1, (
                SELECT count(DISTINCT msg.session_id) FROM memory_evidence e
-                 JOIN messages msg ON msg.id = e.message_id WHERE e.memory_id = m.id))
+                 JOIN messages msg ON msg.id = e.message_id WHERE e.memory_id = m.id)) END
             WHERE m.id = %s RETURNING source_count""",
         (memory_id,),
     ).fetchone()

@@ -30,7 +30,7 @@ class SearchIn:
         include_untrusted (bool | Unset):  Default: False.
         kinds (list[str] | None | Unset):
         limit (int | Unset):  Default: 30.
-        policy_id (str | Unset):  Default: 'neutral-v1'.
+        policy_id (None | str | Unset):
         rewrite_query (bool | Unset):  Default: False.
         scopes (list[str] | None | Unset):
         since (datetime.datetime | None | Unset):
@@ -50,7 +50,7 @@ class SearchIn:
     include_untrusted: bool | Unset = False
     kinds: list[str] | None | Unset = UNSET
     limit: int | Unset = 30
-    policy_id: str | Unset = "neutral-v1"
+    policy_id: None | str | Unset = UNSET
     rewrite_query: bool | Unset = False
     scopes: list[str] | None | Unset = UNSET
     since: datetime.datetime | None | Unset = UNSET
@@ -102,7 +102,11 @@ class SearchIn:
 
         limit = self.limit
 
-        policy_id = self.policy_id
+        policy_id: None | str | Unset
+        if isinstance(self.policy_id, Unset):
+            policy_id = UNSET
+        else:
+            policy_id = self.policy_id
 
         rewrite_query = self.rewrite_query
 
@@ -255,7 +259,14 @@ class SearchIn:
 
         limit = d.pop("limit", UNSET)
 
-        policy_id = d.pop("policy_id", UNSET)
+        def _parse_policy_id(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        policy_id = _parse_policy_id(d.pop("policy_id", UNSET))
 
         rewrite_query = d.pop("rewrite_query", UNSET)
 

@@ -15,6 +15,8 @@ from __future__ import annotations
 import re
 
 PATTERNS: list[tuple[str, str]] = [
+    # <private>…</private> is never sent. First, so a secret inside it goes whole.
+    (r"(?is)<private>.*?</private>", "[PRIVATE]"),
     (r"(?i)\b(sk|pk)-[A-Za-z0-9_\-]{20,}", "[KEY]"),
     (r"\bAKIA[0-9A-Z]{16}\b", "[AWS_KEY]"),
     (r"\bghp_[A-Za-z0-9]{36}\b", "[GH_TOKEN]"),

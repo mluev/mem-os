@@ -441,7 +441,136 @@ CANDIDATES
 CONVERSATION WINDOW
 {window}"""
 
-REGISTRY: dict[str, str] = {"v7": V7, "v8": V8, "v9": V9, "v10": V10, "v11": V11}
+
+def _must_replace(text: str, old: str, new: str) -> str:
+    """`str.replace` that refuses to miss.
+
+    A version built by editing its predecessor must fail loudly when the
+    phrase it edits is not there; a silent no-op ships the old rule under the
+    new name, and nothing downstream can tell.
+    """
+    if text.count(old) != 1:
+        raise ValueError(f"expected exactly one occurrence of {old[:60]!r}")
+    return text.replace(old, new)
+
+
+# v12 (decisions/0082, 0083) is v11 with two changes. The assistant's own words
+# may support one kind of memory -- assistant info, what it recommended or
+# answered when asked, written as such -- because "what did you suggest?" is a
+# question a memory must answer and only the assistant's message holds the
+# answer. And the window is preceded by the last few messages before it, so a
+# reference that crosses a window boundary resolves; those lines carry no
+# number and cannot be cited. Everything else is v11's text, word for word.
+V12 = V11
+V12 = _must_replace(
+    V12,
+    """1. Only a user's own words can support a memory. Assistant messages are context
+   for resolving references only. Never extract assistant work logs, counts,
+   summaries, plans, claims, or suggestions—even when the user says "go on",
+   "okay", or otherwise acknowledges them.""",
+    """1. A user's own words support claims about the user, other people and the
+   world. The assistant's words support exactly one kind of memory, ASSISTANT
+   INFO: a specific answer, recommendation, list, option or plan the assistant
+   gave because the user asked, which the user may ask about later ("which hotel
+   did you suggest?"). Write it as what the assistant said — "The assistant
+   recommended Hotel Lisboa Plaza for the user's March trip to Lisbon" — never as
+   a fact about the user or the world, and only with the specifics (names,
+   numbers, items) the message gives. When the user accepts or chooses it ("let's
+   go with that", "booked it"), the choice is a separate user memory citing the
+   user's words. Never extract assistant work logs, progress reports, counts,
+   summaries of this session, offers to help, or advice nobody asked for.""",
+)
+V12 = _must_replace(
+    V12,
+    """2. Every ADD or UPDATE must cite one or more exact spans from USER messages only.
+   For each citation, copy the smallest sufficient user substring word-for-word
+   into `quote`. Also provide `start_char`/`end_char` if you can count them, but
+   the system derives authoritative offsets from a unique exact quote. Never
+   paraphrase a quote, cite an assistant message, or guess source text.""",
+    """2. Every ADD or UPDATE must cite one or more exact spans from numbered messages
+   in the CONVERSATION WINDOW: user messages for user claims, the assistant's
+   message for assistant info. For each citation, copy the smallest sufficient
+   substring word-for-word into `quote`. Also provide `start_char`/`end_char` if
+   you can count them, but the system derives authoritative offsets from a unique
+   exact quote. Never paraphrase a quote, guess source text, or cite a line from
+   EARLIER IN THIS SESSION: it has no number and is context only.""",
+)
+V12 = _must_replace(
+    V12,
+    """   assistant's work in this session ("run the tests", "fix that bug", "done"), or
+   facts stated only by the assistant. Repetition in an assistant message does
+   not make it evidence. A passing mood with no consequence ("I'm tired") is
+   nothing.""",
+    """   assistant's work in this session ("run the tests", "fix that bug", "done"), or
+   claims about the user or the world stated only by the assistant. Repetition in
+   an assistant message does not make it evidence. A passing mood with no
+   consequence ("I'm tired") is nothing.""",
+)
+V12 = _must_replace(
+    V12,
+    """    "Alex is a PM at Stripe").""",
+    """    "Alex is a PM at Stripe"). Never UPDATE or DELETE a candidate on the
+    assistant's word alone: only the user corrects or retires what is remembered.""",
+)
+V12 = _must_replace(
+    V12,
+    "FAILURE MODES — check every operation against all five:",
+    "FAILURE MODES — check every operation against all six:",
+)
+V12 = _must_replace(
+    V12,
+    """  a date. WRONG: "The user adopted a dog". RIGHT: "The user adopted a beagle
+  named Max on 2026-02-01" with event_dates ["2026-02-01"].""",
+    """  a date. WRONG: "The user adopted a dog". RIGHT: "The user adopted a beagle
+  named Max on 2026-02-01" with event_dates ["2026-02-01"].
+- Self-echo. The assistant repeating what a candidate already says, what the user
+  said, or what EARLIER IN THIS SESSION shows is not new information.
+  WRONG: assistant info cited from "As you mentioned, you prefer pnpm".
+  RIGHT: nothing; the preference is the user's and is already known.""",
+)
+V12 = _must_replace(
+    V12,
+    "- supported only by exact cited user text;",
+    "- supported by exact cited text: the user's for user claims, the assistant's own\n"
+    "  message only for assistant info written as such;",
+)
+V12 = _must_replace(
+    V12,
+    "- no credential, assistant-only detail, assistant work log, or one-off question.",
+    "- no credential, assistant work log, unrequested advice, or one-off question.",
+)
+V12 = _must_replace(
+    V12,
+    """CANDIDATES
+{candidates}
+
+CONVERSATION WINDOW
+{window}""",
+    """CANDIDATES
+{candidates}
+
+EARLIER IN THIS SESSION (context only; never cite it)
+{prior}
+
+CONVERSATION WINDOW
+{window}""",
+)
+
+# Which versions let assistant spans support a memory, how much of each
+# assistant turn the window shows, and how many earlier messages precede it.
+# Keyed by version so replaying v10 or v11 is unchanged by any of this.
+ASSISTANT_EVIDENCE: frozenset[str] = frozenset({"v12"})
+ASSISTANT_CHARS: dict[str, int] = {"v12": 1200}
+PRIOR_MESSAGES: dict[str, int] = {"v12": 4}
+
+REGISTRY: dict[str, str] = {
+    "v7": V7,
+    "v8": V8,
+    "v9": V9,
+    "v10": V10,
+    "v11": V11,
+    "v12": V12,
+}
 # v10 is the default, and v9 never was. v9 bought routing at the cost of context
 # accuracy (8/14 -> 6/14) with its own routing unmeasured, so it stayed on the
 # shelf. v10 was measured against v8 on the same run, with the golden harness
@@ -459,6 +588,9 @@ REGISTRY: dict[str, str] = {"v7": V7, "v8": V8, "v9": V9, "v10": V10, "v11": V11
 # harness (eval/bench) decide it: MEMKIT_PROMPT_VERSION=v11. Its new op fields
 # are optional, so switching back and forth needs no migration; memories
 # extracted under v10 simply carry no event dates.
+#
+# v12 adds assistant info and session context to v11 and is opt-in on the same
+# terms: MEMKIT_PROMPT_VERSION=v12 (decisions/0082, 0083).
 DEFAULT_VERSION = "v10"
 
 CONSOLIDATE_V2 = """Compare the memories below. Return a merged text only when they
@@ -644,6 +776,7 @@ def render(
     session_date: str | None = None,
     profile: str = "",
     agent_id: str | None = None,
+    prior: str | None = None,
 ) -> str:
     del profile, agent_id
     template = REGISTRY.get(version)
@@ -661,6 +794,7 @@ def render(
         window=window,
         today=today,
         session_date=session_date or today,
+        prior=prior or "(none)",
     )
 
 

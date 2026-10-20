@@ -793,6 +793,32 @@ def _seed_core_policies(conn: psycopg.Connection) -> None:
             },
         ),
         (
+            # v2 plus assistant info (decisions/0082, 0084): memories the
+            # assistant's own words support are admitted, and rank a little
+            # below stated ones until a person confirms them. v2's weights are
+            # unchanged so the trust change can be measured on its own.
+            "core-retrieval-v3",
+            "retrieval",
+            "temporal-graph-assistant",
+            {
+                "dense_weight": 0.60,
+                "lexical_weight": 0.30,
+                "entity_weight": 0.10,
+                "importance_weight": 0.10,
+                "recency_weight": 0.05,
+                "min_relevance": 0.18,
+                "allowed_source_roles": ["user", "manual", "tool", "inference", "assistant"],
+                "default_half_life_days": 180.0,
+                "episode_half_life_days": 60.0,
+                "episode_significance": 0.7,
+                "temporal_weight": 0.15,
+                "order_weight": 0.05,
+                "reinforcement_weight": 0.05,
+                "inference_penalty": 0.08,
+                "assistant_penalty": 0.05,
+            },
+        ),
+        (
             "core-retention-v1",
             "retention",
             "scope-controlled",

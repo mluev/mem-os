@@ -100,6 +100,8 @@ def test_judge_json_and_nullable_member_metrics_remain_dictionary_readable() -> 
         "month_limit_usd": None,
         "pending_review": 0,
         "search_latency_ms": {"p50": None, "p95": None, "p99": None},
+        "search_latency_by_stage": {},
+        "search_latency_by_policy": {},
         "retrieval_runs": 0,
         "abstention_rate": None,
         "feedback_labels": 0,

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Any
 
 import psycopg
@@ -47,7 +47,9 @@ def _write_rows(
         )
 
 
-def _snapshot(conn: psycopg.Connection) -> tuple[int, list[Any], list[Any]]:
+def _snapshot(
+    conn: psycopg.Connection, index_roles: Sequence[str] = store.USER_ONLY
+) -> tuple[int, list[Any], list[Any]]:
     """One stable read; the outbox ID is compatibility metadata, not a replay cursor."""
     previous = conn.isolation_level
     conn.isolation_level = psycopg.IsolationLevel.REPEATABLE_READ
@@ -60,8 +62,8 @@ def _snapshot(conn: psycopg.Connection) -> tuple[int, list[Any], list[Any]]:
             raw_rows = conn.execute(
                 """SELECT m.*,s.scope_id,s.agent_id FROM messages m
                      JOIN sessions s ON s.id=m.session_id
-                    WHERE m.role='user' AND length(m.content)>=%s""",
-                (MIN_INDEX_CHARS,),
+                    WHERE m.role=ANY(%s) AND length(m.content)>=%s""",
+                (list(index_roles), MIN_INDEX_CHARS),
             ).fetchall()
     finally:
         conn.isolation_level = previous
@@ -76,9 +78,10 @@ def _rebuild_locked(
     cancelled: Callable[[], bool] | None = None,
     guard: Callable[[], None] | None = None,
     activate: bool = True,
+    index_roles: Sequence[str] = store.USER_ONLY,
 ) -> dict[str, Any]:
     """Build while the caller holds the exclusive memory gate."""
-    snapshot, memory_rows, raw_rows = _snapshot(conn)
+    snapshot, memory_rows, raw_rows = _snapshot(conn, index_roles)
     generations = {
         vectors.MEMORIES: _generation(vectors.MEMORIES),
         vectors.RAW: _generation(vectors.RAW),
@@ -144,8 +147,13 @@ def rebuild(
     cancelled: Callable[[], bool] | None = None,
     guard: Callable[[], None] | None = None,
     activate: bool = True,
+    index_roles: Sequence[str] = store.USER_ONLY,
 ) -> dict[str, Any]:
     """Freeze memory writes, build a consistent generation, then switch once.
+
+    `index_roles` must match what evidence ingestion indexes, or a rebuild
+    silently drops (or adds) assistant passages; callers pass
+    `store.index_roles_for(settings.index_assistant_turns)`.
 
     Existing aliases keep serving readers throughout. The gate is also used by
     CLI imports, deliveries and erasure, so a process-local maintenance flag is
@@ -153,5 +161,11 @@ def rebuild(
     """
     with maintenance.exclusive(conn):
         return _rebuild_locked(
-            conn, client, embedder, cancelled=cancelled, guard=guard, activate=activate
+            conn,
+            client,
+            embedder,
+            cancelled=cancelled,
+            guard=guard,
+            activate=activate,
+            index_roles=index_roles,
         )

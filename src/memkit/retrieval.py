@@ -26,7 +26,7 @@ from qdrant_client import QdrantClient
 from . import eligibility, filters, temporal, vectors
 from .db import Row, as_datetime, iso
 from .embed import Embedder
-from .provenance import INFERENCE
+from .provenance import ASSISTANT, INFERENCE
 from .store import memory_active
 
 WORD_RE = re.compile(r"[\w./:@#-]+", re.UNICODE)
@@ -61,10 +61,16 @@ class RetrievalPolicy:
     reinforcement_weight: float = 0.0
     # A derived claim nobody has confirmed ranks below stated ones.
     inference_penalty: float = 0.0
+    # So does one only the assistant's own words support (decisions/0082).
+    assistant_penalty: float = 0.0
 
 
 def load_policy(conn: psycopg.Connection, policy_id: str) -> RetrievalPolicy:
-    aliases = {"neutral-v1": "core-retrieval-neutral-v1", "temporal-v2": "core-retrieval-v2"}
+    aliases = {
+        "neutral-v1": "core-retrieval-neutral-v1",
+        "temporal-v2": "core-retrieval-v2",
+        "assistant-v3": "core-retrieval-v3",
+    }
     resolved = aliases.get(policy_id, policy_id)
     row = conn.execute(
         "SELECT id,config FROM policies WHERE id=%s AND kind='retrieval'", (resolved,)
@@ -88,6 +94,7 @@ def load_policy(conn: psycopg.Connection, policy_id: str) -> RetrievalPolicy:
         order_weight=float(config.get("order_weight", 0.0)),
         reinforcement_weight=float(config.get("reinforcement_weight", 0.0)),
         inference_penalty=float(config.get("inference_penalty", 0.0)),
+        assistant_penalty=float(config.get("assistant_penalty", 0.0)),
     )
 
 
@@ -620,6 +627,8 @@ def explain(
         )
         if row["source_role"] == INFERENCE and row["review_status"] != "confirmed":
             score -= policy.inference_penalty
+        if row["source_role"] == ASSISTANT and row["review_status"] != "confirmed":
+            score -= policy.assistant_penalty
         scored.append(
             Scored(
                 id=memory_id,
@@ -651,9 +660,11 @@ def explain(
     if intent is not None and intent.order and policy.order_weight and len(scored) > 1:
         _apply_order(scored, row_by_id, intent.order, policy.order_weight)
     scored.sort(key=lambda item: (-item.score, item.id))
+    rerank_started = time.perf_counter()
     scored = (reranker or IdentityReranker()).rerank(query, scored)
+    rerank_ms = (time.perf_counter() - rerank_started) * 1000
     chosen, used = _fill_budget(scored, budget_tokens, limit=limit)
-    scoring_ms = (time.perf_counter() - scoring_started) * 1000
+    scoring_ms = (time.perf_counter() - scoring_started) * 1000 - rerank_ms
     total_ms = (time.perf_counter() - total_started) * 1000
     return Explain(
         chosen=chosen,
@@ -673,6 +684,9 @@ def explain(
             "entity_ms": entity_ms,
             "fetch_ms": fetch_ms,
             "scoring_ms": scoring_ms,
+            # Its own stage: a cross-encoder can cost more than every arm
+            # together, and folded into scoring it could not be seen.
+            "rerank_ms": rerank_ms,
             "total_ms": total_ms,
         },
     )
@@ -688,7 +702,14 @@ def search(*args: Any, **kwargs: Any) -> tuple[list[Scored], int]:
 RRF_K = 60
 
 
-def fuse(results: Sequence[Explain], *, budget_tokens: int, limit: int | None = None) -> Explain:
+def fuse(
+    results: Sequence[Explain],
+    *,
+    budget_tokens: int,
+    limit: int | None = None,
+    reranker: Reranker | None = None,
+    query: str = "",
+) -> Explain:
     """Merge rankings for one question asked several ways (decisions/0079).
 
     Each memory scores the sum of 1/(k + rank) over the lists that returned it,
@@ -708,9 +729,17 @@ def fuse(results: Sequence[Explain], *, budget_tokens: int, limit: int | None = 
             if item.id not in best or item.score > best[item.id].score:
                 best[item.id] = item
     ordered = sorted(best.values(), key=lambda item: (-fused[item.id], -item.score, item.id))
+    # Reranked once, after fusion, rather than inside each rewrite's search:
+    # a cross-encoder over four lists of thirty is four times the work for
+    # one ordering that fusion then discards.
+    rerank_started = time.perf_counter()
+    if reranker is not None:
+        ordered = reranker.rerank(query, ordered)
+    rerank_ms = (time.perf_counter() - rerank_started) * 1000
     chosen, used = _fill_budget(ordered, budget_tokens, limit=limit)
     timings = dict(primary.timings)
     timings["fused_queries"] = float(len(results))
+    timings["rerank_ms"] = timings.get("rerank_ms", 0.0) + rerank_ms
     return Explain(
         chosen=chosen,
         used_tokens=used,

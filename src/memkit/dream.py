@@ -35,8 +35,9 @@ from datetime import datetime
 from typing import Any
 
 import psycopg
+from psycopg.types.json import Jsonb
 
-from . import judge, maintenance, prompts, provenance, store, vectors
+from . import entities, judge, maintenance, prompts, provenance, store, vectors
 from .db import Row, iso
 
 logger = logging.getLogger(__name__)
@@ -68,6 +69,10 @@ class DreamOutcome:
     # {"at", "id"}; the next automatic dream starts after it. None when this
     # run must not move it: a dry run, or nothing processed.
     watermark: dict[str, str] | None = None
+    # Every fresh memory was processed and none were left beyond the cap: the
+    # scope's dreamt state has caught up with what it knows (decisions/0085).
+    # The benchmark waits on this the way Supermemory's waits on dreamingStatus.
+    caught_up: bool = False
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -81,6 +86,7 @@ class DreamOutcome:
             "skipped": self.skipped,
             "planned": self.planned,
             "watermark": self.watermark,
+            "caught_up": self.caught_up,
         }
 
 
@@ -244,6 +250,9 @@ def run(
     outcome.planned = [[str(member["id"]) for member in cluster] for _, cluster in plan.clusters]
     if dry_run:
         return outcome
+    if not fresh:
+        outcome.caught_up = True
+        return outcome
     # Everything before the first cluster that failed is done; nothing after it
     # may be marked dreamed, or the next run would never retry it.
     done = plan.considered
@@ -316,6 +325,7 @@ def run(
             "at": at.isoformat() if isinstance(at, datetime) else str(at),
             "id": str(last["id"]),
         }
+    outcome.caught_up = done == len(fresh) and len(fresh) < MAX_FRESH
     return outcome
 
 
@@ -424,6 +434,28 @@ def _apply(
             scopes=[scope_id],
             judge_run_id=run_id,
         )
+        # A model decided that one stated claim replaced another, across
+        # sessions nobody reviewed together. It applies at once, as Supermemory
+        # resolves updates, but a person sees it in the review queue and can
+        # restore the old claim (decisions/0085).
+        conn.execute(
+            """INSERT INTO needs_attention (id,user_id,scope_id,kind,ref_memory_id,payload)
+               VALUES (%s,%s,%s,'conflict',%s,%s)""",
+            (
+                str(uuid.uuid4()),
+                user_id,
+                scope_id,
+                str(old["id"]),
+                Jsonb(
+                    {
+                        "source": "dream",
+                        "replaced_by": str(new["id"]),
+                        "replacement": str(new["text"]),
+                        "judge_run_id": run_id,
+                    }
+                ),
+            ),
+        )
         # No longer live: neither a later link nor an inference may use it.
         live_by_id.pop(str(old["id"]), None)
         outcome.superseded += 1
@@ -516,6 +548,92 @@ def _already_stated(
         must=[vectors.keyword("scope_id", scope_id), vectors.keyword("status", "active")],
     )
     return bool(hits) and float(hits[0].score) >= DUPLICATE_COSINE
+
+
+@dataclass(frozen=True)
+class Due:
+    scope_id: str
+    user_id: str
+    fresh: int
+    reason: str
+
+
+def due_scopes(
+    conn: psycopg.Connection,
+    *,
+    idle_minutes: int,
+    batch: int,
+    min_interval_minutes: int,
+) -> list[Due]:
+    """Scopes whose new memories are ready to dream over (decisions/0085).
+
+    Dynamic dreaming, after Supermemory's: a scope dreams when it has gone
+    quiet -- nothing new for `idle_minutes` -- or when `batch` new memories
+    have piled up, never on a fixed timer and never per extraction, so one
+    dream sees a coherent batch instead of each window's fragment. A scope that
+    dreamt less than `min_interval_minutes` ago waits, unless a full batch is
+    already waiting. "New" is what the watermark has not covered, so a capped
+    or interrupted dream is resumed by the next tick.
+
+    The actor is the author of the newest fresh memory: a dream acts for
+    somebody who can write the scope, and that is the person whose words it
+    is about to reread.
+    """
+    rows = conn.execute(
+        """WITH marks AS (
+               SELECT DISTINCT ON (input->>'scope_id')
+                      input->>'scope_id' AS scope_id,
+                      (result->'watermark'->>'at')::timestamptz AS at,
+                      (result->'watermark'->>'id')::uuid AS id
+                 FROM jobs
+                WHERE kind='dream' AND status='complete'
+                  AND jsonb_typeof(result->'watermark') = 'object'
+                ORDER BY input->>'scope_id', 2 DESC, 3 DESC
+           ), last_run AS (
+               SELECT input->>'scope_id' AS scope_id, max(finished_at) AS finished_at
+                 FROM jobs
+                WHERE kind='dream' AND status='complete'
+                  AND NOT COALESCE((input->>'dry_run')::boolean, false)
+                GROUP BY 1
+           )
+           SELECT m.scope_id::text AS scope_id, count(*) AS fresh,
+                  max(m.updated_at) AS newest,
+                  (array_agg(m.author_id ORDER BY m.updated_at DESC, m.id DESC))[1] AS author_id,
+                  max(l.finished_at) AS last_dreamt
+             FROM memories m
+             LEFT JOIN marks k ON k.scope_id = m.scope_id::text
+             LEFT JOIN last_run l ON l.scope_id = m.scope_id::text
+            WHERE m.status='active' AND m.source_role = ANY(%s)
+              AND (m.valid_until IS NULL OR m.valid_until > now())
+              AND (k.at IS NULL OR m.updated_at > k.at
+                   OR (m.updated_at = k.at AND m.id > k.id))
+            GROUP BY m.scope_id
+            ORDER BY min(m.updated_at)""",
+        (list(PREMISE_ROLES),),
+    ).fetchall()
+    now = conn.execute("SELECT now() AS now").fetchone()["now"]
+    due: list[Due] = []
+    for row in rows:
+        fresh = int(row["fresh"])
+        full = fresh >= batch
+        quiet = (now - row["newest"]).total_seconds() >= idle_minutes * 60
+        recent = row["last_dreamt"] is not None and (
+            (now - row["last_dreamt"]).total_seconds() < min_interval_minutes * 60
+        )
+        if not (full or quiet) or (recent and not full):
+            continue
+        author = str(row["author_id"]) if row["author_id"] else None
+        if author is None:
+            continue
+        enabled = conn.execute(
+            "SELECT 1 FROM users WHERE id=%s AND disabled_at IS NULL", (author,)
+        ).fetchone()
+        # The job re-checks under lock; this only avoids queueing a dream that
+        # would fail at once for an actor who has since lost the scope.
+        if enabled is None or str(row["scope_id"]) not in entities.writable_by(conn, author):
+            continue
+        due.append(Due(str(row["scope_id"]), author, fresh, "batch" if full else "idle"))
+    return due
 
 
 def queue(

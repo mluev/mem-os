@@ -16,6 +16,7 @@ from . import (
     reextract,
     reindex,
     store,
+    telemetry,
 )
 from .config import get_settings
 from .http import judge_configured
@@ -120,6 +121,83 @@ def _queue_dreams(conn, *, job_id: str, user_id: str) -> list[str]:
     return queued
 
 
+def _queue_session_dreams(conn, *, session_id: str, user_id: str) -> list[str]:
+    """One dream per scope a closed session's memories live in (decisions/0085).
+
+    A session ending is the clearest "gone quiet" there is, so dynamic dreaming
+    does not wait for the idle timer once the last window is extracted.
+    """
+    settings = get_settings()
+    scopes = [
+        str(row["scope_id"])
+        for row in conn.execute(
+            """SELECT DISTINCT m.scope_id FROM memories m
+                 JOIN memory_evidence e ON e.memory_id = m.id
+                 JOIN messages msg ON msg.id = e.message_id
+                WHERE msg.session_id = %s AND m.status = 'active'""",
+            (session_id,),
+        )
+    ]
+    queued = []
+    for scope_id in scopes:
+        dream_id, created = dream.queue(
+            conn, scope_id=scope_id, user_id=user_id, max_clusters=settings.dream_max_clusters
+        )
+        if created:
+            queued.append(dream_id)
+    return queued
+
+
+# One scheduled maintenance pass per day, however many processes tick.
+MAINTENANCE_LOCK = "memkit:scheduled-maintenance"
+
+
+def schedule_maintenance(conn) -> str | None:
+    """Queue today's consolidation pass unless one was queued in the last day."""
+    with conn.transaction():
+        conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (MAINTENANCE_LOCK,))
+        recent = conn.execute(
+            """SELECT 1 FROM jobs WHERE kind='consolidation'
+                 AND COALESCE((input->>'scheduled')::boolean, false)
+                 AND created_at > now() - interval '24 hours' LIMIT 1"""
+        ).fetchone()
+        if recent:
+            return None
+        return jobs.create(
+            conn,
+            kind="consolidation",
+            input_data={"scheduled": True, "dry_run": False, "merge": False},
+            call_limit=0,
+        )
+
+
+def tick(application, conn) -> dict[str, Any]:
+    """Periodic work no request asks for: dynamic dreams and daily maintenance.
+
+    Called by the worker about once a minute. Both halves only queue jobs, so a
+    slow dream or consolidation never holds up the loop that runs them.
+    """
+    settings = get_settings()
+    dreams: list[str] = []
+    if settings.dreaming == "dynamic" and judge_configured(settings):
+        for due in dream.due_scopes(
+            conn,
+            idle_minutes=settings.dream_idle_minutes,
+            batch=settings.dream_batch,
+            min_interval_minutes=settings.dream_min_interval_minutes,
+        ):
+            dream_id, created = dream.queue(
+                conn,
+                scope_id=due.scope_id,
+                user_id=due.user_id,
+                max_clusters=settings.dream_max_clusters,
+            )
+            if created:
+                dreams.append(dream_id)
+    scheduled = schedule_maintenance(conn) if settings.maintenance == "daily" else None
+    return {"dream_job_ids": dreams, "maintenance_job_id": scheduled}
+
+
 def _defer(conn, job_id, holder, reason):
     try:
         jobs.defer(conn, job_id, holder=holder, error=reason)
@@ -193,6 +271,21 @@ def _execute(application, conn, job, guard, cancelled) -> dict[str, Any]:
                 and judge_configured(settings)
                 else []
             )
+            if (
+                settings.dreaming == "dynamic"
+                and judge_configured(settings)
+                and job["user_id"]
+                and continuation is None
+                and not was_cancelled
+                and remaining == 0
+                and conn.execute(
+                    "SELECT 1 FROM sessions WHERE id=%s AND ended_at IS NOT NULL",
+                    (data["session_id"],),
+                ).fetchone()
+            ):
+                dreams = _queue_session_dreams(
+                    conn, session_id=data["session_id"], user_id=str(job["user_id"])
+                )
             state.worker.wake()
             return {
                 **outcome.as_dict(),
@@ -236,12 +329,23 @@ def _execute(application, conn, job, guard, cancelled) -> dict[str, Any]:
             )
         case "reindex":
             return reindex.rebuild(
-                conn, state.qdrant, state.embedder, cancelled=cancelled, guard=guard
+                conn,
+                state.qdrant,
+                state.embedder,
+                cancelled=cancelled,
+                guard=guard,
+                index_roles=store.index_roles_for(settings.index_assistant_turns),
             )
         case "consolidation":
+            # The daily pass (decisions/0085) has no actor: nobody asked for it,
+            # it spends nothing, and it only expires, demotes and folds exact
+            # duplicates -- no semantic grouping, no merge.
+            scheduled = bool(data.get("scheduled"))
 
             def consolidation_guard():
                 guard()
+                if scheduled:
+                    return
                 actor = _active_actor(conn, job["user_id"])
                 if actor["role"] != "admin":
                     for scope_id in sorted(set(data["scope_ids"])):
@@ -249,17 +353,25 @@ def _execute(application, conn, job, guard, cancelled) -> dict[str, Any]:
 
             with conn.transaction():
                 consolidation_guard()
+            scope_ids = (
+                [
+                    str(row["id"])
+                    for row in conn.execute("SELECT id FROM entities WHERE archived_at IS NULL")
+                ]
+                if scheduled
+                else data["scope_ids"]
+            )
             outcome = consolidate.run(
                 conn,
-                scope_ids=data["scope_ids"],
+                scope_ids=scope_ids,
                 stale_days=settings.consolidate_stale_days,
                 demotion=settings.consolidate_demotion,
                 importance_floor=settings.consolidate_importance_floor,
                 dry_run=bool(data.get("dry_run", True)),
-                embedder=state.embedder,
-                client=state.qdrant,
+                embedder=None if scheduled else state.embedder,
+                client=None if scheduled else state.qdrant,
                 consolidate_cosine=settings.consolidate_cosine,
-                merge=bool(data.get("merge", False)),
+                merge=bool(data.get("merge", False)) and not scheduled,
                 merge_model=settings.judge_model,
                 monthly_limit_usd=settings.monthly_cost_limit_usd,
                 anthropic_api_key=settings.anthropic_api_key,
@@ -269,6 +381,11 @@ def _execute(application, conn, job, guard, cancelled) -> dict[str, Any]:
                 user_id=job["user_id"],
                 guard=consolidation_guard,
             )
+            if scheduled:
+                # Startup used to be the only time retrieval telemetry was
+                # pruned; an instance that never restarts kept it forever.
+                with conn.transaction():
+                    telemetry.prune(conn, retention_days=settings.telemetry_retention_days)
             state.worker.wake()
             return outcome.as_dict()
         case "dream":

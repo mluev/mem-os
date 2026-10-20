@@ -184,9 +184,10 @@ class SearchIn(StrictModel):
     # caller can read; naming one they cannot is a 403, not an empty result.
     scopes: list[Slug] | None = None
     subject: Slug | None = None
-    # "core-retrieval-v2" adds time, reinforcement and inference to v1's fusion.
-    # It is opt-in per request until measured (decisions/0077).
-    policy_id: str = "neutral-v1"
+    # Omitted means the server's MEMKIT_DEFAULT_POLICY (decisions/0084).
+    # "core-retrieval-v2" adds time, reinforcement and inference to v1's fusion;
+    # "core-retrieval-v3" also admits assistant-sourced memories at a penalty.
+    policy_id: str | None = None
     include_untrusted: bool = False
     include_raw: bool = False
     include_sources: bool = False
@@ -644,6 +645,17 @@ class SearchLatency(View):
     p99: float | None
 
 
+class StageLatency(View):
+    p50: float | None
+    p95: float | None
+
+
+class PolicyLatency(View):
+    p50: float | None
+    p95: float | None
+    count: int
+
+
 class IndexCounts(View):
     database_active: int
     qdrant_active: int | None
@@ -875,6 +887,7 @@ class ProfileOut(StrictModel):
     generated_at: str
     policy_id: str
     scope: dict[str, Any] | None = None
+    timings: dict[str, float] = {}
 
 
 class SessionOut(StrictModel):
@@ -903,12 +916,30 @@ class JudgeRunOut(JudgeRunDetail):
     pass
 
 
+class RuntimeConfig(FlexibleOut):
+    """The non-secret settings that decide what extraction and search do.
+
+    A benchmark run records this block, so a number can always be traced to
+    the prompt, policy and dreaming mode that produced it.
+    """
+
+    prompt_version: str
+    judge_model: str
+    default_policy: str
+    dreaming: str
+    rerank_model: str
+    index_assistant_turns: bool
+    maintenance: str
+    dedup_cosine: float
+
+
 class AdminHealthOut(FlexibleOut):
     database: DatabaseHealth
     qdrant: VectorHealth
     embedder: EmbedderHealth
     outbox: OutboxHealth
     jobs: dict[str, int]
+    config: RuntimeConfig
 
 
 class MetricsOut(FlexibleOut):
@@ -920,6 +951,8 @@ class MetricsOut(FlexibleOut):
     month_limit_usd: float | None
     pending_review: int
     search_latency_ms: SearchLatency
+    search_latency_by_stage: dict[str, StageLatency]
+    search_latency_by_policy: dict[str, PolicyLatency]
     retrieval_runs: int
     abstention_rate: float | None
     feedback_labels: int

@@ -25,6 +25,16 @@ services:
       MEMKIT_MONTHLY_COST_LIMIT_USD: ${MEMKIT_MONTHLY_COST_LIMIT_USD:-15}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      MEMKIT_JUDGE_MODEL: ${MEMKIT_JUDGE_MODEL:-gemini-3.5-flash-lite}
+      # Opt-in behaviour, off unless set (decisions/0082-0085). The benchmark
+      # flips these between runs; see eval/bench/README.md.
+      MEMKIT_PROMPT_VERSION: ${MEMKIT_PROMPT_VERSION:-}
+      MEMKIT_DEFAULT_POLICY: ${MEMKIT_DEFAULT_POLICY:-neutral-v1}
+      MEMKIT_DREAMING: ${MEMKIT_DREAMING:-off}
+      MEMKIT_INDEX_ASSISTANT_TURNS: ${MEMKIT_INDEX_ASSISTANT_TURNS:-false}
+      MEMKIT_MAINTENANCE: ${MEMKIT_MAINTENANCE:-off}
+      MEMKIT_RERANK_MODEL: ${MEMKIT_RERANK_MODEL:-}
+      MEMKIT_RERANK_REVISION: ${MEMKIT_RERANK_REVISION:-}
     volumes:
       - models:/models
       - backups:/backups

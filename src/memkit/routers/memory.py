@@ -50,6 +50,7 @@ from ..http import (
     judge_configured,
 )
 from ..principal import Principal, ScopeForbidden, UnknownScope
+from ..provenance import ASSISTANT
 from ..schemas import (
     AttentionResolveIn,
     EntityOut,
@@ -634,7 +635,13 @@ def search_memories(
         subject_clause = {"field": "subject_id", "op": "eq", "value": subject_id}
         expression = {"all": [expression, subject_clause]} if expression else subject_clause
     try:
-        policy = retrieval.load_policy(conn, body.policy_id)
+        policy = retrieval.load_policy(conn, body.policy_id or settings.default_policy)
+        # Raw assistant passages follow the same trust as assistant memories.
+        raw_roles = (
+            store.WITH_ASSISTANT
+            if body.include_untrusted or ASSISTANT in policy.allowed_source_roles
+            else store.USER_ONLY
+        )
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
     started = time.perf_counter()
@@ -649,7 +656,9 @@ def search_memories(
         )
         rewrite_ms = (time.perf_counter() - rewrite_started) * 1000
 
-    def ranked(query: str, *, limit: int, budget: int) -> retrieval.Explain:
+    reranker = None if assemble else getattr(request.app.state, "reranker", None)
+
+    def ranked(query: str, *, limit: int, budget: int, rerank: bool = True) -> retrieval.Explain:
         return retrieval.explain(
             conn,
             request.app.state.qdrant,
@@ -662,7 +671,7 @@ def search_memories(
             budget_tokens=budget,
             policy=policy,
             include_untrusted=body.include_untrusted,
-            reranker=None if assemble else getattr(request.app.state, "reranker", None),
+            reranker=reranker if rerank else None,
             as_of=body.as_of,
             time_range=(body.since, body.until) if body.since or body.until else None,
         )
@@ -673,12 +682,18 @@ def search_memories(
             body.query,
             limit=60 if assemble else body.limit,
             budget=120_000 if wide else body.budget_tokens,
+            rerank=not rewrites,
         )
         if rewrites:
             result = retrieval.fuse(
-                [result, *(ranked(q, limit=body.limit, budget=120_000) for q in rewrites)],
+                [
+                    result,
+                    *(ranked(q, limit=body.limit, budget=120_000, rerank=False) for q in rewrites),
+                ],
                 budget_tokens=body.budget_tokens,
                 limit=body.limit,
+                reranker=reranker,
+                query=body.query,
             )
             result.timings["rewrite_ms"] = rewrite_ms
         if assemble:
@@ -693,6 +708,7 @@ def search_memories(
                 kinds=body.kinds,
                 budget_tokens=body.budget_tokens,
                 limit=body.limit,
+                roles=raw_roles,
                 select=lambda query, candidates: semantic.select_context(
                     query, candidates, budget_tokens=body.budget_tokens, max_results=body.limit
                 ),
@@ -710,6 +726,7 @@ def search_memories(
                 vector=result.query_vector,
                 expression=expression,
                 kinds=body.kinds,
+                roles=raw_roles,
             )
             result.timings["total_ms"] = (time.perf_counter() - started) * 1000
     except ValueError as exc:
@@ -870,6 +887,13 @@ def forget_memories(
         # verification exists to prevent.
         raise HTTPException(
             503, "the judge could not verify the candidates; retry, or review a dry run"
+        )
+    if body.ids is None and not body.dry_run and not verified and candidates:
+        # No judge, or verify=false: what remains is a similarity threshold,
+        # which is exactly the broad match a person has to look at first
+        # (decisions/0086). The ids from a dry run apply what was reviewed.
+        raise HTTPException(
+            409, "unverified matches are not applied; review a dry run and apply by ids"
         )
     candidates = candidates[: body.max_forget]
     if body.dry_run or not candidates:
@@ -1050,7 +1074,11 @@ def review_queue(
                     "memory_id": str(row["ref_memory_id"]) if row["ref_memory_id"] else None,
                     "payload": payload,
                     "created_at": iso(row["created_at"]),
-                    "actions": ["link_entity", "dismiss"],
+                    # A dream's supersession is undone by restoring the old
+                    # memory (POST /v1/memories/{id}/restore), not by linking.
+                    "actions": ["dismiss"]
+                    if row["kind"] == "conflict"
+                    else ["link_entity", "dismiss"],
                 }
             )
     if kind in (None, "failed_job"):

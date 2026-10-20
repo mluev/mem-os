@@ -4,6 +4,9 @@
       "AdminHealthOut": {
         "additionalProperties": true,
         "properties": {
+          "config": {
+            "$ref": "#/components/schemas/RuntimeConfig"
+          },
           "database": {
             "$ref": "#/components/schemas/DatabaseHealth"
           },
@@ -29,7 +32,8 @@
           "qdrant",
           "embedder",
           "outbox",
-          "jobs"
+          "jobs",
+          "config"
         ],
         "title": "AdminHealthOut",
         "type": "object"
@@ -3442,6 +3446,20 @@
             "title": "Retrieval Runs",
             "type": "integer"
           },
+          "search_latency_by_policy": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/PolicyLatency"
+            },
+            "title": "Search Latency By Policy",
+            "type": "object"
+          },
+          "search_latency_by_stage": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/StageLatency"
+            },
+            "title": "Search Latency By Stage",
+            "type": "object"
+          },
           "search_latency_ms": {
             "$ref": "#/components/schemas/SearchLatency"
           },
@@ -3474,6 +3492,8 @@
           "month_limit_usd",
           "pending_review",
           "search_latency_ms",
+          "search_latency_by_stage",
+          "search_latency_by_policy",
           "retrieval_runs",
           "abstention_rate",
           "feedback_labels",
@@ -3808,6 +3828,44 @@
         "title": "PolicyIn",
         "type": "object"
       },
+      "PolicyLatency": {
+        "additionalProperties": true,
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "p50": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P50"
+          },
+          "p95": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P95"
+          }
+        },
+        "required": [
+          "p50",
+          "p95",
+          "count"
+        ],
+        "title": "PolicyLatency",
+        "type": "object"
+      },
       "PrincipalView": {
         "additionalProperties": true,
         "properties": {
@@ -4069,6 +4127,14 @@
               }
             ],
             "title": "Scope"
+          },
+          "timings": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "default": {},
+            "title": "Timings",
+            "type": "object"
           },
           "used_tokens": {
             "title": "Used Tokens",
@@ -4715,6 +4781,56 @@
         "title": "ReviewTotals",
         "type": "object"
       },
+      "RuntimeConfig": {
+        "additionalProperties": true,
+        "description": "The non-secret settings that decide what extraction and search do.\n\nA benchmark run records this block, so a number can always be traced to\nthe prompt, policy and dreaming mode that produced it.",
+        "properties": {
+          "dedup_cosine": {
+            "title": "Dedup Cosine",
+            "type": "number"
+          },
+          "default_policy": {
+            "title": "Default Policy",
+            "type": "string"
+          },
+          "dreaming": {
+            "title": "Dreaming",
+            "type": "string"
+          },
+          "index_assistant_turns": {
+            "title": "Index Assistant Turns",
+            "type": "boolean"
+          },
+          "judge_model": {
+            "title": "Judge Model",
+            "type": "string"
+          },
+          "maintenance": {
+            "title": "Maintenance",
+            "type": "string"
+          },
+          "prompt_version": {
+            "title": "Prompt Version",
+            "type": "string"
+          },
+          "rerank_model": {
+            "title": "Rerank Model",
+            "type": "string"
+          }
+        },
+        "required": [
+          "prompt_version",
+          "judge_model",
+          "default_policy",
+          "dreaming",
+          "rerank_model",
+          "index_assistant_turns",
+          "maintenance",
+          "dedup_cosine"
+        ],
+        "title": "RuntimeConfig",
+        "type": "object"
+      },
       "ScopeView": {
         "additionalProperties": true,
         "properties": {
@@ -4910,9 +5026,15 @@
             "type": "integer"
           },
           "policy_id": {
-            "default": "neutral-v1",
-            "title": "Policy Id",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Policy Id"
           },
           "query": {
             "maxLength": 8192,
@@ -5519,6 +5641,39 @@
           "offset"
         ],
         "title": "SessionsOut",
+        "type": "object"
+      },
+      "StageLatency": {
+        "additionalProperties": true,
+        "properties": {
+          "p50": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P50"
+          },
+          "p95": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P95"
+          }
+        },
+        "required": [
+          "p50",
+          "p95"
+        ],
+        "title": "StageLatency",
         "type": "object"
       },
       "TemporalIntentView": {

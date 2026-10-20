@@ -40,6 +40,11 @@ ROLES: tuple[str, ...] = ("user", "assistant", "agent", "tool", "manual", "infer
 # it, and it is never cited as evidence for another claim.
 INFERENCE = "inference"
 
+# Words the assistant itself said. Under prompt v12 they may support a memory
+# written as assistant info (decisions/0082); such a memory is labelled so, is
+# never a premise for dreaming, and cannot revise what a person stated.
+ASSISTANT = "assistant"
+
 # Authority order, highest first. A window containing one user turn is sourced by
 # the user regardless of how much assistant text surrounds it -- the assistant's
 # words are the context that made the user's turn legible, not the claim.
@@ -52,12 +57,19 @@ _AUTHORITY: tuple[str, ...] = ("user", "tool", "assistant", "agent", "inference"
 DEFAULT_ROLE = "manual"
 
 
-def source_role_for(roles: set[str]) -> str:
+def source_role_for(roles: set[str], *, assistant_taints: bool = False) -> str:
     """Collapse a set of evidence roles to the single authority label.
 
     Empty evidence is ``'manual'``: the authority is then the caller holding the
     API key, not a message, and the label should say so rather than guess.
+
+    ``assistant_taints`` (prompt v12, decisions/0082): once assistant spans can
+    support a memory, any cited assistant span labels it ``assistant``.
+    Authority order would let a user's "ok" beside the assistant's paragraph
+    launder that paragraph into a user-sourced fact.
     """
+    if assistant_taints and ASSISTANT in roles:
+        return ASSISTANT
     for role in _AUTHORITY:
         if role in roles:
             return role
@@ -86,8 +98,13 @@ def weakest(roles: set[str]) -> str:
     return DEFAULT_ROLE
 
 
-def may_write(*, op: str, roles: set[str]) -> bool:
+def may_write(*, op: str, roles: set[str], assistant_evidence: bool = False) -> bool:
     """False when a write's only evidence is the assistant's own words.
+
+    ``assistant_evidence`` is set for prompt versions that let the assistant's
+    words support assistant info (decisions/0082); then only ``agent`` text is
+    refused. What such a write may touch is limited separately: it can never
+    revise a stated memory (``extract.apply_ops``).
 
     Two deliberate exemptions:
 
@@ -103,6 +120,8 @@ def may_write(*, op: str, roles: set[str]) -> bool:
     """
     if op == "DELETE" or not roles:
         return True
+    if assistant_evidence:
+        return not roles <= {"agent"}
     return not roles <= {"assistant", "agent"}
 
 

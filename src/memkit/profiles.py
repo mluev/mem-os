@@ -20,6 +20,7 @@ once they were older than the dynamic window.
 
 from __future__ import annotations
 
+import time
 import uuid
 from collections.abc import Sequence
 from datetime import timedelta
@@ -28,7 +29,7 @@ from typing import Any
 import psycopg
 
 from .db import Row, iso, utcnow
-from .provenance import INFERENCE
+from .provenance import ASSISTANT, INFERENCE
 from .retrieval import DEFAULT_TRUST, _token_count
 from .store import memory_active
 
@@ -82,7 +83,10 @@ def _rows(
     """
     if not scope_ids:
         return []
-    trust = None if include_untrusted else sorted(DEFAULT_TRUST | {INFERENCE})
+    # Derived and assistant-sourced claims join a profile only once a person
+    # confirms them: a profile is read before the user has typed anything, so
+    # nothing in it should be the service's or the model's own unreviewed word.
+    trust = None if include_untrusted else sorted(DEFAULT_TRUST | {INFERENCE, ASSISTANT})
     order = _RECENT_ORDER if recent else _DURABLE_ORDER
     return list(
         conn.execute(
@@ -104,6 +108,8 @@ def _rows(
                                            OR m.event_end >= now())))
                   AND (%(trust)s::text[] IS NULL OR m.source_role = ANY(%(trust)s))
                   AND (m.source_role <> 'inference' OR m.review_status = 'confirmed')
+                  AND (%(trust)s::text[] IS NULL OR m.source_role <> 'assistant'
+                       OR m.review_status = 'confirmed')
                 ORDER BY {order}
                 LIMIT %(limit)s""",
             {
@@ -158,6 +164,7 @@ def render(
     """
     requested = [block for block in blocks if block in BLOCKS]
     now = utcnow()
+    started = time.perf_counter()
     cutoff = now - timedelta(days=dynamic_days)
     seen: set[str] = set()
     result: dict[str, list[dict[str, Any]]] = {block: [] for block in requested}
@@ -234,4 +241,7 @@ def render(
         "budget_tokens": budget_tokens,
         "generated_at": iso(now),
         "policy_id": "profile-v3",
+        # Supermemory quotes 50-100 ms for its profile; this is the number to
+        # hold that against, measured where the agent waits for it.
+        "timings": {"total_ms": round((time.perf_counter() - started) * 1000, 1)},
     }

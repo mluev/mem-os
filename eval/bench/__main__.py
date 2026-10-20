@@ -1,4 +1,4 @@
-"""python -m eval.bench {download,run,report} -- see eval/bench/README.md."""
+"""python -m eval.bench {download,run,report,compare} -- see eval/bench/README.md."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from pathlib import Path
 
 import httpx
 
-from . import datasets, pipeline
+from . import datasets, pipeline, stats
 from .client import Memkit
 
 
@@ -52,13 +52,32 @@ def cmd_run(args: argparse.Namespace) -> int:
     options = (
         {"include_adversarial": args.adversarial}
         if args.dataset == "locomo"
-        else {"include_assistant": args.assistant}
+        else {"include_assistant": not args.no_assistant}
     )
+    data_sha256 = hashlib.sha256(Path(args.data).read_bytes()).hexdigest()
     conversations = datasets.load(args.dataset, Path(args.data), **options)
+    # The whole dataset's category mix, before sampling: what weighted_accuracy
+    # reweights a stratified sample back to.
+    category_counts = stats.category_counts(conversations)
+    source = None
+    if args.source_run:
+        source = pipeline.Run.open(args.source_run, Path(args.runs))
+        theirs = source.state.get("config") or {}
+        if (theirs.get("dataset"), theirs.get("data_sha256")) != (args.dataset, data_sha256):
+            _log(f"--source-run {args.source_run} measured a different dataset file; refusing")
+            return 2
+        ingested = set(source.state["conversations"])
+        missing = sum(1 for c in conversations if c.conversation_id not in ingested)
+        if missing:
+            _log(f"skipping {missing} conversations the source run never ingested")
+        conversations = [c for c in conversations if c.conversation_id in ingested]
     if args.categories:
         wanted = set(args.categories.split(","))
         for conversation in conversations:
             conversation.questions = [q for q in conversation.questions if q.category in wanted]
+        conversations = [c for c in conversations if c.questions]
+    if args.sample:
+        stats.sample(conversations, stats.parse_sample(args.sample), args.seed)
         conversations = [c for c in conversations if c.questions]
     if args.limit:
         # Limit questions, and only ingest the conversations they need.
@@ -71,6 +90,8 @@ def cmd_run(args: argparse.Namespace) -> int:
             kept.append(conversation)
         conversations = kept
     run = pipeline.Run.open(args.run_id or uuid.uuid4().hex[:8], Path(args.runs))
+    if source is not None:
+        pipeline.adopt(run, source)
     config = pipeline.Config(
         dataset=args.dataset,
         mode=args.mode,
@@ -81,11 +102,17 @@ def cmd_run(args: argparse.Namespace) -> int:
         answer_model=args.answer_model,
         judge_model=args.judge_model,
         workers=args.workers,
+        dream=args.dream,
+        budget_usd=args.budget_usd,
     )
     run.state["config"] = {
         **config.as_dict(),
         # Which bytes were measured: the dataset URLs track a branch.
-        "data_sha256": hashlib.sha256(Path(args.data).read_bytes()).hexdigest(),
+        "data_sha256": data_sha256,
+        "category_counts": category_counts,
+        "sample": args.sample,
+        "seed": args.seed,
+        "source_run": args.source_run or None,
     }
     run.save()
     _log(
@@ -94,15 +121,38 @@ def cmd_run(args: argparse.Namespace) -> int:
     )
     with httpx.Client(base_url=args.url, timeout=300) as http:
         memkit = Memkit(http, admin_key=args.admin_key, run_id=run.run_id)
-        pipeline.ingest(run, memkit, conversations, _log)
+        # What the server ran, recorded next to what it scored.
+        run.state["config"]["server"] = memkit.server_config()
+        before = memkit.spend()
+        pipeline.ingest(run, memkit, conversations, _log, dream=args.dream)
+        ingested = memkit.spend()
         questions = [q for c in conversations for q in c.questions]
         pipeline.evaluate(run, memkit, config, questions, _keys(), _log)
+        spend = run.state.setdefault("spend", {})
+        # Server-side spend on this deployment while the run was going: a
+        # shared instance will include other traffic, a dedicated one will not.
+        spend["server_ingest"] = round(
+            spend.get("server_ingest", 0.0) + max(0.0, ingested - before), 4
+        )
+        spend["server_search"] = round(
+            spend.get("server_search", 0.0) + max(0.0, memkit.spend() - ingested), 4
+        )
+        run.save()
     print(json.dumps(pipeline.report(run), indent=2))
     return 0
 
 
 def cmd_report(args: argparse.Namespace) -> int:
     print(json.dumps(pipeline.report(pipeline.Run.open(args.run_id, Path(args.runs))), indent=2))
+    return 0
+
+
+def cmd_compare(args: argparse.Namespace) -> int:
+    root = Path(args.runs)
+    result = pipeline.compare(
+        pipeline.Run.open(args.baseline, root), pipeline.Run.open(args.candidate, root)
+    )
+    print(json.dumps(result, indent=2))
     return 0
 
 
@@ -126,13 +176,30 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--categories", default="", help="comma-separated category names")
     run.add_argument("--adversarial", action="store_true", help="LoCoMo category 5 too")
     run.add_argument(
-        "--assistant",
+        "--no-assistant",
         action="store_true",
-        help="LongMemEval single-session-assistant too (unanswerable by design)",
+        help="leave out LongMemEval single-session-assistant (answerable only from prompt v12)",
+    )
+    run.add_argument(
+        "--sample",
+        default="",
+        help="questions per category, e.g. '*=50,single-session-assistant=15'",
+    )
+    run.add_argument("--seed", type=int, default=1, help="which questions --sample picks")
+    run.add_argument(
+        "--source-run",
+        default="",
+        help="search again over a previous run's ingested users instead of ingesting",
+    )
+    run.add_argument(
+        "--dream", action="store_true", help="dream each conversation until caught up first"
+    )
+    run.add_argument(
+        "--budget-usd", type=float, default=0.0, help="ceiling on answer+judge spend (0: none)"
     )
     run.add_argument("--mode", choices=["memories", "hybrid", "raw"], default="memories")
     run.add_argument("--budget", type=int, default=4000, help="context tokens per question")
-    run.add_argument("--results", type=int, default=20, help="search result limit")
+    run.add_argument("--results", type=int, default=30, help="search result limit")
     run.add_argument("--rewrite", action="store_true", help="search with query rewrites")
     run.add_argument(
         "--policy", default="", help="retrieval policy, e.g. core-retrieval-v2 (default: server's)"
@@ -146,6 +213,12 @@ def main(argv: list[str] | None = None) -> int:
     show.add_argument("--run-id", required=True)
     show.add_argument("--runs", default=str(pipeline.DEFAULT_RUNS))
     show.set_defaults(func=cmd_report)
+
+    versus = commands.add_parser("compare", help="paired difference between two runs")
+    versus.add_argument("baseline")
+    versus.add_argument("candidate")
+    versus.add_argument("--runs", default=str(pipeline.DEFAULT_RUNS))
+    versus.set_defaults(func=cmd_compare)
 
     args = parser.parse_args(argv)
     if args.command == "run" and not args.admin_key:

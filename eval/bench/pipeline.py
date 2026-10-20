@@ -22,6 +22,7 @@ from typing import Any
 from memkit.retrieval import _token_count
 
 from . import answer as answering
+from . import stats
 from .client import Memkit
 from .datasets import Conversation, Question
 
@@ -33,13 +34,18 @@ class Config:
     dataset: str
     mode: str = "memories"  # memories | hybrid | raw
     budget_tokens: int = 4000
-    limit: int = 20
+    # memorybench's searchLimit since its protocol fix (PR #96).
+    limit: int = 30
     rewrite: bool = False
     # Retrieval policy named on every search; empty means the server default.
     policy: str = ""
     answer_model: str = "gemini-3.5-flash"
     judge_model: str = "gemini-3.5-flash"
     workers: int = 4
+    # Dream each conversation's scope until it has caught up, before asking.
+    dream: bool = False
+    # Ceiling on the answering and judging models' spend; 0 is no ceiling.
+    budget_usd: float = 0.0
 
     def as_dict(self) -> dict[str, Any]:
         return dict(self.__dict__)
@@ -85,10 +91,36 @@ class Run:
         self.save()
 
 
-def ingest(run: Run, memkit: Memkit, conversations: list[Conversation], log: Callable) -> None:
+class BudgetSpent(RuntimeError):
+    pass
+
+
+def adopt(run: Run, source: Run) -> None:
+    """Search again over what `source` ingested (and dreamed), without paying twice.
+
+    The per-conversation users carry over, so retrieval settings -- a policy,
+    rewrites, a reranker, a mode -- are compared on exactly the same memories,
+    as memorybench's --source-run does. A dream run on the adopted users
+    changes them for every later run that adopts them too, which is why
+    `dreamed` is carried over and reported.
+    """
+    for name, entry in source.state["conversations"].items():
+        run.state["conversations"].setdefault(name, dict(entry))
+    run.save()
+
+
+def ingest(
+    run: Run,
+    memkit: Memkit,
+    conversations: list[Conversation],
+    log: Callable,
+    *,
+    dream: bool = False,
+) -> None:
     for conversation in conversations:
         entry = run.state["conversations"].setdefault(conversation.conversation_id, {})
         if entry.get("extracted"):
+            _settle(run, memkit, conversation.conversation_id, entry, log, dream=dream)
             continue
         if "key" not in entry:
             entry["key"] = memkit.provision(conversation)
@@ -107,6 +139,22 @@ def ingest(run: Run, memkit: Memkit, conversations: list[Conversation], log: Cal
         entry["extracted"] = True
         run.save()
         log(f"extracted {conversation.conversation_id}: {entry['jobs']}")
+        _settle(run, memkit, conversation.conversation_id, entry, log, dream=dream)
+
+
+def _settle(
+    run: Run, memkit: Memkit, name: str, entry: dict[str, Any], log: Callable, *, dream: bool
+) -> None:
+    """After extraction: which scope to search, what leaked to the team, dreams."""
+    if "scopes" not in entry:
+        entry["scopes"] = memkit.scopes(entry["key"])
+        entry["team_routed"] = memkit.team_routed(entry["key"], entry["scopes"])
+        run.save()
+    if dream and not entry.get("dreamed"):
+        entry["dream"] = memkit.dream(entry["key"])
+        entry["dreamed"] = True
+        run.save()
+        log(f"dreamed {name}: {entry['dream']}")
 
 
 def retrieved_turns(payload: dict[str, Any], mapping: dict[str, list[str]]) -> set[tuple[str, str]]:
@@ -137,6 +185,7 @@ def evaluate_question(
             limit=config.limit,
             rewrite=config.rewrite,
             policy=config.policy,
+            scope=(conversation.get("scopes") or {}).get("own", ""),
         )
         context = answering.render_context(payload)
         found = retrieved_turns(payload, conversation["mapping"])
@@ -162,16 +211,29 @@ def evaluate_question(
                     else None
                 ),
                 "rewrites": list(payload.get("rewrites") or []),
+                "policy_id": payload.get("policy_id"),
+                "timings": payload.get("timings") or {},
                 "search": True,
             },
         )
+
+    def spent(cost: float) -> None:
+        with run.lock:
+            run.state["eval_cost_usd"] = run.state.get("eval_cost_usd", 0.0) + cost
+
+    def affordable() -> None:
+        if config.budget_usd and run.state.get("eval_cost_usd", 0.0) >= config.budget_usd:
+            raise BudgetSpent(f"answer/judge budget of ${config.budget_usd} spent")
+
     if "answer" not in record:
+        affordable()
         reply = answering.ask(
             config.answer_model,
             answering.answer_prompt(question, record["context"]),
             answering.ANSWER_SCHEMA,
             "emit_answer",
             keys,
+            on_cost=spent,
         )
         run.update(
             record,
@@ -181,12 +243,14 @@ def evaluate_question(
             },
         )
     if "correct" not in record:
+        affordable()
         verdict = answering.ask(
             config.judge_model,
             answering.judge_prompt(question, record["answer"]),
             answering.JUDGE_SCHEMA,
             "emit_verdict",
             keys,
+            on_cost=spent,
         )
         run.update(
             record,
@@ -226,12 +290,17 @@ def _percentile(values: list[float], fraction: float) -> float:
 
 
 def report(run: Run) -> dict[str, Any]:
-    judged = [r for r in run.state["questions"].values() if "correct" in r]
-    if not judged:
+    every = [r for r in run.state["questions"].values() if "correct" in r]
+    if not every:
         return {"questions": 0}
     by_category: dict[str, list[bool]] = {}
-    for record in judged:
+    for record in every:
         by_category.setdefault(record["category"], []).append(record["correct"])
+    # LoCoMo's adversarial questions never count toward the headline, as in
+    # every published comparison; they are still reported by category.
+    judged = [r for r in every if r["category"] != stats.ADVERSARIAL]
+    if not judged:
+        judged = every
     latencies = [r["latency_ms"] for r in judged]
     tokens = [r["context_tokens"] for r in judged]
     turn_recall = [
@@ -243,9 +312,22 @@ def report(run: Run) -> dict[str, Any]:
     accuracy = 100 * sum(r["correct"] for r in judged) / len(judged)
     latency = statistics.fmean(latencies)
     context = statistics.fmean(tokens)
+    without_assistant = [r for r in judged if r["category"] != stats.ASSISTANT_ONLY]
+    config = run.state.get("config") or {}
+    conversations = run.state["conversations"].values()
     return {
         "questions": len(judged),
         "accuracy": round(accuracy, 2),
+        # Comparable across prompts that can and cannot answer what the
+        # assistant said: v12 is judged on both.
+        "accuracy_excluding_assistant": round(
+            100 * sum(r["correct"] for r in without_assistant) / len(without_assistant), 2
+        )
+        if without_assistant
+        else None,
+        "weighted_accuracy": stats.weighted_accuracy(
+            by_category, config.get("category_counts") or {}, exclude={stats.ADVERSARIAL}
+        ),
         "by_category": {
             name: {"n": len(values), "accuracy": round(100 * sum(values) / len(values), 2)}
             for name, values in sorted(by_category.items())
@@ -263,5 +345,26 @@ def report(run: Run) -> dict[str, Any]:
         "errors": sum(
             1 for r in run.state["questions"].values() if "error" in r and "correct" not in r
         ),
-        "config": run.state.get("config"),
+        # Facts the extractor sent to the team scope, invisible to own-scope
+        # search: the cost of routing, measured rather than hidden.
+        "team_routed": sum(int(entry.get("team_routed") or 0) for entry in conversations),
+        "dreamed": sum(1 for entry in conversations if entry.get("dreamed")),
+        "spend_usd": {
+            **(run.state.get("spend") or {}),
+            "answer_and_judge": round(run.state.get("eval_cost_usd", 0.0), 4),
+        },
+        "config": config,
+    }
+
+
+def compare(baseline: Run, candidate: Run) -> dict[str, Any]:
+    """Candidate minus baseline on the questions both runs judged (stats.compare)."""
+    left = baseline.state.get("config") or {}
+    right = candidate.state.get("config") or {}
+    if left.get("data_sha256") != right.get("data_sha256"):
+        raise ValueError("the two runs measured different dataset files")
+    return {
+        "baseline": baseline.run_id,
+        "candidate": candidate.run_id,
+        **stats.compare(baseline.state["questions"], candidate.state["questions"]),
     }

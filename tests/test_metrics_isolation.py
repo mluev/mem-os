@@ -30,6 +30,27 @@ class MetricsIsolationTest(ApiTestCase):
         admin = self.client.get("/v1/admin/metrics", headers=self.auth).json()
         self.assertEqual(admin["month_spend_usd"], 11)
 
+    def test_latency_is_reported_by_stage_and_by_policy_from_own_runs_only(self):
+        self.seed_memory(text="Alice prefers pnpm")
+        for policy in ("neutral-v1", "temporal-v2"):
+            self.client.post(
+                "/v1/memories/search",
+                headers=self.auth,
+                json={"query": "pnpm", "policy_id": policy},
+            )
+        self.client.post("/v1/memories/search", headers=self.as_bob, json={"query": "pnpm"})
+        own = self.client.get("/v1/admin/metrics", headers=self.as_bob).json()
+        self.assertEqual(own["retrieval_runs"], 1)
+        self.assertEqual(set(own["search_latency_by_policy"]), {"core-retrieval-neutral-v1"})
+        admin = self.client.get("/v1/admin/metrics", headers=self.auth).json()
+        self.assertEqual(
+            {k: v["count"] for k, v in admin["search_latency_by_policy"].items()},
+            {"core-retrieval-neutral-v1": 2, "core-retrieval-v2": 1},
+        )
+        for stage in ("request_ms", "dense_ms", "lexical_ms", "rerank_ms"):
+            self.assertIn(stage, admin["search_latency_by_stage"])
+            self.assertIsNotNone(admin["search_latency_by_stage"][stage]["p95"])
+
     def test_detached_erasure_job_is_admin_only(self):
         job_id = jobs.create(self.db, kind="erase", input_data={"user_id": "erased"})
         self.assertEqual(

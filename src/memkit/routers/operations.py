@@ -23,6 +23,7 @@ from .. import (
     operations,
     outbox,
     policies,
+    prompts,
     stats,
     telemetry,
     vectors,
@@ -630,6 +631,7 @@ def admin_health(
             request.app.state.index_error = str(exc)
             index_ready = False
     version = conn.execute("SELECT MAX(version) AS v FROM schema_migrations").fetchone()
+    settings = get_settings()
     return {
         "database": {"schema_version": int(version["v"]) if version and version["v"] else None},
         "qdrant": {
@@ -641,12 +643,22 @@ def admin_health(
         "embedder": {
             "ready": request.app.state.embedder.ready,
             "device": request.app.state.embedder.device,
-            "revision": get_settings().embed_revision,
+            "revision": settings.embed_revision,
         },
         "outbox": {"pending": outbox.pending_count(conn)},
         "jobs": {
             row["status"]: int(row["n"])
             for row in conn.execute("SELECT status,COUNT(*) AS n FROM jobs GROUP BY status")
+        },
+        "config": {
+            "prompt_version": settings.prompt_version or prompts.DEFAULT_VERSION,
+            "judge_model": settings.judge_model,
+            "default_policy": settings.default_policy,
+            "dreaming": settings.dreaming,
+            "rerank_model": settings.rerank_model,
+            "index_assistant_turns": settings.index_assistant_turns,
+            "maintenance": settings.maintenance,
+            "dedup_cosine": settings.dedup_cosine,
         },
     }
 

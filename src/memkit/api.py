@@ -37,6 +37,7 @@ from . import (
     job_runner,
     maintenance,
     outbox,
+    retrieval,
     telemetry,
     vectors,
     worker,
@@ -225,6 +226,20 @@ def _validate_runtime(settings: Settings) -> None:
         raise RuntimeError("enabled semantic blocks require JEV or TYPESAFE_API_KEY")
 
 
+def check_default_policy(conn: Any, settings: Settings) -> None:
+    """Refuse to start when MEMKIT_DEFAULT_POLICY names no seeded policy.
+
+    A typo would otherwise surface as every search that names no policy
+    failing, long after the deploy that introduced it.
+    """
+    try:
+        retrieval.load_policy(conn, settings.default_policy)
+    except ValueError as exc:
+        raise RuntimeError(
+            f"MEMKIT_DEFAULT_POLICY names an unknown retrieval policy: {settings.default_policy!r}"
+        ) from exc
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
@@ -233,6 +248,7 @@ async def lifespan(app: FastAPI):
     app.state.db = ConnectionPool(settings.database_url, max_size=settings.database_pool_max)
     with app.state.db.borrow() as conn, conn.transaction():
         entities.ensure_team(conn, name=settings.team_name)
+        check_default_policy(conn, settings)
     app.state.qdrant = vectors.get_client(settings.qdrant_url)
     app.state.index_ready = False
     app.state.index_error = None
@@ -286,6 +302,7 @@ def _start_durable_worker(application: FastAPI) -> None:
         application.state.embedder,
         _dispatch_job,
         dependency_status=dependency_status,
+        tick=lambda conn: job_runner.tick(application, conn),
     )
     application.state.worker.start()
 

@@ -592,7 +592,12 @@ def recall() -> None:
             {
                 "hookSpecificOutput": {
                     "hookEventName": "UserPromptSubmit",
-                    "additionalContext": f"Possibly relevant memory (Mem OS):\n{lines}",
+                    # Tagged so the service can recognise and drop it if a
+                    # transcript ever carries it back as a turn.
+                    "additionalContext": (
+                        f"<mem-os-recall>\nPossibly relevant memory (Mem OS):\n{lines}\n"
+                        "</mem-os-recall>"
+                    ),
                 }
             }
         )

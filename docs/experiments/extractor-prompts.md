@@ -14,7 +14,7 @@ Current state, generated from the code:
 <!-- generated:prompt-versions -->
 | | |
 |---|---|
-| registry | `v10`, `v11`, `v7`, `v8`, `v9` |
+| registry | `v10`, `v11`, `v12`, `v7`, `v8`, `v9` |
 | active extractor prompt | `v10` |
 | consolidator prompt | `c2` |
 | stamped on new facts | `v10` |

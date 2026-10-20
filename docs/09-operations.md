@@ -19,6 +19,19 @@ Schema v3 (decisions/0075–0078) is additive and applied on start like v2. It a
 
 Defaults do not change: the extractor stays on prompt v10, search on `neutral-v1`, and dreaming is off. Each new behaviour is opt-in until the public benchmark has measured it: `MEMKIT_PROMPT_VERSION=v11` for episodes, event dates and supersession; `policy_id: core-retrieval-v2` per search; `MEMKIT_DREAMING=after_extraction` to queue dreaming after each extraction. Dreaming and query rewriting spend the same monthly ceiling as extraction.
 
+## Opt-in switches (October 2026)
+
+All of these are off by default, passed through by `docker-compose.yml`, and reported by `GET /v1/admin/health` under `config`:
+
+| setting | effect |
+|---|---|
+| `MEMKIT_PROMPT_VERSION=v12` | assistant info as evidence and the earlier-in-session block (decisions/0082, 0083) |
+| `MEMKIT_DEFAULT_POLICY` | the policy a search uses when it names none; an unknown name refuses to start (decisions/0084) |
+| `MEMKIT_INDEX_ASSISTANT_TURNS=true` | embed assistant turns as raw passages; roughly doubles raw-index work. Run `memkit reindex` after turning it on so earlier turns are indexed |
+| `MEMKIT_DREAMING=dynamic` | dream a scope when it goes quiet, a batch piles up, or a session closes; `MEMKIT_DREAM_IDLE_MINUTES`, `MEMKIT_DREAM_BATCH`, `MEMKIT_DREAM_MIN_INTERVAL_MINUTES` tune it (decisions/0085) |
+| `MEMKIT_MAINTENANCE=daily` | one consolidation pass a day with no actor: expiry, demotion, exact duplicates, telemetry pruning; never a semantic merge |
+| `MEMKIT_RERANK_MODEL`, `MEMKIT_RERANK_REVISION` | the local cross-encoder; pin the revision |
+
 ## Routine operation
 
 - Backups: `memkit backup create`, `list`, `verify <archive>`, and `prune`. Verification checks the checksum when supplied and fully decodes the archive; a successful isolated restore drill provides stronger evidence. Protected pre-migration backups are not pruned. Schedule backups and off-host copying through your existing operator tooling.

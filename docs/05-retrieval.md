@@ -1,6 +1,6 @@
 # Retrieval
 
-The default is `neutral-v1`: the fusion below. `core-retrieval-v2` (decisions/0077) adds time, order, episode decay, mentions and inference, each described after it; it is opt-in per request (`policy_id`) until the public benchmark (eval/bench) has measured it.
+A search that names no `policy_id` uses `MEMKIT_DEFAULT_POLICY`, `neutral-v1` unless set: the fusion below (decisions/0084). `core-retrieval-v2` (decisions/0077) adds time, order, episode decay, mentions and inference, each described after it; `core-retrieval-v3` adds assistant info. Both are opt-in until the public benchmark (eval/bench) has measured them.
 
 Policy `core-retrieval-neutral-v1` fuses three bounded candidate arms:
 
@@ -45,11 +45,19 @@ The window comes from `temporal.parse_intent`, which recognises unambiguous Engl
 
 Results carry `document_date`, `event_dates`, `source_count`, `is_static` and `temporal`. `include_history` attaches the values a result replaced with the date each stopped being true, `include_related` attaches `extends`/`derives` neighbours, and `source_context_chars` widens each cited excerpt to the passage around it on word boundaries; the excerpt itself is still verified against its hash. Neighbours re-check both ends against the caller's scopes and spend the same budget, history first.
 
-`rewrite_query` searches up to three judge-written rephrasings with the same scopes, filters and policy and fuses all lists by reciprocal rank; failures fall back to the original. `MEMKIT_RERANK_MODEL` reorders the head of the list with a local cross-encoder blended with the fused score (decisions/0079).
+`rewrite_query` searches up to three judge-written rephrasings with the same scopes, filters and policy and fuses all lists by reciprocal rank; failures fall back to the original. `MEMKIT_RERANK_MODEL` reorders the head of the list with a local cross-encoder blended with the fused score (decisions/0079); with rewrites it reorders the fused list once rather than each list.
+
+## Policy v3: assistant info
+
+`core-retrieval-v3` (alias `assistant-v3`) is v2 with `assistant` among the trusted roles and `− 0.05` for an assistant memory nobody has confirmed (decisions/0082). Under v1 and v2 assistant memories are dropped as untrusted, as before. With `MEMKIT_INDEX_ASSISTANT_TURNS=true` assistant turns are raw-indexed too, and `include_raw` returns them, labelled `source_role: assistant`, only to a policy that trusts the role. Profiles show assistant memories, like inferences, only once confirmed.
+
+## Latency
+
+Every search records per-stage timings — `embed_ms`, `dense_ms`, `lexical_ms`, `entity_ms`, `fetch_ms`, `scoring_ms`, `rerank_ms`, `rewrite_ms`, `context_ms` and `request_ms` end to end — and `/v1/admin/metrics` reports p50/p95 for each stage and per policy, over the caller's own runs (every run for an administrator). A rendered profile reports `timings.total_ms`.
 
 ## Forgetting
 
-`POST /v1/memories/forget` finds candidates by request (hybrid search over the caller's writable scopes, bounded and thresholded, then verified by the judge by number when one is configured) or takes exact ids. It is a dry run unless asked otherwise; applying archives with a `forget_reason` (decisions/0080).
+`POST /v1/memories/forget` finds candidates by request (hybrid search over the caller's writable scopes, bounded and thresholded, then verified by the judge by number when one is configured) or takes exact ids. It is a dry run unless asked otherwise; applying archives with a `forget_reason` (decisions/0080). A query whose matches the judge did not verify — none configured, or `verify=false` — is never applied: it returns 409, and the dry run's ids are what gets applied (decisions/0086).
 
 ## Profiles
 

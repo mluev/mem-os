@@ -50,7 +50,7 @@ memos search "pkg mgr" --rewrite-query --json
   was understood to mean.
 - `--since`/`--until` keep only memories whose event (or, without one, whose
   saying) falls in the window. A time phrase in the query only boosts, and
-  only under `core-retrieval-v2`.
+  only under `core-retrieval-v2` and `v3`.
 - `--include-history` attaches the values a result replaced ("lived in Porto
   until 2026-04-02"); `--include-related` attaches memories that extend it or
   that it was inferred from. Both spend the same token budget.
@@ -58,9 +58,13 @@ memos search "pkg mgr" --rewrite-query --json
   excerpt proves the claim, the passage carries the detail.
 - `--rewrite-query` searches up to three rephrasings too and merges the
   rankings. It costs a model call; use it when a plain search came back thin.
-- The default ranking is `neutral-v1`. `--policy-id core-retrieval-v2` adds
-  the time boost, first/latest ordering, mention counts and the inference
-  penalty; the response's `temporal` field is only filled under it.
+- The default ranking is the server's (`neutral-v1` unless the operator set
+  another). `--policy-id core-retrieval-v2` adds the time boost, first/latest
+  ordering, mention counts and the inference penalty; the response's
+  `temporal` field is only filled under it. `--policy-id assistant-v3` also
+  returns what the assistant said earlier — results with `source_role:
+  assistant` are the assistant's recommendations or answers, not facts the
+  user stated; say so when you use one.
 
 Each result includes its `scope`, `subject`, `kind`, `source_role`,
 `review_status`, `revision` and score. The response carries a `retrieval_id`
@@ -169,7 +173,9 @@ memos memories forget-matching --ids '["ID1","ID2"]' --no-dry-run --reason "proj
 It dry-runs by default and returns `candidates`; when a judge model is
 configured it keeps only candidates really about the request (`verified`).
 Show the user the candidates, then apply with exactly those `--ids`, so what is
-forgotten is what they reviewed. Only scopes you can write are touched.
+forgotten is what they reviewed. Applying a `--query` directly works only when
+the judge verified it; an unverified match is refused with 409 and must be
+applied by ids. Only scopes you can write are touched.
 
 ### Dreaming: links and inferences
 
