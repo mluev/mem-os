@@ -151,6 +151,21 @@ def prune(conn: psycopg.Connection, *, retention_days: int = 90) -> int:
     return max(0, int(cursor.rowcount))
 
 
+# The timing keys a search records, end to end first (decisions/0088).
+SEARCH_STAGES = (
+    "request_ms",
+    "embed_ms",
+    "dense_ms",
+    "lexical_ms",
+    "entity_ms",
+    "fetch_ms",
+    "scoring_ms",
+    "rerank_ms",
+    "rewrite_ms",
+    "context_ms",
+)
+
+
 def _percentile(values: list[float], quantile: float) -> float | None:
     if not values:
         return None
@@ -167,12 +182,33 @@ def metrics(conn: psycopg.Connection, user_id: str | None = None) -> dict[str, A
     because `%s IS NULL` alone leaves Postgres with no type to infer.
     """
     rows = conn.execute(
-        """SELECT timings,abstained FROM retrieval_runs
+        """SELECT timings,abstained,policy_id FROM retrieval_runs
             WHERE created_at >= now() - make_interval(days => 90)
               AND (%s::uuid IS NULL OR user_id = %s::uuid)""",
         (user_id, user_id),
     ).fetchall()
     latencies = [float((row["timings"] or {}).get("total_ms", 0.0)) for row in rows]
+    by_stage: dict[str, dict[str, float | None]] = {}
+    for stage in SEARCH_STAGES:
+        values = [
+            float(row["timings"][stage])
+            for row in rows
+            if isinstance((row["timings"] or {}).get(stage), int | float)
+        ]
+        if values:
+            by_stage[stage] = {"p50": _percentile(values, 0.50), "p95": _percentile(values, 0.95)}
+    by_policy: dict[str, dict[str, float | int | None]] = {}
+    for policy_id in sorted({str(row["policy_id"]) for row in rows if row["policy_id"]}):
+        values = [
+            float((row["timings"] or {}).get("request_ms", row["timings"].get("total_ms", 0.0)))
+            for row in rows
+            if row["policy_id"] == policy_id and row["timings"]
+        ]
+        by_policy[policy_id] = {
+            "p50": _percentile(values, 0.50),
+            "p95": _percentile(values, 0.95),
+            "count": len(values),
+        }
     total = len(rows)
     feedback = conn.execute(
         """SELECT count(*) AS labels,count(DISTINCT f.run_id) AS runs,
@@ -187,6 +223,10 @@ def metrics(conn: psycopg.Connection, user_id: str | None = None) -> dict[str, A
             "p95": _percentile(latencies, 0.95),
             "p99": _percentile(latencies, 0.99),
         },
+        # End to end is `request_ms`; the rest are the stages inside it, so a
+        # slower search can be traced to the arm, the reranker or the rewrite.
+        "search_latency_by_stage": by_stage,
+        "search_latency_by_policy": by_policy,
         "retrieval_runs": total,
         "abstention_rate": (
             round(sum(1 for row in rows if row["abstained"]) / total, 4) if total else None

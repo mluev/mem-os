@@ -57,6 +57,8 @@ class TestProfileRendering(ApiTestCase):
         body = profile.json()
         self.assertKeys(body, {"blocks", "used_tokens", "budget_tokens", "policy_id"})
         self.assertEqual([item["id"] for item in body["blocks"]["style"]], [memory_id])
+        # Timed where the agent waits for it, to hold against a ~50 ms target.
+        self.assertGreaterEqual(body["timings"]["total_ms"], 0)
 
 
 class TestTranscripts(ApiTestCase):

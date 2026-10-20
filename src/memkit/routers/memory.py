@@ -656,7 +656,9 @@ def search_memories(
         )
         rewrite_ms = (time.perf_counter() - rewrite_started) * 1000
 
-    def ranked(query: str, *, limit: int, budget: int) -> retrieval.Explain:
+    reranker = None if assemble else getattr(request.app.state, "reranker", None)
+
+    def ranked(query: str, *, limit: int, budget: int, rerank: bool = True) -> retrieval.Explain:
         return retrieval.explain(
             conn,
             request.app.state.qdrant,
@@ -669,7 +671,7 @@ def search_memories(
             budget_tokens=budget,
             policy=policy,
             include_untrusted=body.include_untrusted,
-            reranker=None if assemble else getattr(request.app.state, "reranker", None),
+            reranker=reranker if rerank else None,
             as_of=body.as_of,
             time_range=(body.since, body.until) if body.since or body.until else None,
         )
@@ -680,12 +682,18 @@ def search_memories(
             body.query,
             limit=60 if assemble else body.limit,
             budget=120_000 if wide else body.budget_tokens,
+            rerank=not rewrites,
         )
         if rewrites:
             result = retrieval.fuse(
-                [result, *(ranked(q, limit=body.limit, budget=120_000) for q in rewrites)],
+                [
+                    result,
+                    *(ranked(q, limit=body.limit, budget=120_000, rerank=False) for q in rewrites),
+                ],
                 budget_tokens=body.budget_tokens,
                 limit=body.limit,
+                reranker=reranker,
+                query=body.query,
             )
             result.timings["rewrite_ms"] = rewrite_ms
         if assemble:

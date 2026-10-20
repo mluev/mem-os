@@ -3446,6 +3446,20 @@
             "title": "Retrieval Runs",
             "type": "integer"
           },
+          "search_latency_by_policy": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/PolicyLatency"
+            },
+            "title": "Search Latency By Policy",
+            "type": "object"
+          },
+          "search_latency_by_stage": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/StageLatency"
+            },
+            "title": "Search Latency By Stage",
+            "type": "object"
+          },
           "search_latency_ms": {
             "$ref": "#/components/schemas/SearchLatency"
           },
@@ -3478,6 +3492,8 @@
           "month_limit_usd",
           "pending_review",
           "search_latency_ms",
+          "search_latency_by_stage",
+          "search_latency_by_policy",
           "retrieval_runs",
           "abstention_rate",
           "feedback_labels",
@@ -3812,6 +3828,44 @@
         "title": "PolicyIn",
         "type": "object"
       },
+      "PolicyLatency": {
+        "additionalProperties": true,
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "p50": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P50"
+          },
+          "p95": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P95"
+          }
+        },
+        "required": [
+          "p50",
+          "p95",
+          "count"
+        ],
+        "title": "PolicyLatency",
+        "type": "object"
+      },
       "PrincipalView": {
         "additionalProperties": true,
         "properties": {
@@ -4073,6 +4127,14 @@
               }
             ],
             "title": "Scope"
+          },
+          "timings": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "default": {},
+            "title": "Timings",
+            "type": "object"
           },
           "used_tokens": {
             "title": "Used Tokens",
@@ -5579,6 +5641,39 @@
           "offset"
         ],
         "title": "SessionsOut",
+        "type": "object"
+      },
+      "StageLatency": {
+        "additionalProperties": true,
+        "properties": {
+          "p50": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P50"
+          },
+          "p95": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P95"
+          }
+        },
+        "required": [
+          "p50",
+          "p95"
+        ],
+        "title": "StageLatency",
         "type": "object"
       },
       "TemporalIntentView": {

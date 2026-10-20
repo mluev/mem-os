@@ -645,6 +645,17 @@ class SearchLatency(View):
     p99: float | None
 
 
+class StageLatency(View):
+    p50: float | None
+    p95: float | None
+
+
+class PolicyLatency(View):
+    p50: float | None
+    p95: float | None
+    count: int
+
+
 class IndexCounts(View):
     database_active: int
     qdrant_active: int | None
@@ -876,6 +887,7 @@ class ProfileOut(StrictModel):
     generated_at: str
     policy_id: str
     scope: dict[str, Any] | None = None
+    timings: dict[str, float] = {}
 
 
 class SessionOut(StrictModel):
@@ -939,6 +951,8 @@ class MetricsOut(FlexibleOut):
     month_limit_usd: float | None
     pending_review: int
     search_latency_ms: SearchLatency
+    search_latency_by_stage: dict[str, StageLatency]
+    search_latency_by_policy: dict[str, PolicyLatency]
     retrieval_runs: int
     abstention_rate: float | None
     feedback_labels: int

@@ -110,6 +110,23 @@ class FusionTest(unittest.TestCase):
         self.assertEqual([item.id for item in fused.chosen], ["y", "x", "z"])
         self.assertEqual(fused.timings["fused_queries"], 3.0)
 
+    def test_fusion_reranks_the_fused_list_once_and_times_it(self) -> None:
+        calls: list[list[str]] = []
+
+        class Reverse:
+            def rerank(self, query, candidates):
+                calls.append([item.id for item in candidates])
+                return list(reversed(candidates))
+
+        original = retrieval.Explain(chosen=[scored("x", 0.9), scored("y", 0.5)], used_tokens=0)
+        rewrite = retrieval.Explain(chosen=[scored("y", 0.4)], used_tokens=0)
+        fused = retrieval.fuse(
+            [original, rewrite], budget_tokens=1000, reranker=Reverse(), query="q"
+        )
+        self.assertEqual(calls, [["y", "x"]])
+        self.assertEqual([item.id for item in fused.chosen], ["x", "y"])
+        self.assertIn("rerank_ms", fused.timings)
+
     def test_the_budget_applies_after_fusion(self) -> None:
         original = retrieval.Explain(
             chosen=[scored("x", 0.9, "one two three"), scored("y", 0.5, "four five six")],
@@ -148,6 +165,32 @@ class RewriteAndForgetApiTest(ApiTestCase):
         # Duplicates and the original itself are not searched twice.
         self.assertEqual(body["rewrites"], ["Alice moved to"])
         self.assertIn(wanted, [m["id"] for m in body["memories"]])
+
+    def test_with_rewrites_the_reranker_runs_once_on_the_fused_list(self) -> None:
+        self.seed_memory(text="Alice moved to Lisbon in April", kind="fact")
+        calls: list[str] = []
+
+        class Counting:
+            def rerank(self, query, candidates):
+                calls.append(query)
+                return candidates
+
+        self.enterContext(patch.object(api.app.state, "reranker", Counting(), create=True))
+        self.judge(
+            lambda **_: providers.ProviderResult(
+                raw={"queries": ["Alice moved to", "Lisbon in April"]},
+                input_tokens=100,
+                output_tokens=20,
+            )
+        )
+        response = self.client.post(
+            "/v1/memories/search",
+            headers=self.auth,
+            json={"query": "where do I live", "rewrite_query": True},
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(calls, ["where do I live"])
+        self.assertIn("rerank_ms", response.json()["timings"])
         run = self.db.execute("SELECT kind,output FROM judge_runs").fetchone()
         # A rewrite is the query in other words; it is not stored.
         self.assertEqual((run["kind"], run["output"]), ("rewrite", None))

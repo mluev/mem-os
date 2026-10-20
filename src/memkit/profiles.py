@@ -20,6 +20,7 @@ once they were older than the dynamic window.
 
 from __future__ import annotations
 
+import time
 import uuid
 from collections.abc import Sequence
 from datetime import timedelta
@@ -163,6 +164,7 @@ def render(
     """
     requested = [block for block in blocks if block in BLOCKS]
     now = utcnow()
+    started = time.perf_counter()
     cutoff = now - timedelta(days=dynamic_days)
     seen: set[str] = set()
     result: dict[str, list[dict[str, Any]]] = {block: [] for block in requested}
@@ -239,4 +241,7 @@ def render(
         "budget_tokens": budget_tokens,
         "generated_at": iso(now),
         "policy_id": "profile-v3",
+        # Supermemory quotes 50-100 ms for its profile; this is the number to
+        # hold that against, measured where the agent waits for it.
+        "timings": {"total_ms": round((time.perf_counter() - started) * 1000, 1)},
     }
