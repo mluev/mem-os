@@ -14,9 +14,11 @@ system says it does not know).
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from memkit import providers
+from memkit.judge import cost_of
 
 from .datasets import Question
 
@@ -43,7 +45,10 @@ def render_context(payload: dict[str, Any]) -> str:
         blocks.append("\n".join(lines))
     for passage in payload.get("raw") or []:
         said = (passage.get("created_at") or "")[:10]
-        blocks.append(f"[passage {said}] {passage['text']}")
+        # Assistant passages say so: "what did you recommend" is answered by
+        # them, and anything else must not mistake them for the user's words.
+        who = " assistant" if passage.get("source_role") == "assistant" else ""
+        blocks.append(f"[passage {said}{who}] {passage['text']}")
     return "\n\n".join(blocks) if blocks else "(nothing found)"
 
 
@@ -130,7 +135,14 @@ Question: {question.question}
 Response: {response}"""
 
 
-def ask(model: str, prompt: str, schema: dict[str, Any], name: str, keys: dict[str, str]) -> dict:
+def ask(
+    model: str,
+    prompt: str,
+    schema: dict[str, Any],
+    name: str,
+    keys: dict[str, str],
+    on_cost: Callable[[float], None] | None = None,
+) -> dict:
     result = providers.call_json(
         model=model,
         prompt=prompt,
@@ -142,6 +154,8 @@ def ask(model: str, prompt: str, schema: dict[str, Any], name: str, keys: dict[s
         location=keys.get("location", ""),
         max_tokens=2048,
     )
+    if on_cost is not None:
+        on_cost(cost_of(result.input_tokens, result.output_tokens, model=model))
     if result.error or not isinstance(result.raw, dict):
         raise RuntimeError(result.error or "empty model response")
     return result.raw

@@ -5,6 +5,12 @@ private scope is the only isolation that also holds for dedup candidates,
 supersession targets and dreaming, all of which look across what a user can
 read. Turns are ingested with the session's recorded date, so extraction
 resolves "last week" against the benchmark's calendar rather than today's.
+
+Every benchmark user also joins the instance's team scope -- membership is
+system-managed -- so searches are narrowed to the conversation's own scope,
+and `team_routed` counts what the extractor sent to the team instead: a fact
+there is lost to this conversation and visible to every other one, which is
+the same confound memorybench removed with one container per conversation.
 """
 
 from __future__ import annotations
@@ -75,6 +81,70 @@ class Memkit:
             "create key",
         )
         return str(key["secret"])
+
+    def scopes(self, key: str) -> dict[str, str]:
+        """The conversation user's own scope and the team's, by slug."""
+        me = _check(self.http.get("/v1/auth/me", headers={"X-API-Key": key}), "whoami")
+        by_id = {scope["id"]: scope["slug"] for scope in me.get("scopes") or []}
+        return {
+            "own": by_id[me["own_entity_id"]],
+            "team": by_id.get(me.get("team_entity_id") or "", ""),
+            "handle": me["handle"],
+        }
+
+    def team_routed(self, key: str, scopes: dict[str, str]) -> int:
+        """Memories this conversation's extraction filed into the team scope."""
+        if not scopes.get("team"):
+            return 0
+        page = _check(
+            self.http.get(
+                f"/v1/memories?scope={scopes['team']}&limit=500", headers={"X-API-Key": key}
+            ),
+            "team memories",
+        )
+        return sum(1 for item in page["items"] if item.get("author") == scopes["handle"])
+
+    def spend(self) -> float:
+        """This month's server-side model spend: extraction, dreams, rewrites."""
+        metrics = _check(self.http.get("/v1/admin/metrics", headers=self.admin), "metrics")
+        return float(metrics.get("month_spend_usd") or 0.0)
+
+    def server_config(self) -> dict[str, Any]:
+        """The prompt, policy and dreaming mode the server is running."""
+        health = _check(self.http.get("/v1/admin/health", headers=self.admin), "health")
+        return dict(health.get("config") or {})
+
+    def dream(
+        self, key: str, *, max_clusters: int = 8, max_rounds: int = 20, **wait: Any
+    ) -> dict[str, Any]:
+        """Dream the conversation's scope until it has caught up.
+
+        One dream processes at most 40 fresh memories, so a long conversation
+        needs several; each round waits for its job, as memorybench waits on
+        Supermemory's dreamingStatus before asking anything.
+        """
+        auth = {"X-API-Key": key}
+        rounds, caught_up = 0, False
+        totals: dict[str, int] = {"superseded": 0, "extended": 0, "inferred": 0}
+        while rounds < max_rounds and not caught_up:
+            queued = _check(
+                self.http.post(
+                    "/v1/dream",
+                    headers=auth,
+                    json={"dry_run": False, "max_clusters": max_clusters},
+                ),
+                "dream",
+            )
+            self.wait(key, **wait)
+            job = _check(self.http.get(f"/v1/jobs/{queued['job_id']}", headers=auth), "dream job")
+            if job.get("status") != "complete":
+                raise BenchError(f"dream job {queued['job_id']} ended {job.get('status')}")
+            result = job.get("result") or {}
+            for name in totals:
+                totals[name] += int(result.get(name) or 0)
+            caught_up = bool(result.get("caught_up"))
+            rounds += 1
+        return {"rounds": rounds, "caught_up": caught_up, **totals}
 
     def ingest(self, key: str, conversation: Conversation) -> dict[int, str]:
         """Post every turn, close every session; map message id -> turn id."""
@@ -176,6 +246,7 @@ class Memkit:
         limit: int,
         rewrite: bool,
         policy: str = "",
+        scope: str = "",
     ) -> tuple[dict[str, Any], float]:
         body: dict[str, Any] = {
             "query": question.question,
@@ -190,6 +261,9 @@ class Memkit:
         }
         if policy:
             body["policy_id"] = policy
+        if scope:
+            # Only the conversation's own memories: see the module docstring.
+            body["scopes"] = [scope]
         if mode == "raw":
             body["kinds"] = ["evidence"]
         if question.question_date is not None:
