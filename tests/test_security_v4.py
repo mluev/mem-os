@@ -190,6 +190,32 @@ class PrivateSpanTest(unittest.TestCase):
         ).fetchone()["n"]
         self.assertEqual(queued, 0)
 
+    def test_an_all_injected_turn_is_not_reported_as_pending_indexing(self) -> None:
+        from memkit import api, config
+        from tests.httpharness import test_settings
+
+        settings = test_settings()
+        with patch.object(config, "_settings", settings):
+            from fastapi.testclient import TestClient
+
+            from tests.httpharness import stub_lifespan
+
+            with (
+                patch.object(api.app.router, "lifespan_context", stub_lifespan),
+                TestClient(api.app) as client,
+            ):
+                response = client.post(
+                    "/v1/evidence/events",
+                    headers={"X-API-Key": self.team.alice_key},
+                    json={
+                        "session_id": "injected",
+                        "role": "user",
+                        "content": "<mem-os-recall>\n- Alice prefers pnpm and uv\n</mem-os-recall>",
+                    },
+                )
+        self.assertEqual(response.status_code, 201, response.text)
+        self.assertEqual(response.json()["index_status"], "not_applicable")
+
     def test_the_client_scrub_removes_private_spans_like_the_server(self) -> None:
         path = Path(__file__).resolve().parents[1] / "integrations/hermes/memkit/scrub.py"
         spec = importlib.util.spec_from_file_location("hermes_scrub_under_test", path)

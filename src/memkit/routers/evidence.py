@@ -16,6 +16,7 @@ from fastapi import (
 from .. import (
     extract,
     maintenance,
+    security,
     store,
     vectors,
 )
@@ -30,6 +31,15 @@ from ..schemas import BatchOut, EvidenceBatchIn, JobQueuedOut, MessageIn, Messag
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+def _stored_text(content: str) -> str:
+    """What add_message keeps, for deciding whether the turn will be indexed.
+
+    A turn that was nothing but an injected memory block is stored as a short
+    marker and never indexed; reporting it as pending would never resolve.
+    """
+    return security.strip_injected(content).strip()
 
 
 @router.post("/v1/evidence/events", status_code=201)
@@ -76,7 +86,7 @@ def post_message(
     # `stored`, which is what that distinction is for.
     _wake_worker(request)
     indexed, index_job_id = _outbox_state(conn, vectors.RAW, message_id)
-    applicable = store.raw_indexable(body.role, body.content, index_roles)
+    applicable = store.raw_indexable(body.role, _stored_text(body.content), index_roles)
     extraction_job_id = None
     pending = extract.messages_since_last(conn, body.session_id)
     if judge_configured(settings) and extract.judge.should_extract(
@@ -149,7 +159,7 @@ def post_evidence_batch(
     results: list[dict[str, Any]] = []
     queued_sessions: set[tuple[str, str]] = set()
     for event, message_id, duplicate, redacted in stored:
-        applicable = store.raw_indexable(event.role, event.content, index_roles)
+        applicable = store.raw_indexable(event.role, _stored_text(event.content), index_roles)
         indexed, index_job_id = _outbox_state(conn, vectors.RAW, message_id)
         results.append(
             MessageOut(
