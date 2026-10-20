@@ -41,7 +41,7 @@ No entry restates a measured value; it links an anchor. `Status` and
 | id | decision | status |
 |---|---|---|
 | [0002](0002-four-genre-documentation.md) | Documentation splits into contract, measurement, decision, investigation | accepted |
-| [0006](0006-source-role-and-may-write.md) | A fact may not derive solely from assistant turns, enforced at the write | accepted |
+| [0006](0006-source-role-and-may-write.md) | A fact may not derive solely from assistant turns, enforced at the write | accepted; superseded in part by 0082 |
 | [0007](0007-no-events-journal.md) | No append-only `events` journal and no redaction endpoint | declined |
 | [0008](0008-judge-model.md) | The judge is `gemini-3.5-flash-lite` on the Gemini Developer API | accepted |
 | [0010](0010-minimal-thinking-level.md) | `thinking_level=MINIMAL`, because reasoning bills as output | accepted |
@@ -96,3 +96,10 @@ No entry restates a measured value; it links an anchor. `Status` and
 | [0079](0079-query-rewrites-and-cross-encoder.md) | Optional query rewrites fused by rank; optional local cross-encoder | accepted |
 | [0080](0080-forget-matching.md) | Forget by request, verified, dry-run first, bound to ids | accepted |
 | [0081](0081-public-benchmarks-and-memscore.md) | LoCoMo and LongMemEval with MemScore are the retrieval north star | accepted |
+| [0082](0082-assistant-info-as-evidence.md) | Assistant info is evidence under prompt v12, and nothing else the assistant says | accepted |
+| [0083](0083-session-context-across-windows.md) | The window is preceded by the session before it, never citable | accepted |
+| [0084](0084-server-default-policy-and-policy-v3.md) | The server chooses the default retrieval policy; v3 trusts assistant info | accepted |
+| [0085](0085-dynamic-dreaming-and-daily-maintenance.md) | Dream when a scope goes quiet; maintain once a day; list dream supersessions | accepted |
+| [0086](0086-forget-by-ids-unless-verified.md) | Unverified forget matches are never applied; apply the dry run's ids | accepted |
+| [0087](0087-private-spans-and-injected-context.md) | Private spans never leave; injected memory is never evidence | accepted |
+| [0088](0088-benchmark-protocol-v2.md) | Benchmark protocol v2: own-scope search, reuse, stratified samples, paired tests | accepted |

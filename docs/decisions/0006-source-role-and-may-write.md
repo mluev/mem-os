@@ -3,7 +3,7 @@
     Status:        accepted
     Date:          2026-07-31
     Supersedes:    ../archive/2026-07-original-spec/02-data-model.md §"Запрет на самоотравление"
-    Superseded by: —
+    Superseded by: 0082, in part (memories extracted under prompt v12)
     Evidence:      ../measurements.md#model-authored-writes
     Code:          src/memkit/provenance.py, src/memkit/db.py (schema 3)
     Contract:      ../02-data-model.md#provenance
