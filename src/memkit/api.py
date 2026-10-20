@@ -302,6 +302,7 @@ def _start_durable_worker(application: FastAPI) -> None:
         application.state.embedder,
         _dispatch_job,
         dependency_status=dependency_status,
+        tick=lambda conn: job_runner.tick(application, conn),
     )
     application.state.worker.start()
 

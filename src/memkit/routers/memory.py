@@ -1066,7 +1066,11 @@ def review_queue(
                     "memory_id": str(row["ref_memory_id"]) if row["ref_memory_id"] else None,
                     "payload": payload,
                     "created_at": iso(row["created_at"]),
-                    "actions": ["link_entity", "dismiss"],
+                    # A dream's supersession is undone by restoring the old
+                    # memory (POST /v1/memories/{id}/restore), not by linking.
+                    "actions": ["dismiss"]
+                    if row["kind"] == "conflict"
+                    else ["link_entity", "dismiss"],
                 }
             )
     if kind in (None, "failed_job"):

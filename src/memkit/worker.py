@@ -6,6 +6,7 @@ import logging
 import threading
 import time
 from collections.abc import Callable
+from typing import Any
 
 from qdrant_client import QdrantClient
 
@@ -31,6 +32,8 @@ class Worker:
         *,
         poll_seconds: float = 1.0,
         dependency_status: Callable[[bool, str | None], None] | None = None,
+        tick: Callable[[Any], Any] | None = None,
+        tick_seconds: float = 60.0,
     ) -> None:
         self.db = db
         self.client = client
@@ -48,6 +51,12 @@ class Worker:
         self._outage: str | None = None
         self._provisioned = False
         self._last_prune = 0.0
+        # Periodic scheduling (job_runner.tick): dynamic dreams and the daily
+        # maintenance pass. It only queues jobs, so it runs on the database
+        # alone and survives an index outage.
+        self.tick = tick
+        self.tick_seconds = tick_seconds
+        self._last_tick = 0.0
 
     def start(self) -> None:
         self._thread.start()
@@ -107,6 +116,14 @@ class Worker:
                                 self._last_prune = time.monotonic()
                             except maintenance.MaintenanceBusy:
                                 pass
+                    if self.tick is not None and (
+                        time.monotonic() - self._last_tick >= self.tick_seconds
+                    ):
+                        self._last_tick = time.monotonic()
+                        try:
+                            self.tick(conn)
+                        except Exception:
+                            logger.exception("scheduled tick failed")
                     row = conn.execute(
                         """SELECT id,kind FROM jobs WHERE status='queued' AND available_at<=now()
                              AND (%s OR kind NOT IN ('extraction','consolidation','reindex'))
