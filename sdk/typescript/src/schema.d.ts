@@ -1194,6 +1194,7 @@ export interface components {
     schemas: {
         /** AdminHealthOut */
         AdminHealthOut: {
+            config: components["schemas"]["RuntimeConfig"];
             database: components["schemas"]["DatabaseHealth"];
             embedder: components["schemas"]["EmbedderHealth"];
             /** Jobs */
@@ -2321,6 +2322,14 @@ export interface components {
             provider_errors: number;
             /** Retrieval Runs */
             retrieval_runs: number;
+            /** Search Latency By Policy */
+            search_latency_by_policy: {
+                [key: string]: components["schemas"]["PolicyLatency"];
+            };
+            /** Search Latency By Stage */
+            search_latency_by_stage: {
+                [key: string]: components["schemas"]["StageLatency"];
+            };
             search_latency_ms: components["schemas"]["SearchLatency"];
             /** Spend By User */
             spend_by_user: {
@@ -2447,6 +2456,17 @@ export interface components {
             /** Version */
             version: number;
         };
+        /** PolicyLatency */
+        PolicyLatency: {
+            /** Count */
+            count: number;
+            /** P50 */
+            p50: number | null;
+            /** P95 */
+            p95: number | null;
+        } & {
+            [key: string]: unknown;
+        };
         /** PrincipalView */
         PrincipalView: {
             /**
@@ -2545,6 +2565,13 @@ export interface components {
             scope?: {
                 [key: string]: unknown;
             } | null;
+            /**
+             * Timings
+             * @default {}
+             */
+            timings: {
+                [key: string]: number;
+            };
             /** Used Tokens */
             used_tokens: number;
         };
@@ -2745,6 +2772,33 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /**
+         * RuntimeConfig
+         * @description The non-secret settings that decide what extraction and search do.
+         *
+         *     A benchmark run records this block, so a number can always be traced to
+         *     the prompt, policy and dreaming mode that produced it.
+         */
+        RuntimeConfig: {
+            /** Dedup Cosine */
+            dedup_cosine: number;
+            /** Default Policy */
+            default_policy: string;
+            /** Dreaming */
+            dreaming: string;
+            /** Index Assistant Turns */
+            index_assistant_turns: boolean;
+            /** Judge Model */
+            judge_model: string;
+            /** Maintenance */
+            maintenance: string;
+            /** Prompt Version */
+            prompt_version: string;
+            /** Rerank Model */
+            rerank_model: string;
+        } & {
+            [key: string]: unknown;
+        };
         /** ScopeView */
         ScopeView: {
             /** Id */
@@ -2834,11 +2888,8 @@ export interface components {
              * @default 30
              */
             limit: number;
-            /**
-             * Policy Id
-             * @default neutral-v1
-             */
-            policy_id: string;
+            /** Policy Id */
+            policy_id?: string | null;
             /** Query */
             query: string;
             /**
@@ -3035,6 +3086,15 @@ export interface components {
             offset: number;
             /** Total */
             total: number;
+        };
+        /** StageLatency */
+        StageLatency: {
+            /** P50 */
+            p50: number | null;
+            /** P95 */
+            p95: number | null;
+        } & {
+            [key: string]: unknown;
         };
         /** TemporalIntentView */
         TemporalIntentView: {

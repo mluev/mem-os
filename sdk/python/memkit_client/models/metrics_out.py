@@ -8,6 +8,8 @@ from attrs import field as _attrs_field
 
 if TYPE_CHECKING:
     from ..models.index_counts import IndexCounts
+    from ..models.metrics_out_search_latency_by_policy import MetricsOutSearchLatencyByPolicy
+    from ..models.metrics_out_search_latency_by_stage import MetricsOutSearchLatencyByStage
     from ..models.metrics_out_spend_by_user_item import MetricsOutSpendByUserItem
     from ..models.search_latency import SearchLatency
 
@@ -35,6 +37,8 @@ class MetricsOut:
         pending_review (int):
         provider_errors (int):
         retrieval_runs (int):
+        search_latency_by_policy (MetricsOutSearchLatencyByPolicy):
+        search_latency_by_stage (MetricsOutSearchLatencyByStage):
         search_latency_ms (SearchLatency):
         spend_by_user (list[MetricsOutSpendByUserItem]):
         useful_rate (float | None):
@@ -56,6 +60,8 @@ class MetricsOut:
     pending_review: int
     provider_errors: int
     retrieval_runs: int
+    search_latency_by_policy: MetricsOutSearchLatencyByPolicy
+    search_latency_by_stage: MetricsOutSearchLatencyByStage
     search_latency_ms: SearchLatency
     spend_by_user: list[MetricsOutSpendByUserItem]
     useful_rate: float | None
@@ -102,6 +108,10 @@ class MetricsOut:
 
         retrieval_runs = self.retrieval_runs
 
+        search_latency_by_policy = self.search_latency_by_policy.to_dict()
+
+        search_latency_by_stage = self.search_latency_by_stage.to_dict()
+
         search_latency_ms = self.search_latency_ms.to_dict()
 
         spend_by_user = []
@@ -132,6 +142,8 @@ class MetricsOut:
                 "pending_review": pending_review,
                 "provider_errors": provider_errors,
                 "retrieval_runs": retrieval_runs,
+                "search_latency_by_policy": search_latency_by_policy,
+                "search_latency_by_stage": search_latency_by_stage,
                 "search_latency_ms": search_latency_ms,
                 "spend_by_user": spend_by_user,
                 "useful_rate": useful_rate,
@@ -143,6 +155,8 @@ class MetricsOut:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         from ..models.index_counts import IndexCounts
+        from ..models.metrics_out_search_latency_by_policy import MetricsOutSearchLatencyByPolicy
+        from ..models.metrics_out_search_latency_by_stage import MetricsOutSearchLatencyByStage
         from ..models.metrics_out_spend_by_user_item import MetricsOutSpendByUserItem
         from ..models.search_latency import SearchLatency
 
@@ -220,6 +234,10 @@ class MetricsOut:
 
         retrieval_runs = d.pop("retrieval_runs")
 
+        search_latency_by_policy = MetricsOutSearchLatencyByPolicy.from_dict(d.pop("search_latency_by_policy"))
+
+        search_latency_by_stage = MetricsOutSearchLatencyByStage.from_dict(d.pop("search_latency_by_stage"))
+
         search_latency_ms = SearchLatency.from_dict(d.pop("search_latency_ms"))
 
         spend_by_user = []
@@ -253,6 +271,8 @@ class MetricsOut:
             pending_review=pending_review,
             provider_errors=provider_errors,
             retrieval_runs=retrieval_runs,
+            search_latency_by_policy=search_latency_by_policy,
+            search_latency_by_stage=search_latency_by_stage,
             search_latency_ms=search_latency_ms,
             spend_by_user=spend_by_user,
             useful_rate=useful_rate,

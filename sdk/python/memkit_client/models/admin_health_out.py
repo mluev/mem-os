@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from ..models.database_health import DatabaseHealth
     from ..models.embedder_health import EmbedderHealth
     from ..models.outbox_health import OutboxHealth
+    from ..models.runtime_config import RuntimeConfig
     from ..models.vector_health import VectorHealth
 
 
@@ -21,6 +22,10 @@ T = TypeVar("T", bound="AdminHealthOut")
 class AdminHealthOut:
     """
     Attributes:
+        config (RuntimeConfig): The non-secret settings that decide what extraction and search do.
+
+            A benchmark run records this block, so a number can always be traced to
+            the prompt, policy and dreaming mode that produced it.
         database (DatabaseHealth):
         embedder (EmbedderHealth):
         jobs (AdminHealthOutJobs):
@@ -28,6 +33,7 @@ class AdminHealthOut:
         qdrant (VectorHealth):
     """
 
+    config: RuntimeConfig
     database: DatabaseHealth
     embedder: EmbedderHealth
     jobs: AdminHealthOutJobs
@@ -36,6 +42,8 @@ class AdminHealthOut:
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        config = self.config.to_dict()
+
         database = self.database.to_dict()
 
         embedder = self.embedder.to_dict()
@@ -50,6 +58,7 @@ class AdminHealthOut:
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
+                "config": config,
                 "database": database,
                 "embedder": embedder,
                 "jobs": jobs,
@@ -66,9 +75,12 @@ class AdminHealthOut:
         from ..models.database_health import DatabaseHealth
         from ..models.embedder_health import EmbedderHealth
         from ..models.outbox_health import OutboxHealth
+        from ..models.runtime_config import RuntimeConfig
         from ..models.vector_health import VectorHealth
 
         d = dict(src_dict)
+        config = RuntimeConfig.from_dict(d.pop("config"))
+
         database = DatabaseHealth.from_dict(d.pop("database"))
 
         embedder = EmbedderHealth.from_dict(d.pop("embedder"))
@@ -80,6 +92,7 @@ class AdminHealthOut:
         qdrant = VectorHealth.from_dict(d.pop("qdrant"))
 
         admin_health_out = cls(
+            config=config,
             database=database,
             embedder=embedder,
             jobs=jobs,
