@@ -29,6 +29,7 @@ schema -- is the real gate.
 
 from __future__ import annotations
 
+import hashlib
 import inspect
 import json
 import logging
@@ -287,8 +288,10 @@ def call_vertex(
     """
     from google.genai import types
 
-    client = _gemini_client(api_key=api_key, project=project, location=location)
-    response = client.models.generate_content(
+    response = _generate(
+        api_key=api_key,
+        project=project,
+        location=location,
         model=model,
         contents=prompt,
         config=types.GenerateContentConfig(
@@ -380,8 +383,10 @@ def call_json(
             return ProviderResult(error="no GEMINI_API_KEY and no VERTEX_PROJECT")
         from google.genai import types
 
-        client = _gemini_client(api_key=gemini_api_key, project=project, location=location)
-        response = client.models.generate_content(
+        response = _generate(
+            api_key=gemini_api_key,
+            project=project,
+            location=location,
             model=model,
             contents=prompt,
             config=types.GenerateContentConfig(
@@ -528,7 +533,40 @@ UNBILLED_EXCEPTIONS = frozenset(
 )
 
 
-def _gemini_client(*, api_key: str, project: str, location: str):
+# Fingerprints of keys the Gemini Developer API refused and Vertex AI express
+# mode accepted. A Vertex express key (what GOOGLE_VERTEX_API_KEY usually holds)
+# authenticates Vertex with no project; sent to the Developer API it is refused
+# with an unbilled 403 naming generativelanguage.googleapis.com. The refusal
+# is learned once per key per process rather than configured, so the server,
+# the golden set and the benchmark all accept such a key without new settings,
+# while an AI Studio key never leaves the Developer API.
+_EXPRESS_KEYS: set[str] = set()
+
+
+def _fingerprint(api_key: str) -> str:
+    return hashlib.sha256(api_key.encode()).hexdigest()
+
+
+def _developer_api_refused(exc: Exception) -> bool:
+    return getattr(exc, "code", None) == 403 and "generativelanguage.googleapis.com" in str(exc)
+
+
+def _generate(*, api_key: str, project: str, location: str, **request: Any) -> Any:
+    """`generate_content` on whichever Gemini service this key belongs to."""
+    express = bool(api_key) and not project and _fingerprint(api_key) in _EXPRESS_KEYS
+    client = _gemini_client(api_key=api_key, project=project, location=location, express=express)
+    try:
+        return client.models.generate_content(**request)
+    except Exception as exc:
+        if express or project or not api_key or not _developer_api_refused(exc):
+            raise
+        _EXPRESS_KEYS.add(_fingerprint(api_key))
+        logger.info("Gemini key is a Vertex AI express key; using Vertex AI")
+        client = _gemini_client(api_key=api_key, project="", location="", express=True)
+        return client.models.generate_content(**request)
+
+
+def _gemini_client(*, api_key: str, project: str, location: str, express: bool = False):
     """One Gemini client builder for every call path.
 
     The merge path used to build its own client with no timeout, so a hung
@@ -540,6 +578,10 @@ def _gemini_client(*, api_key: str, project: str, location: str):
     from google.genai import types
 
     http_options = types.HttpOptions(timeout=int(PROVIDER_TIMEOUT_SECONDS * 1000))
+    if express:
+        # Vertex AI express mode: the key alone, no project or location -- the
+        # SDK refuses an api_key passed together with either.
+        return genai.Client(vertexai=True, api_key=api_key, http_options=http_options)
     if project:
         return genai.Client(
             vertexai=True,
