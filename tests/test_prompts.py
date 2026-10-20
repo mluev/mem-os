@@ -50,7 +50,7 @@ class TestPromptRegistry(unittest.TestCase):
 
     def test_retired_versions_stay_readable(self) -> None:
         """Facts stamped v7 through v10 are still in the store."""
-        self.assertEqual(sorted(prompts.REGISTRY), ["v10", "v11", "v7", "v8", "v9"])
+        self.assertEqual(sorted(prompts.REGISTRY), ["v10", "v11", "v12", "v7", "v8", "v9"])
 
     def test_unknown_version_raises(self) -> None:
         with self.assertRaises(ValueError):
@@ -248,6 +248,75 @@ class TestV11TimeAndGraph(unittest.TestCase):
         for placeholder in ("{today}", "{window}", "{candidates}", "{entities}", "{session_date}"):
             self.assertNotIn(placeholder, rendered)
         self.assertIn("recorded on 2026-04-02", rendered)
+
+
+class TestV12AssistantInfoAndSessionContext(unittest.TestCase):
+    """v12 = v11 plus assistant info and the earlier-in-session block."""
+
+    def test_v12_keeps_every_v11_rule_it_does_not_replace(self) -> None:
+        v12 = _collapsed("v12")
+        for clause in [
+            "said again tomorrow in another repo, would this sentence still hold",
+            "character for character",
+            "Scope is not context",
+            "The workspace CONTEXT names is not a scope",
+            "set subject to their number and omit scope",
+            "Do not guess which listed person was meant",
+            "the recording date is the ONLY anchor",
+            "Keep proper nouns verbatim",
+            "Echo extraction",
+            "Meta-extraction",
+            "Detail contamination",
+            "First-topic dominance",
+            "Lost dates",
+            "the assistant's work in this session",
+            "implementation steps",
+            '"supersede": the candidate WAS true',
+            "sets `extends` to that candidate's number",
+        ]:
+            self.assertIn(clause, v12, f"v12 lost a v11 rule: {clause!r}")
+
+    def test_v12_admits_assistant_info_and_nothing_else_the_assistant_says(self) -> None:
+        v12 = _collapsed("v12")
+        self.assertNotIn("Only a user's own words can support a memory", v12)
+        self.assertIn("ASSISTANT INFO", v12)
+        self.assertIn('"The assistant recommended', v12)
+        self.assertIn("never as a fact about the user or the world", v12)
+        self.assertIn("Never UPDATE or DELETE a candidate on the assistant's word alone", v12)
+        self.assertIn("Self-echo", v12)
+        self.assertIn("all six", v12)
+        self.assertIn("advice nobody asked for", v12)
+
+    def test_v12_renders_earlier_messages_and_older_versions_ignore_them(self) -> None:
+        fields = {
+            "today": "2026-10-19",
+            "window": "[7] assistant: Hotel Lisboa Plaza",
+            "candidates": "(none)",
+            "session_date": "2026-03-02",
+            "prior": "user: Which hotel would you suggest?",
+        }
+        v12 = prompts.render("v12", **fields)
+        self.assertNotIn("{prior}", v12)
+        self.assertIn("never cite it)\nuser: Which hotel would you suggest?", v12)
+        self.assertLess(
+            v12.index("\nEARLIER IN THIS SESSION ("), v12.index("\nCONVERSATION WINDOW\n")
+        )
+        self.assertNotIn("Which hotel would you suggest", prompts.render("v11", **fields))
+        empty = prompts.render("v12", **{**fields, "prior": None})
+        self.assertIn("never cite it)\n(none)", empty)
+
+    def test_older_versions_are_byte_for_byte_unchanged(self) -> None:
+        """v12 is built by editing a copy; the originals must not move."""
+        self.assertIn("exact spans from USER messages only", prompts.V11)
+        self.assertNotIn("{prior}", prompts.V11)
+        self.assertNotIn("ASSISTANT INFO", prompts.V10)
+        self.assertEqual(prompts.ASSISTANT_EVIDENCE, frozenset({"v12"}))
+
+    def test_a_replacement_that_misses_fails_loudly(self) -> None:
+        with self.assertRaises(ValueError):
+            prompts._must_replace("abc", "missing", "x")
+        with self.assertRaises(ValueError):
+            prompts._must_replace("aa", "a", "x")
 
 
 class TestV8Contract(unittest.TestCase):

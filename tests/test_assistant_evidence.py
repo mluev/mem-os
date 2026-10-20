@@ -15,9 +15,29 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from memkit import config, dream, profiles, reindex, retrieval, store, vectors
-from tests.fixtures import StubEmbedder, StubQdrant, make_db, seed_team
+from memkit import (
+    config,
+    dream,
+    extract,
+    judge,
+    outbox,
+    profiles,
+    reindex,
+    retrieval,
+    store,
+    vectors,
+)
+from tests.fixtures import (
+    HashEmbedder,
+    StubEmbedder,
+    StubQdrant,
+    apply,
+    make_db,
+    make_session,
+    seed_team,
+)
 from tests.httpharness import ApiTestCase
+from tests.test_semantic_candidates import ScoredStub
 
 AS_OF = datetime(2026, 10, 19, 12, tzinfo=UTC)
 
@@ -122,6 +142,179 @@ class AssistantRankingTest(unittest.TestCase):
         fresh = dream.fresh_memories(self.conn, self.caller.own_entity_id, since=None)
         self.assertEqual([str(row["id"]) for row in fresh], [stated])
         self.assertNotIn("assistant", dream.PREMISE_ROLES)
+
+
+class AssistantWritePathTest(unittest.TestCase):
+    """What apply_ops writes from assistant spans, by prompt version."""
+
+    QUESTION = "Which hotel in Lisbon do you suggest for March?"
+    ANSWER = "I suggest Hotel Lisboa Plaza near Avenida da Liberdade."
+
+    def setUp(self) -> None:
+        self.conn = make_db(seed=False)
+        self.team = seed_team(self.conn)
+        make_session(self.conn, self.team)
+        self.scope = self.team.scope_of("alice")
+        self.asked = self.message("user", self.QUESTION)
+        self.answered = self.message("assistant", self.ANSWER)
+
+    def tearDown(self) -> None:
+        self.conn.close()
+
+    def message(self, role: str, content: str) -> int:
+        with self.conn.transaction():
+            message_id, _, _ = store.add_message(
+                self.conn,
+                session_id="s-1",
+                user_id=self.team.alice_id,
+                scope_id=self.scope,
+                agent_id="chat",
+                role=role,
+                content=content,
+            )
+        return message_id
+
+    def cite(self, message_id: int, quote: str) -> dict:
+        return {"message_id": message_id, "start_char": 0, "end_char": 0, "quote": quote}
+
+    def op(self, *citations: dict, **changes) -> judge.Op:
+        raw = {
+            "op": "ADD",
+            "text": "The assistant recommended Hotel Lisboa Plaza for the user's March trip",
+            "kind": "fact",
+            "reason": "assistant info",
+            "evidence": list(citations) or [self.cite(self.answered, "Hotel Lisboa Plaza")],
+            **changes,
+        }
+        parsed = judge.Op.parse(raw)
+        assert parsed is not None
+        return parsed
+
+    def run_ops(self, *ops: judge.Op, version: str, **kw):
+        with self.conn.transaction():
+            return apply(
+                self.conn,
+                self.team,
+                list(ops),
+                source_message_ids=[self.asked, self.answered],
+                extraction_version=version,
+                **kw,
+            )
+
+    def stated(self, text: str = "Alice is staying at Hotel Lisboa Plaza") -> str:
+        with self.conn.transaction():
+            return store.add_memory(
+                self.conn,
+                scope_id=self.scope,
+                author_id=self.team.alice_id,
+                text=text,
+                kind="fact",
+                source_role="user",
+            )
+
+    def test_older_prompts_still_refuse_assistant_only_evidence(self) -> None:
+        for version in ("v10", "v11"):
+            outcome = self.run_ops(self.op(), version=version)
+            self.assertEqual(outcome.added, 0, version)
+            self.assertEqual([r["reason"] for r in outcome.rejections], ["assistant_only_source"])
+        self.assertIsNone(self.conn.execute("SELECT id FROM memories").fetchone())
+
+    def test_v12_writes_assistant_info_labelled_and_pending(self) -> None:
+        outcome = self.run_ops(self.op(), version="v12")
+        self.assertEqual((outcome.added, outcome.assistant_sourced), (1, 1))
+        row = self.conn.execute("SELECT * FROM memories").fetchone()
+        self.assertEqual((row["source_role"], row["review_status"]), ("assistant", "pending"))
+        self.assertEqual(row["extraction_version"], "v12")
+
+    def test_a_mixed_citation_is_assistant_under_v12_and_user_before(self) -> None:
+        mixed = (self.cite(self.asked, "Which hotel"), self.cite(self.answered, "Lisboa Plaza"))
+        self.run_ops(self.op(*mixed), version="v11")
+        self.assertEqual(
+            self.conn.execute("SELECT source_role FROM memories").fetchone()[0], "user"
+        )
+        with self.conn.transaction():
+            self.conn.execute("DELETE FROM memories")
+        outcome = self.run_ops(self.op(*mixed), version="v12")
+        self.assertEqual((outcome.assistant_sourced, outcome.assistant_mixed), (1, 1))
+        self.assertEqual(
+            self.conn.execute("SELECT source_role FROM memories").fetchone()[0], "assistant"
+        )
+
+    def test_the_assistant_cannot_revise_what_a_person_stated(self) -> None:
+        target = self.stated()
+        update = self.op(op="UPDATE", id=target, change="correction")
+        delete = self.op(op="DELETE", id=target)
+        outcome = self.run_ops(update, delete, version="v12")
+        self.assertEqual(
+            [r["reason"] for r in outcome.rejections],
+            ["assistant_cannot_revise_stated", "assistant_cannot_revise_stated"],
+        )
+        row = self.conn.execute(
+            "SELECT status,revision FROM memories WHERE id=%s", (target,)
+        ).fetchone()
+        self.assertEqual((row["status"], row["revision"]), ("active", 1))
+
+    def test_the_assistant_may_revise_its_own_assistant_info(self) -> None:
+        self.run_ops(self.op(), version="v12")
+        own = str(self.conn.execute("SELECT id FROM memories").fetchone()[0])
+        outcome = self.run_ops(
+            self.op(
+                op="UPDATE",
+                id=own,
+                change="correction",
+                text="The assistant recommended Hotel Lisboa Plaza near Avenida da Liberdade",
+            ),
+            version="v12",
+        )
+        self.assertEqual((outcome.updated, outcome.rejected), (1, 0))
+
+    def test_an_assistant_restatement_links_evidence_without_another_mention(self) -> None:
+        target = self.stated("The assistant recommended Hotel Lisboa Plaza")
+        op = self.op(text="The assistant recommended Hotel Lisboa Plaza")
+        index = ScoredStub()
+        outbox.drain(self.conn, index, HashEmbedder())
+        planned = extract.plan_dedup(
+            self.conn,
+            ops=[op],
+            scope_id=self.scope,
+            client=index,
+            embedder=HashEmbedder(),
+            threshold=0.9,
+            subjects={0: None},
+            source_roles={0: "assistant"},
+        )
+        self.assertEqual(planned[0], extract.DedupTarget(target, 1, reinforce=False))
+        outcome = self.run_ops(op, version="v12", dedup_hits=planned)
+        self.assertEqual((outcome.added, outcome.deduplicated, outcome.reinforced), (0, 1, 0))
+        row = self.conn.execute("SELECT source_count FROM memories WHERE id=%s", (target,))
+        self.assertEqual(row.fetchone()[0], 1)
+        linked = self.conn.execute(
+            "SELECT 1 FROM memory_evidence WHERE memory_id=%s AND message_id=%s",
+            (target, self.answered),
+        ).fetchone()
+        self.assertIsNotNone(linked)
+
+    def test_a_recount_never_raises_an_assistant_memory_above_one(self) -> None:
+        self.run_ops(self.op(), version="v12")
+        memory_id = str(self.conn.execute("SELECT id FROM memories").fetchone()[0])
+        make_session(self.conn, self.team, session_id="s-2")
+        again = None
+        with self.conn.transaction():
+            again, _, _ = store.add_message(
+                self.conn,
+                session_id="s-2",
+                user_id=self.team.alice_id,
+                scope_id=self.scope,
+                agent_id="chat",
+                role="assistant",
+                content=self.ANSWER,
+            )
+            self.conn.execute(
+                """INSERT INTO memory_evidence (memory_id,message_id,start_char,end_char,
+                   excerpt_sha256) VALUES (%s,%s,0,5,'x')""",
+                (memory_id, again),
+            )
+            self.assertEqual(store.recount_mentions(self.conn, memory_id=memory_id), 1)
 
 
 class AssistantRawIndexTest(ApiTestCase):

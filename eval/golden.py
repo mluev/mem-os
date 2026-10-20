@@ -291,7 +291,7 @@ def score_case(case: Case, ops: list[judge.Op], sc: Score) -> None:
                     start, end = first, first + len(quote)
             if (
                 message is None
-                or message["role"] != "user"
+                or not _citable(message["role"], sc.version)
                 or start < 0
                 or end <= start
                 or end > len(message["content"])
@@ -325,13 +325,20 @@ def score_case(case: Case, ops: list[judge.Op], sc: Score) -> None:
         sc.failures.append(f"{case.id}: {len(ops)} ops, cap was {case.max_ops}")
 
 
+def _citable(role: str, version: str) -> bool:
+    """Assistant spans are valid evidence only for a version that allows them."""
+    return role == "user" or (role == "assistant" and version in prompts.ASSISTANT_EVIDENCE)
+
+
 def run(cases: list[Case], *, model: str, version: str, s, today: str, verbose: bool) -> Score:
     sc = Score(model=model, version=version)
     for i, case in enumerate(cases, 1):
         prompt = prompts.render(
             version,
             today=today,
-            window=judge.render_window(case.messages),
+            window=judge.render_window(
+                case.messages, assistant_chars=judge.assistant_chars_for(version)
+            ),
             candidates=judge.render_candidates(case.candidates),
             context=json.dumps(case.context, ensure_ascii=False, sort_keys=True),
             entities=judge.render_entities(case.entities),
@@ -480,7 +487,9 @@ def _cost_ceiling(
             prompt = prompts.render(
                 version,
                 today=today,
-                window=judge.render_window(case.messages),
+                window=judge.render_window(
+                    case.messages, assistant_chars=judge.assistant_chars_for(version)
+                ),
                 candidates=judge.render_candidates(case.candidates),
                 context=json.dumps(case.context, ensure_ascii=False, sort_keys=True),
                 entities=judge.render_entities(case.entities),

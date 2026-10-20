@@ -73,6 +73,20 @@ PROMPT_VERSION = prompts.DEFAULT_VERSION
 # the model summarised the work log and called the summary a fact about the user.
 # Truncating fixes the cost and the quality problem in one change.
 ASSISTANT_CONTEXT_CHARS = 220
+# User turns before the window (prompt v12's EARLIER IN THIS SESSION) are clipped
+# too: they are there to resolve references, and the window itself is the source.
+PRIOR_USER_CHARS = 600
+
+
+def assistant_chars_for(version: str) -> int:
+    """How much of each assistant turn a version shows (decisions/0082).
+
+    v12 lets assistant spans support assistant info, so the answer has to be
+    visible; every earlier version keeps the 220-character clip it was measured
+    with, which is what makes replaying it reproduce the original run.
+    """
+    return prompts.ASSISTANT_CHARS.get(version, ASSISTANT_CONTEXT_CHARS)
+
 
 # $ per million tokens (in, out). Gemini figures are the Vertex AI global-endpoint
 # rates; note Flash-Lite bills output at 8x input, and reasoning counts as
@@ -120,6 +134,7 @@ def build_prompt(
     agent_id: str | None = None,
     version: str = PROMPT_VERSION,
     today: str | None = None,
+    prior: list[Any] | None = None,
 ) -> str:
     """Render the active extractor prompt. The only prompt path in production.
 
@@ -135,12 +150,13 @@ def build_prompt(
     return prompts.render(
         version,
         today=today or datetime.now(UTC).strftime("%Y-%m-%d"),
-        window=render_window(window),
+        window=render_window(window, assistant_chars=assistant_chars_for(version)),
         candidates=render_candidates(candidates),
         entities=render_entities(entities or []),
         context=json.dumps(context or {}, ensure_ascii=False, sort_keys=True),
         session_date=session_date,
         agent_id=agent_id,
+        prior=render_prior(prior or [], assistant_chars=assistant_chars_for(version)),
     )
 
 
@@ -373,22 +389,46 @@ def should_extract(*, messages_since_last: int, session_closed: bool, text: str 
     )
 
 
-def render_window(messages: list[Any]) -> str:
+def _clip(content: str, limit: int) -> str:
+    if len(content) <= limit:
+        return content
+    return content[:limit].rstrip() + " […truncated]"
+
+
+def render_window(messages: list[Any], *, assistant_chars: int = ASSISTANT_CONTEXT_CHARS) -> str:
     """Render the window, truncating assistant turns.
 
     The user's own words go in whole -- they are the source material. Assistant
-    turns are clipped to ``ASSISTANT_CONTEXT_CHARS`` because in a coding-agent
-    corpus they are 2000-character work logs, and a window dominated by them
-    produces a summary of the work log instead of a fact about the user.
+    turns are clipped to ``assistant_chars`` (``ASSISTANT_CONTEXT_CHARS`` before
+    v12) because in a coding-agent corpus they are 2000-character work logs, and
+    a window dominated by them produces a summary of the work log instead of a
+    fact about the user.
     """
     lines = []
     for m in messages:
         role = m["role"]
         content = m["content"] or ""
         mid = m["id"] if not isinstance(m, dict) else m.get("id")
-        if role == "assistant" and len(content) > ASSISTANT_CONTEXT_CHARS:
-            content = content[:ASSISTANT_CONTEXT_CHARS].rstrip() + " […truncated]"
+        if role == "assistant":
+            content = _clip(content, assistant_chars)
         lines.append(f"[{mid}] {role}: {content}")
+    return "\n".join(lines)
+
+
+def render_prior(messages: list[Any], *, assistant_chars: int = ASSISTANT_CONTEXT_CHARS) -> str:
+    """The messages before the window, unnumbered so none can be cited.
+
+    A window boundary falls wherever ten messages happen to end, so "that
+    hotel" in the window often refers to a turn just before it. These lines
+    resolve such references; the citation check accepts only window ids.
+    """
+    if not messages:
+        return "(none)"
+    lines = []
+    for m in messages:
+        role = m["role"]
+        limit = assistant_chars if role == "assistant" else PRIOR_USER_CHARS
+        lines.append(f"{role}: {_clip(m['content'] or '', limit)}")
     return "\n".join(lines)
 
 
@@ -450,6 +490,7 @@ def extract(
     version: str | None = None,
     user_id: str | None = None,
     job_id: str | None = None,
+    prior: list[Any] | None = None,
 ) -> JudgeResult:
     """Call the judge and log the run.
 
@@ -485,6 +526,7 @@ def extract(
         session_date=session_date,
         agent_id=agent_id,
         version=active_version,
+        prior=prior,
     )
     payload = {
         "prompt_version": active_version,
@@ -495,6 +537,9 @@ def extract(
         "candidate_map": id_map,
         "entity_map": entity_map,
         "message_ids": [int(m["id"]) for m in window],
+        # Context-only messages shown before the window (v12), never citable.
+        "prior_message_ids": [int(m["id"]) for m in prior or []],
+        "assistant_chars": assistant_chars_for(active_version),
         # Recorded so a run can be explained later without re-deriving the
         # Context and date make the model input independently auditable.
         "context": context or {},

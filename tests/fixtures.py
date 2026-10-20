@@ -447,6 +447,7 @@ def apply(conn, team: Team, ops, **kw):
         source_message_ids=kw.get("source_message_ids", []),
         entity_map=kw.get("entity_map"),
         dedup_hits=kw.get("dedup_hits"),
+        **({"extraction_version": kw["extraction_version"]} if "extraction_version" in kw else {}),
     )
 
 

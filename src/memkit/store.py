@@ -1202,11 +1202,16 @@ def reinforce(conn: psycopg.Connection, *, memory_id: str, message_ids: Sequence
 
 
 def recount_mentions(conn: psycopg.Connection, *, memory_id: str) -> int:
-    """Set `source_count` from the distinct sessions a memory now cites."""
+    """Set `source_count` from the distinct sessions a memory now cites.
+
+    An assistant-sourced memory always counts once: the assistant saying the
+    same thing again is not a second witness (decisions/0082).
+    """
     row = conn.execute(
-        """UPDATE memories m SET source_count = GREATEST(1, (
+        """UPDATE memories m SET source_count = CASE WHEN m.source_role = 'assistant' THEN 1
+               ELSE GREATEST(1, (
                SELECT count(DISTINCT msg.session_id) FROM memory_evidence e
-                 JOIN messages msg ON msg.id = e.message_id WHERE e.memory_id = m.id))
+                 JOIN messages msg ON msg.id = e.message_id WHERE e.memory_id = m.id)) END
             WHERE m.id = %s RETURNING source_count""",
         (memory_id,),
     ).fetchone()
