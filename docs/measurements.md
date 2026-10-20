@@ -394,7 +394,7 @@ one of them was settled on the single-owner build and is now unevidenced.
 | extractor prompt v11 against v10 | `uv run python -m eval.golden --variant gemini-3.5-flash-lite:v10 --variant gemini-3.5-flash-lite:v11` (paid) | v11 keeps episodes and dated states that v10 refused ([`decisions/0075`](decisions/0075-episodes-and-two-dates.md)). The golden set was labelled under v10's rules, so a v11 "false positive" may be a correct episode: relabel before reading the precision number. Report recall, routing, context, input tokens, and the share of UPDATEs marked `supersede`. |
 | LoCoMo and LongMemEval, policy v2 against v1 | `uv run python -m eval.bench run --dataset locomo …` then the same `--run-id` family with `--mode raw` ([`decisions/0081`](decisions/0081-public-benchmarks-and-memscore.md)) | Retrieval policy v2's weights (`temporal_weight` 0.15, `order_weight` 0.05, `episode_half_life_days` 60, `reinforcement_weight` 0.05, `inference_penalty` 0.08) are reasoned starting points, not measurements ([`decisions/0077`](decisions/0077-retrieval-policy-v2.md)). Report accuracy per category, evidence recall and MemScore for memories, hybrid and raw, and for `--rewrite`. |
 | dreaming yield and precision | `memkit dream --user … --all` (dry run), then `--apply` and review the queue | How many links and inferences a dream writes per cluster, and what share of inferences reviewers confirm. An inference nobody confirms is cost with no benefit ([`decisions/0078`](decisions/0078-dreaming-and-flagged-inferences.md)). |
-| extractor prompt v12 against v10 and v11 | `uv run python -m eval.golden --variant gemini-3.5-flash-lite:v10 --variant gemini-3.5-flash-lite:v11 --variant gemini-3.5-flash-lite:v12 --budget-usd 1` (paid) | v12 lets assistant spans support assistant info and shows four earlier messages ([`decisions/0082`](decisions/0082-assistant-info-as-evidence.md), [`0083`](decisions/0083-session-context-across-windows.md)). The golden set is a coding-agent corpus, so this is the work-log gate: false positives at most v10's plus one, zero leaks, zero invalid evidence, routing and context no worse. Report `assistant_citations`, input tokens and cost per call. |
+| extractor prompt v12, repeated | the golden command in [Extractor prompt v12 against v10 and v11](#extractor-prompt-v12-against-v10-and-v11), run twice more | One run each is on record. The documented run-to-run variance is about one case, and v12's two new misses (`contradicts-candidate`, `correction-abstraction`) are exactly that size; two more runs say whether they are noise. |
 | LoCoMo arms, protocol v2 | `uv run python -m eval.bench run --dataset locomo --data data/bench/locomo10.json --sample "*=50" --seed 1 --run-id lc-v10`, then `--source-run` arms for `--mode hybrid`, `--policy core-retrieval-v2`, `--rewrite` and the cross-encoder; separate ingests with `MEMKIT_PROMPT_VERSION=v11` and `=v12 MEMKIT_INDEX_ASSISTANT_TURNS=true` (`--policy assistant-v3`); `--dream` last; `uv run python -m eval.bench compare A B` for every pair ([`decisions/0088`](decisions/0088-benchmark-protocol-v2.md)) | No run under the current protocol exists. A setting becomes a default only on a paired difference whose 95% interval excludes zero (see below). Record accuracy, `weighted_accuracy`, per category, evidence recall, MemScore, `team_routed` and server spend for each arm. |
 | LongMemEval-S, v10 against v12 | `uv run python -m eval.bench run --dataset longmemeval --data data/bench/longmemeval_s.json --sample "*=5,single-session-assistant=15" --seed 1 …` | single-session-assistant is where prompt v12 is supposed to win; report it on its own and compare the rest on `accuracy_excluding_assistant`. Each question is its own ~50-session haystack, so this is the expensive half of the budget. |
 | dynamic dreaming cost and yield | `MEMKIT_DREAMING=dynamic` on two fresh LoCoMo conversations: count dream jobs and their spend; then review 30 written inferences | Dynamic dreaming must spend at most 30% of what extraction spends, and reviewers must confirm at least 70% of a sample of its inferences ([`decisions/0085`](decisions/0085-dynamic-dreaming-and-daily-maintenance.md)). |
@@ -560,6 +560,49 @@ implied by "зачем? есть же company store") returns nothing under v8 o
 run, and `mixed-user-and-project` yields the general rule but drops the second,
 concrete fact. They are left failing on purpose: both are real corpus shapes, and
 a golden case weakened to make a version pass measures nothing.
+
+## Extractor prompt v12 against v10 and v11
+
+<!-- measured: 2026-10-20 · MEMKIT_DATABASE_URL=postgresql://memkit@127.0.0.1:5432/memkit-golden uv run python -m eval.golden --variant gemini-3.5-flash-lite:v10 --variant gemini-3.5-flash-lite:v11 --variant gemini-3.5-flash-lite:v12 --budget-usd 1.5 -->
+
+The work-log gate for prompt v12 ([`decisions/0082`](decisions/0082-assistant-info-as-evidence.md)):
+the golden set is a coding-agent corpus, the one most likely to turn assistant
+text into false memories, so v12 must not invent what v10 does not. One run of
+each version, through a Vertex AI express key.
+
+| metric | v10 | v11 | v12 |
+|---|---|---|---|
+| recall | 29/31 | 29/31 | 29/31 |
+| false positives | 0 | 0 | 0 |
+| credential leaks | 0 | 0 | 0 |
+| invalid evidence | 0 | 0 | 0 |
+| routing correct | 6/7 | 5/7 | 6/7 |
+| fabricated entity numbers | 0 | 0 | 0 |
+| context correct | 16/19 | 14/17 | 15/17 |
+| importance | 2/2 | 1/2 | 1/2 |
+| UPDATE/DELETE target | 2/2 | 2/2 | 1/2 |
+| over-emission | 0 | 1 | 0 |
+| input tokens | 85,335 | 106,455 | 116,759 |
+| output tokens | 8,198 | 8,933 | 8,569 |
+| cost | $0.0461 | $0.0543 | $0.0565 |
+
+Artifact `golden-20261020T050040Z.json` (kept with the run, not in the
+repository). The three runs cost $0.157.
+
+**v12 passes the gate.** No false positives (including `assistant-worklog-only`,
+the case built to catch a work log extracted as a fact), no leaks, no invalid
+evidence, routing equal to v10's, context 88% against v10's 84%, and 22% more
+cost per call against the 60% the rule allows. It is not promoted on this
+alone: the gate only says v12 is safe on a coding corpus, and the benchmark has
+to say it is better. Two cases v10 passed and v12 missed this run —
+`contradicts-candidate` (an ADD where an UPDATE was wanted) and
+`correction-abstraction` — are within the one-case run-to-run variance this set
+has always shown; v10's recall itself moved from 28/31 on 2026-09-04 to 29/31
+here with no change to v10.
+
+v11, still opt-in, does worse than either on routing and context this run, and
+its golden labels predate episodes, so a v11 "miss" may be a correct episode.
+Relabelling stays outstanding for v11 and v12 alike.
 
 ## Jev semantic judgments: first experiment
 
